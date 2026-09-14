@@ -226,8 +226,8 @@ class TestPureFunctions:
     def test_build_url_chain_primary_then_mirror(self):
         # 默认 fail-closed：主链/备用链都用 GitHub 系 host，才都能过默认白名单
         asset = {
-            "url": "https://github.com/o/r/releases/download/v2/MaLing_v2.0.0_win_onedir.zip",
-            "mirror": "https://objects.githubusercontent.com/MaLing_v2.0.0_win_onedir.zip",
+            "url": "https://github.com/o/r/releases/download/v2/MaLing_v2.0.0_Desktop.zip",
+            "mirror": "https://objects.githubusercontent.com/MaLing_v2.0.0_Desktop.zip",
         }
         chain = dl.build_url_chain(asset, use_mirror=True)
         assert chain == [asset["url"], asset["mirror"]]
@@ -318,8 +318,8 @@ class TestPureFunctions:
         monkeypatch.setattr(uc, "is_allowed_url", _fake_is_allowed_url, raising=False)
         monkeypatch.setattr(utils, "get_user_data_dir", lambda: tmp_path)
         asset = {
-            "url": "https://github.com/o/r/releases/download/v2/MaLing_v2.0.0_win_onedir.zip",
-            "mirror": "https://mirror.example.com/MaLing_v2.0.0_win_onedir.zip",
+            "url": "https://github.com/o/r/releases/download/v2/MaLing_v2.0.0_Desktop.zip",
+            "mirror": "https://mirror.example.com/MaLing_v2.0.0_Desktop.zip",
             "sha256": "a" * 64,
             "size": 1,
         }
@@ -422,16 +422,16 @@ class TestPureFunctions:
         assert dl.is_install_writable(tmp_path) is False
 
     def test_asset_filename_and_sha256_line(self):
-        assert dl.asset_filename_for("2.0.0", "onedir") == "MaLing_v2.0.0_win_onedir.zip"
-        assert dl.asset_filename_for("v2.0.0", "onefile") == "MaLing_v2.0.0_win_single.exe"
-        assert dl.ASSET_FILENAME_RE.match("MaLing_v2.0.0_win_onedir.zip")
-        assert dl.ASSET_FILENAME_RE.match("MaLing_v2.0.0_win_single.exe")
+        assert dl.asset_filename_for("2.0.0", "onedir") == "MaLing_v2.0.0_Desktop.zip"
+        assert dl.asset_filename_for("v2.0.0", "onefile") == "MaLing_v2.0.0_Portable.exe"
+        assert dl.ASSET_FILENAME_RE.match("MaLing_v2.0.0_Desktop.zip")
+        assert dl.ASSET_FILENAME_RE.match("MaLing_v2.0.0_Portable.exe")
         assert not dl.ASSET_FILENAME_RE.match("maling_2.0.0.zip")
         # .sha256 内容格式 `<hash>  <filename>`（两空格，Q-U2）
         digest = "a" * 64
-        line = dl.sha256_file_line(digest, "MaLing_v2.0.0_win_onedir.zip")
-        assert line == f"{digest}  MaLing_v2.0.0_win_onedir.zip"
-        assert dl.parse_sha256_file(line) == (digest, "MaLing_v2.0.0_win_onedir.zip")
+        line = dl.sha256_file_line(digest, "MaLing_v2.0.0_Desktop.zip")
+        assert line == f"{digest}  MaLing_v2.0.0_Desktop.zip"
+        assert dl.parse_sha256_file(line) == (digest, "MaLing_v2.0.0_Desktop.zip")
         assert dl.parse_sha256_file("garbage") is None
 
     def test_make_download_worker_staging_path_l2_5(self, monkeypatch, tmp_path):
@@ -440,14 +440,14 @@ class TestPureFunctions:
 
         monkeypatch.setattr(utils, "get_user_data_dir", lambda: tmp_path)
         asset = {
-            "url": "https://github.com/o/r/releases/download/v2/MaLing_v2.0.0_win_onedir.zip",
-            "mirror": "https://mirror.example.com/MaLing_v2.0.0_win_onedir.zip",
+            "url": "https://github.com/o/r/releases/download/v2/MaLing_v2.0.0_Desktop.zip",
+            "mirror": "https://mirror.example.com/MaLing_v2.0.0_Desktop.zip",
             "sha256": "a" * 64,
             "size": 123,
         }
         w = dl.make_download_worker(asset, "2.0.0")
         assert w.dest_path.parent == tmp_path / "updates" / "2.0.0"
-        assert w.dest_path.name == "MaLing_v2.0.0_win_onedir.zip"
+        assert w.dest_path.name == "MaLing_v2.0.0_Desktop.zip"
         assert "updates" in w.dest_path.parts
         assert w.isRunning() is False
 
@@ -457,13 +457,13 @@ class TestPureFunctions:
 
         monkeypatch.setattr(utils, "get_user_data_dir", lambda: tmp_path)
         asset = {
-            "url": "https://github.com/o/r/releases/download/v2/MaLing_v2.0.0_win_single.exe",
+            "url": "https://github.com/o/r/releases/download/v2/MaLing_v2.0.0_Portable.exe",
             "filename": "../evil.exe",
             "sha256": "",
             "size": 0,
         }
         w = dl.make_download_worker(asset, "2.0.0")
-        assert w.dest_path.name == "MaLing_v2.0.0_win_single.exe"
+        assert w.dest_path.name == "MaLing_v2.0.0_Portable.exe"
         assert ".." not in w.dest_path.parts
 
 

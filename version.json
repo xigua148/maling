@@ -6,23 +6,23 @@
   "min_updatable": "2.0.0",
   "release_url": "https://github.com/xigua148/maling/releases/tag/v2.1.0",
   "downloads": {
-    "github": "https://github.com/xigua148/maling/releases/download/v2.1.0/MaLing_v2.1.0_win_onedir.zip",
+    "github": "https://github.com/xigua148/maling/releases/download/v2.1.0/MaLing_v2.1.0_Desktop.zip",
     "mirror": ""
   },
   "assets": {
     "onedir": {
-      "url": "https://github.com/xigua148/maling/releases/download/v2.1.0/MaLing_v2.1.0_win_onedir.zip",
+      "url": "https://github.com/xigua148/maling/releases/download/v2.1.0/MaLing_v2.1.0_Desktop.zip",
       "mirror": "",
       "sha256": "49bef5c4050db8aa922bdf3ab55637a7bc7e8bed6d59378e859a1f97eee7c028",
       "size": 292821846,
-      "filename": "MaLing_v2.1.0_win_onedir.zip"
+      "filename": "MaLing_v2.1.0_Desktop.zip"
     },
     "single": {
-      "url": "https://github.com/xigua148/maling/releases/download/v2.1.0/MaLing_v2.1.0_win_single.exe",
+      "url": "https://github.com/xigua148/maling/releases/download/v2.1.0/MaLing_v2.1.0_Portable.exe",
       "mirror": "",
       "sha256": "3edd239572710cb2f4a74a0c46b36f957229f9f9c67bf146e6b8c962a85bc9b7",
       "size": 222888478,
-      "filename": "MaLing_v2.1.0_win_single.exe"
+      "filename": "MaLing_v2.1.0_Portable.exe"
     }
   },
   "notes": [

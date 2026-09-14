@@ -51,8 +51,8 @@ DEFAULT_RETRY_BACKOFF = (1.0, 3.0, 7.0)  # 退避（秒），不足时取末值
 DISK_SPACE_FACTOR = 1.3                # 磁盘预检系数（L2-6：空间 < 包大小 × 1.3 即拒绝）
 PROGRESS_MIN_INTERVAL = 0.1            # 进度信号最小发送间隔（秒），防刷屏
 
-# 产物命名规范（Q-U2）：MaLing_v<X.Y.Z>_win_onedir.zip / MaLing_v<X.Y.Z>_win_single.exe
-ASSET_FILENAME_RE = re.compile(r"^MaLing_v\d+\.\d+\.\d+_win_(onedir\.zip|single\.exe)$")
+# 产物命名规范（Q-U2，v2.1 起直观名）：MaLing_v<X.Y.Z>_Desktop.zip / _Portable.exe
+ASSET_FILENAME_RE = re.compile(r"^MaLing_v\d+\.\d+\.\d+_(Desktop\.zip|Portable\.exe)$")
 _SHA256_HEX_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
 # 错误码（failed 信号 payload；文案由 UI 层决定，R-A 不展示数值化催促语义）
@@ -347,10 +347,22 @@ def is_install_writable(install_dir: object) -> bool:
 
 
 def asset_filename_for(version: str, form: str) -> str:
-    """Q-U2 产物命名规范：`MaLing_v<X.Y.Z>_win_onedir.zip` / `..._win_single.exe`。"""
+    """Q-U2 产物命名规范（v2.1 起改为**直观名**，用户一眼知道该下哪个）：
+    ``MaLing_v<X.Y.Z>_Desktop.zip``（桌面版·解压即用）/
+    ``MaLing_v<X.Y.Z>_Portable.exe``（单文件版·免解压）。
+
+    背景：旧名 ``MaLing_v..._win_onedir.zip`` / ``..._win_single.exe`` 对普通用户不直观
+    （用户反馈「不知道下哪个」）。
+    ⚠️ **不能用中文文件名** —— GitHub Release 资产名会**直接删掉非 ASCII 字符**
+    （实测 ``测试中文名_abc.txt`` → ``_abc.txt``）。故用 ASCII 直观词，
+    中文说明放在 Release 的**资产显示名 label** 里（页面照常显示中文）。
+
+    落盘名取自 ``version.json`` 的 ``filename`` 字段，本函数为回退推导；
+    ``.sha256`` 文本内容里的文件名须与之一致（见 :func:`sha256_file_line`）。
+    """
     ver = (version or "").strip().lstrip("vV")
-    kind = "single.exe" if str(form).strip().lower() == "onefile" else "onedir.zip"
-    return f"MaLing_v{ver}_win_{kind}"
+    kind = "Portable.exe" if str(form).strip().lower() == "onefile" else "Desktop.zip"
+    return f"MaLing_v{ver}_{kind}"
 
 
 def sha256_file_line(digest: str, filename: str) -> str:

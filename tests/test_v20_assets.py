@@ -2,7 +2,7 @@
 
 docs/design-v20.md §4.1 + prd-v20.md §4.1 + Q-U2：
 - **只读**断言仓库根 `version.json` 的 `assets` 结构（**不修改**该文件，域1 独占）；
-- 产物命名规范 `MaLing_v<X.Y.Z>_win_onedir.zip` / `MaLing_v<X.Y.Z>_win_single.exe`；
+- 产物命名规范 `MaLing_v<X.Y.Z>_Desktop.zip` / `MaLing_v<X.Y.Z>_Portable.exe`（v2.1 起直观名）；
 - `.sha256` 内容格式 `<hash>  <filename>`（两空格）；
 - R-M：所有 URL 必须 `https://`。
 
@@ -40,20 +40,20 @@ def version_data() -> dict:
 # ---------------------------------------------------------------------------
 class TestNamingContract:
     def test_asset_filename_convention(self):
-        assert dl.asset_filename_for("2.0.0", "onedir") == "MaLing_v2.0.0_win_onedir.zip"
-        assert dl.asset_filename_for("2.0.0", "onefile") == "MaLing_v2.0.0_win_single.exe"
-        assert dl.ASSET_FILENAME_RE.match("MaLing_v2.0.0_win_onedir.zip")
-        assert dl.ASSET_FILENAME_RE.match("MaLing_v12.34.56_win_single.exe")
-        assert not dl.ASSET_FILENAME_RE.match("MaLing_v2.0.0_win.zip")
-        assert not dl.ASSET_FILENAME_RE.match("maling_v2.0.0_win_onedir.zip")  # 大小写
+        assert dl.asset_filename_for("2.0.0", "onedir") == "MaLing_v2.0.0_Desktop.zip"
+        assert dl.asset_filename_for("2.0.0", "onefile") == "MaLing_v2.0.0_Portable.exe"
+        assert dl.ASSET_FILENAME_RE.match("MaLing_v2.0.0_Desktop.zip")
+        assert dl.ASSET_FILENAME_RE.match("MaLing_v12.34.56_Portable.exe")
+        assert not dl.ASSET_FILENAME_RE.match("MaLing_v2.0.0.zip")
+        assert not dl.ASSET_FILENAME_RE.match("maling_v2.0.0_Desktop.zip")  # 大小写
 
     def test_sha256_file_format_roundtrip(self):
         digest = "0123456789abcdef" * 4  # 64 hex
-        line = dl.sha256_file_line(digest, "MaLing_v2.0.0_win_onedir.zip")
+        line = dl.sha256_file_line(digest, "MaLing_v2.0.0_Desktop.zip")
         assert re.match(r"^[0-9a-f]{64}  \S+$", line)          # `<hash>  <filename>`
         assert line.count("  ") == 1                            # 恰两空格分隔
         assert dl.parse_sha256_file(line + "\n") == (
-            digest, "MaLing_v2.0.0_win_onedir.zip"
+            digest, "MaLing_v2.0.0_Desktop.zip"
         )
         assert dl.parse_sha256_file("not-a-hash  file.zip") is None
 
@@ -114,7 +114,7 @@ class TestVersionJsonContract:
         assets = version_data.get("assets")
         if not isinstance(assets, dict):
             pytest.skip("version.json 尚无 assets（域1 待补）")
-        expect = {"onedir": "win_onedir.zip", "single": "win_single.exe"}
+        expect = {"onedir": "Desktop.zip", "single": "Portable.exe"}
         for kind, suffix in expect.items():
             entry = assets.get(kind)
             if not isinstance(entry, dict):
