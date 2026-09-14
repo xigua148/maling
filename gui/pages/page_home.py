@@ -291,6 +291,61 @@ class PageHome(QWidget):
     def _tc(self, key: str, fallback: str) -> str:
         return theme_color(self.app_ctx, key, fallback)
 
+    # ------------------------------------------------------------------
+    # v2.1(UI-Fix-0914): 换肤刷新
+    #   本页局部 setStyleSheet 在构建期按「当时的主题色」算死，换主题后不会自动跟随，
+    #   页面会停在旧配色 —— 这是「切深色模式几乎没变化」的根因之一。
+    #   这里把与主题相关的局部样式集中重刷一遍；**新增控件时请同步本方法**。
+    # ------------------------------------------------------------------
+    def _apply_theme(self) -> None:
+        try:
+            if getattr(self, "_container", None) is not None:
+                self._container.setStyleSheet(f"background: {self._tc('bg', '#FFF5F5')};")
+
+            card = self.findChild(QFrame, "roomCard")
+            if card is not None:
+                card.setStyleSheet(
+                    f"QFrame#roomCard {{ background: {self._tc('bg_card', '#FFFFFF')};"
+                    f" border: 1px solid {self._tc('border', '#FFE4E1')};"
+                    f" border-radius: {self._tc('radius_lg', '16px')}; }}"
+                )
+
+            simple = (
+                ("welcome_label", f"color: {self._tc('text', '#5D4037')};"),
+                ("header_hint",
+                 f"color: {self._tc('text_secondary', '#888888')}; font-size: 12px;"),
+                ("greeting_label", f"color: {self._tc('text', '#5D4037')};"),
+                ("moment_label",
+                 f"color: {self._tc('text_secondary', '#757575')}; font-size: 12px;"),
+                ("weekly_body",
+                 f"color: {self._tc('text_secondary', '#757575')}; font-size: 12px;"),
+                ("badge_hint",
+                 f"color: {self._tc('text_secondary', '#9E9E9E')}; font-size: 11px;"),
+            )
+            for attr, style in simple:
+                w = getattr(self, attr, None)
+                if w is not None:
+                    w.setStyleSheet(style)
+
+            # 两个分区标题（首页 / 本周回顾）共用 objectName
+            for t in self.findChildren(QLabel, "homeSectionTitle"):
+                t.setStyleSheet(f"color: {self._tc('text', '#5D4037')};")
+
+            if getattr(self, "stage_chip", None) is not None:
+                self.stage_chip.setStyleSheet(
+                    f"color: {self._tc('primary_dark', '#FF69B4')};"
+                    f" background: {self._tc('bg_light', '#FFF0F3')};"
+                    " border-radius: 10px; padding: 2px 10px; font-size: 11px;"
+                )
+            if getattr(self, "scene_chip", None) is not None:
+                self.scene_chip.setStyleSheet(
+                    f"color: {self._tc('text_secondary', '#8D6E63')};"
+                    " border: 1px solid rgba(141, 110, 99, 0.35); border-radius: 10px;"
+                    " padding: 2px 10px; font-size: 11px;"
+                )
+        except Exception:
+            logger.debug("静默降级：page_home._apply_theme 中忽略异常", exc_info=True)
+
     # ==================================================================
     # 布局构建
     # ==================================================================
@@ -309,6 +364,7 @@ class PageHome(QWidget):
         root.addWidget(scroll)
 
         container = QWidget()
+        self._container = container
         container.setStyleSheet(f"background: {self._tc('bg', '#FFF5F5')};")
         self._layout = QVBoxLayout(container)
         self._layout.setContentsMargins(24, 20, 24, 24)
@@ -322,6 +378,16 @@ class PageHome(QWidget):
         self._build_status_section()
         self._build_mode_section()
         self._layout.addStretch()
+
+        # v2.1(UI-Fix-0914): 换肤刷新 —— 构建末尾统一刷新一次，并订阅主题变更，
+        #   让本页局部样式跟随换肤（此前切深色后本页仍停在浅色）。
+        self._apply_theme()
+        try:
+            _engine = getattr(self.app_ctx, "theme_engine", None)
+            if _engine is not None and hasattr(_engine, "theme_changed"):
+                _engine.theme_changed.connect(lambda _n: self._apply_theme())
+        except Exception:
+            logger.debug("静默降级：page_home 换肤订阅中忽略异常", exc_info=True)
 
     # -- 顶部标题行 --
     def _build_header(self) -> None:
@@ -453,6 +519,7 @@ class PageHome(QWidget):
             title = QLabel("🌿 本周回顾")
         tf = QFont()
         tf.setBold(True)
+        title.setObjectName("homeSectionTitle")  # v2.1(UI-Fix-0914): 供换肤刷新定位
         title.setFont(tf)
         title.setStyleSheet(f"color: {self._tc('text', '#5D4037')};")
         title_row.addWidget(title)

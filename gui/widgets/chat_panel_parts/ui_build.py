@@ -167,8 +167,10 @@ class ChatUiBuildMixin:
         self.scope_combo.setToolTip("搜索范围")
         self.scope_combo.setMinimumContentsLength(4)
         self.scope_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        # v2.1(UI-Fix-0914): 硬编码粉色 → 主题色（此前换主题后此处仍停在粉色系）
         self.scope_combo.setStyleSheet(
-            "QComboBox { background: #FFF5F7; border: 1px solid #FFD6E0;"
+            f"QComboBox {{ background: {theme_color(self.app_ctx, 'bg_light', '#FFF5F7')};"
+            f" border: 1px solid {theme_color(self.app_ctx, 'divider', '#FFD6E0')};"
             " border-radius: 10px; padding: 2px 4px; font-size: 11px; }"
         )
         self.scope_combo.currentIndexChanged.connect(lambda _: self._on_search_filter(self.search_edit.text()))
@@ -202,16 +204,20 @@ class ChatUiBuildMixin:
         self.tab_mode_btn.setCursor(Qt.PointingHandCursor)
         self.tab_mode_btn.setToolTip("切换标签页模式（浏览器式 tab）")
         self.tab_mode_btn.setStyleSheet(
+            # v2.1(UI-Fix-0914): 硬编码紫色 → 主题色（此前换主题后此处仍是紫色系）
             "QPushButton#tabModeBtn {"
-            "  background: transparent; color: #8A6D9C;"
-            "  border: 1px solid #D4B5DC; border-radius: 12px;"
-            "  font-size: 12px; padding: 0px;"
+            f"  background: transparent; color: {theme_color(self.app_ctx, 'text_secondary', '#8A6D9C')};"
+            f"  border: 1px solid {theme_color(self.app_ctx, 'divider', '#D4B5DC')};"
+            "  border-radius: 12px; font-size: 12px; padding: 0px;"
             "}"
             "QPushButton#tabModeBtn:checked {"
-            "  background: #D4B5DC; color: #FFFFFF; border-color: #B58FC2;"
+            f"  background: {theme_color(self.app_ctx, 'primary', '#D4B5DC')};"
+            f"  color: {theme_color(self.app_ctx, 'text_on_accent', '#FFFFFF')};"
+            f"  border-color: {theme_color(self.app_ctx, 'primary_dark', '#B58FC2')};"
             "}"
             "QPushButton#tabModeBtn:hover {"
-            "  background: #E8D5EE; color: #6D4A85;"
+            f"  background: {theme_color(self.app_ctx, 'bg_light', '#E8D5EE')};"
+            f"  color: {theme_color(self.app_ctx, 'primary_dark', '#6D4A85')};"
             "}"
         )
         self.tab_mode_btn.toggled.connect(self._on_toggle_tab_mode)
@@ -224,12 +230,14 @@ class ChatUiBuildMixin:
         self.expand_btn.setToolTip("展开为独立聊天窗口")
         self.expand_btn.setStyleSheet(
             "QPushButton#expandChatBtn {"
-            "  background: transparent; color: #FF6B9D;"
-            "  border: 1px solid #FFB6C1; border-radius: 12px;"
-            "  font-size: 12px; padding: 0px;"
+            f"  background: transparent; color: {theme_color(self.app_ctx, 'primary', '#FF6B9D')};"
+            f"  border: 1px solid {theme_color(self.app_ctx, 'divider', '#FFB6C1')};"
+            "  border-radius: 12px; font-size: 12px; padding: 0px;"
             "}"
             "QPushButton#expandChatBtn:hover {"
-            "  background: #FF9EB5; color: #FFFFFF; border-color: #FF9EB5;"
+            f"  background: {theme_color(self.app_ctx, 'primary', '#FF9EB5')};"
+            f"  color: {theme_color(self.app_ctx, 'text_on_accent', '#FFFFFF')};"
+            f"  border-color: {theme_color(self.app_ctx, 'primary', '#FF9EB5')};"
             "}"
         )
         self.expand_btn.clicked.connect(self._on_expand_chat)
@@ -348,9 +356,10 @@ class ChatUiBuildMixin:
             btn.setFixedSize(44, 36)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setStyleSheet(
-                "QPushButton { background: #FFF0F5; border: 1px solid #FFB6C1;"
+                f"QPushButton {{ background: {theme_color(self.app_ctx, 'bg_light', '#FFF0F5')};"
+                f" border: 1px solid {theme_color(self.app_ctx, 'divider', '#FFB6C1')};"
                 " border-radius: 8px; font-size: 14px; }"
-                "QPushButton:hover { background: #FFB6C1; }"
+                f"QPushButton:hover {{ background: {theme_color(self.app_ctx, 'divider', '#FFB6C1')}; }}"
             )
             btn.clicked.connect(lambda checked, e=emoji: self._on_emoji_clicked(e))
             emoji_layout.addWidget(btn, idx // 4, idx % 4)
@@ -376,10 +385,12 @@ class ChatUiBuildMixin:
             btn.setCursor(Qt.PointingHandCursor)
             btn.setFixedHeight(26)
             btn.setStyleSheet(
-                "QPushButton#quickReplyBtn { background: #FFF0F5; color: #FF69B4;"
-                " border: 1px solid #FFB6C1; border-radius: 10px;"
-                " font-size: 11px; padding: 2px 10px; }"
-                "QPushButton#quickReplyBtn:hover { background: #FFB6C1; color: white; }"
+                f"QPushButton#quickReplyBtn {{ background: {theme_color(self.app_ctx, 'bg_light', '#FFF0F5')};"
+                f" color: {theme_color(self.app_ctx, 'primary', '#FF69B4')};"
+                f" border: 1px solid {theme_color(self.app_ctx, 'divider', '#FFB6C1')};"
+                " border-radius: 10px; font-size: 11px; padding: 2px 10px; }"
+                f"QPushButton#quickReplyBtn:hover {{ background: {theme_color(self.app_ctx, 'divider', '#FFB6C1')};"
+                f" color: {theme_color(self.app_ctx, 'text_on_accent', 'white')}; }}"
             )
             btn.setMinimumWidth(btn.sizeHint().width())
             btn.clicked.connect(lambda checked, t=reply_text: self._on_quick_reply(t))
@@ -416,10 +427,13 @@ class ChatUiBuildMixin:
         self._cmd_popup.setFixedWidth(280)
         self._cmd_popup.setMaximumHeight(220)
         self._cmd_popup.setStyleSheet(
-            "QListWidget#commandPopup { background: #FFFFFF; border: 1px solid #FFB6C1;"
+            f"QListWidget#commandPopup {{ background: {theme_color(self.app_ctx, 'bg_card', '#FFFFFF')};"
+            f" border: 1px solid {theme_color(self.app_ctx, 'divider', '#FFB6C1')};"
             " border-radius: 8px; padding: 4px; font-size: 12px; }"
             "QListWidget#commandPopup::item { padding: 6px 8px; border-radius: 6px; }"
-            "QListWidget#commandPopup::item:selected { background: #FFE4EC; color: #FF6B9D; }"
+            f"QListWidget#commandPopup::item:selected {{"
+            f" background: {theme_color(self.app_ctx, 'bg_light', '#FFE4EC')};"
+            f" color: {theme_color(self.app_ctx, 'primary', '#FF6B9D')}; }}"
         )
         self._cmd_popup.itemDoubleClicked.connect(lambda _: self._accept_command())
         self._cmd_popup.hide()
@@ -432,10 +446,13 @@ class ChatUiBuildMixin:
         self._mention_popup.setFixedWidth(220)
         self._mention_popup.setMaximumHeight(180)
         self._mention_popup.setStyleSheet(
-            "QListWidget#mentionPopup { background: #FFFFFF; border: 1px solid #FFB6C1;"
+            f"QListWidget#mentionPopup {{ background: {theme_color(self.app_ctx, 'bg_card', '#FFFFFF')};"
+            f" border: 1px solid {theme_color(self.app_ctx, 'divider', '#FFB6C1')};"
             " border-radius: 8px; padding: 4px; font-size: 12px; }"
             "QListWidget#mentionPopup::item { padding: 6px 8px; border-radius: 6px; }"
-            "QListWidget#mentionPopup::item:selected { background: #FFE4EC; color: #FF6B9D; }"
+            f"QListWidget#mentionPopup::item:selected {{"
+            f" background: {theme_color(self.app_ctx, 'bg_light', '#FFE4EC')};"
+            f" color: {theme_color(self.app_ctx, 'primary', '#FF6B9D')}; }}"
         )
         self._mention_popup.itemClicked.connect(
             lambda item: self._accept_mention(item.data(Qt.UserRole))

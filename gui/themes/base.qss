@@ -224,6 +224,16 @@ QWidget#roleSidebar QPushButton {
     padding: 2px 8px;
 }
 
+/* ---------- 1d. 设置页「自定义… / 恢复默认」按钮（定高 28px） ----------
+   v2.1(UI-Fix-0914)：与 §1c 同一类问题 —— 定高 28px 遇上肤感层通用 QPushButton 的
+   padding: 8px 20px，上下吃掉 16px，只剩 12px 装 13px 的字 → 文字被上下切掉
+   （用户报「字显示不全 / 字体不符 / 方框是方形」）。
+   本段把设置页分区内的次级按钮垂直 padding 收到 2px、水平 10px，兼顾定高与可读性。
+   特异性 (1,1,2) > QPushButton#secondaryBtn (1,0,1)，可覆盖继承来的 padding。 */
+QWidget#settingsSection QPushButton#secondaryBtn {
+    padding: 2px 10px;
+}
+
 /* ---------- 2. 首页「模型设置」快捷入口（U-4 最小入口） ---------- */
 
 QPushButton#homeModelEntry {

@@ -1521,6 +1521,15 @@ def main() -> int:
     except Exception as exc:
         logger.warning("动效档位配置失败（回退默认档，不影响运行）: %s", exc)
 
+    # v2.1(P1): 滚轮守卫 —— 下拉/数值框/滑块不再被滚轮误改（滚轮改为滚动页面；
+    #   点击与键盘不受影响）。失败绝不阻断启动（R-Q）。
+    try:
+        from gui import wheel_guard
+        if wheel_guard.install(app):
+            logger.info("滚轮守卫已安装（输入控件不再被滚轮误改）")
+    except Exception as exc:
+        logger.warning("滚轮守卫安装失败（不影响运行）: %s", exc)
+
     # v1.9 B/D-V19-05: 注册内置字体（资源圆体 / jf open 粉圆）—— 必须在 MainWindow
     # 构造（其内 load_theme 取 family）之前；缺字体文件 / 注册失败均静默回退不阻断。
     try:

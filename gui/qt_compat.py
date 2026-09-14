@@ -18,6 +18,8 @@ from PySide6.QtWidgets import (
     QTabWidget, QTabBar, QTreeWidget, QTreeWidgetItem, QTableWidget,
     QTableWidgetItem, QHeaderView, QAbstractItemView,
     QScrollArea, QFrame, QSizePolicy, QLayout,
+    # v2.1(P1 滚轮守卫): 判定「最近的滚动区」+ 守卫 QSpinBox/QDoubleSpinBox 家族
+    QAbstractScrollArea, QAbstractSpinBox, QSpinBox, QDoubleSpinBox,
     QTreeView, QTextBrowser, QGraphicsDropShadowEffect,
     QInputDialog, QSystemTrayIcon, QToolButton,
     # v2.1(V21-01 契约冻结): 动效淡入淡出 opacity 效果（motion.fade 用）
@@ -67,6 +69,8 @@ __all__ = [
     "QTabWidget", "QTabBar", "QTreeWidget", "QTreeWidgetItem", "QTableWidget",
     "QTableWidgetItem", "QHeaderView", "QAbstractItemView",
     "QScrollArea", "QFrame", "QSizePolicy", "QLayout",
+    # v2.1(P1 滚轮守卫)
+    "QAbstractScrollArea", "QAbstractSpinBox", "QSpinBox", "QDoubleSpinBox",
     "QTreeView", "QTextBrowser", "QGraphicsDropShadowEffect",
     "QInputDialog", "QSystemTrayIcon", "QToolButton", "QFileSystemModel",
     # v2.1 预编增补（Widgets）

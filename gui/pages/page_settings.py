@@ -83,6 +83,46 @@ class PageSettings(QWidget):
                 logger.debug("静默降级：__init__ 中忽略异常", exc_info=True)
         self._refresh_tts_hint()
 
+        # v2.1(UI-Fix-0914): 换肤刷新 —— 本页提示文字在构建期按「当时的主题色」算死，
+        #   换主题后不会跟随（深色模式下会变成「深底深字」看不清）。
+        #   构建末尾统一刷一次，并订阅主题变更。
+        self._apply_theme()
+        try:
+            _engine = getattr(self.app_ctx, "theme_engine", None)
+            if _engine is not None and hasattr(_engine, "theme_changed"):
+                _engine.theme_changed.connect(lambda _n: self._apply_theme())
+        except Exception:
+            logger.debug("静默降级：page_settings 换肤订阅中忽略异常", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # v2.1(UI-Fix-0914): 换肤刷新
+    #   本页 31 处局部 setStyleSheet 绝大多数是「11px 提示文字」，颜色取自 _hint_color()。
+    #   只重刷「本页自己套过 11px 提示样式」的 QLabel（按样式签名识别），
+    #   不动其它控件、不动构建期样式本身；带 state_warn 语义色的保留其语义色。
+    # ------------------------------------------------------------------
+    def _apply_theme(self) -> None:
+        try:
+            hint_style = f"QLabel {{ color: {self._hint_color()}; font-size: 11px; }}"
+            warn_style = (
+                f"QLabel {{ color: {theme_color(self.app_ctx, 'state_warn', '#E5A02E')};"
+                " font-size: 11px; }"
+            )
+            for lbl in self.findChildren(QLabel):
+                try:
+                    cur = lbl.styleSheet() or ""
+                except Exception:
+                    continue
+                if "font-size: 11px" not in cur:
+                    continue
+                lbl.setStyleSheet(warn_style if "state_warn" in cur else hint_style)
+            # 强调色按钮的选中态（依赖主题色）
+            try:
+                self._refresh_accent_selection()
+            except Exception:
+                logger.debug("静默降级：_apply_theme 中忽略异常", exc_info=True)
+        except Exception:
+            logger.debug("静默降级：page_settings._apply_theme 中忽略异常", exc_info=True)
+
     def _init_ui(self) -> None:
         # v10.15: 整个设置页用 QScrollArea 包起来，保证所有设置模块完整可见，
         # 解决「外观主题」与「个性」之间模块被半遮挡的体验问题
@@ -1237,14 +1277,20 @@ class PageSettings(QWidget):
         parent_layout.addLayout(grid)
 
         # 操作行：自定义… / 恢复默认
+        # v2.1(UI-Fix-0914): 补 objectName —— 此前两者无 objectName，落到肤感层通用
+        #   QPushButton（实心强调色 + padding 8px 20px + bold 13px），再叠加定高 28px
+        #   → 文字被上下切掉、字体也非预设（用户报「字显示不全 / 方框是方形 / 字体不符」）。
+        #   改走 #secondaryBtn 次级样式，并在 base.qss 里为该作用域收窄垂直 padding。
         op_row = QHBoxLayout()
         op_row.setSpacing(8)
         self._accent_custom_btn = QPushButton("自定义…")
+        self._accent_custom_btn.setObjectName("secondaryBtn")
         self._accent_custom_btn.setFixedHeight(28)
         self._accent_custom_btn.clicked.connect(self._on_accent_custom)
         op_row.addWidget(self._accent_custom_btn)
 
         self._accent_reset_btn = QPushButton("恢复默认")
+        self._accent_reset_btn.setObjectName("secondaryBtn")
         self._accent_reset_btn.setFixedHeight(28)
         self._accent_reset_btn.setToolTip("清除自定义强调色，回退到当前主题的默认强调色")
         self._accent_reset_btn.clicked.connect(self._on_accent_reset)

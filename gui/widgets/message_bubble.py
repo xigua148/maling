@@ -313,6 +313,21 @@ def _role_avatar_pixmap(path: str, size: int):
         return None
 
 
+class _NoWheelTextBrowser(QTextBrowser):
+    """气泡内只读浏览器：**不响应滚轮**（事件冒泡给外层聊天滚动区）。
+
+    v2.1(UI-Fix-0914)：``QTextBrowser`` 即便把滚动条设为 ``AlwaysOff``，**仍会
+    响应滚轮滚动自己的文档** —— 鼠标停在气泡上滚滚轮时，气泡内文字会上下跑、
+    下方留出大片空白。这里让 ``wheelEvent`` 不消费事件（``ignore()``），
+    Qt 会把它冒泡给外层聊天滚动区，滚动体验才连续。
+
+    键盘（翻页键）与文字选择完全不受影响。
+    """
+
+    def wheelEvent(self, ev) -> None:  # noqa: N802 - Qt 回调命名
+        ev.ignore()
+
+
 class MessageBubble(QWidget):
     """单条消息气泡，支持连续消息折叠、Markdown 渲染、动态主题、右键菜单、附件展示、编辑/重新生成。"""
 
@@ -720,7 +735,7 @@ class MessageBubble(QWidget):
         Bug6: 取消 6000px 高度上限 —— 长回复完整撑开气泡，超出部分由外层
         聊天滚动区承接（气泡内滚动保持关闭，阅读体验一致）。
         """
-        browser = QTextBrowser()
+        browser = _NoWheelTextBrowser()
         browser.setReadOnly(True)
         browser.setFrameShape(QFrame.Shape.NoFrame)
         browser.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -744,6 +759,9 @@ class MessageBubble(QWidget):
             _adjust()
 
         browser.resizeEvent = _resize_event  # type: ignore[assignment]
+        # v2.1(UI-Fix-0914): 暴露高度重算入口 —— update_text 走「原地 setHtml」快路径
+        # 时必须显式调它，否则高度停在旧值（内容变短 → 气泡下方留大片空白）。
+        browser._adjust_height = _adjust  # type: ignore[attr-defined]
         from PySide6.QtCore import QTimer
         QTimer.singleShot(0, _adjust)  # 布局完成后再算一次（宽度就位）
         return browser

@@ -500,6 +500,14 @@ class SidebarWidget(QWidget):
             self._role_base_expr = base_expr or "normal"
             # Bug2: 切角色 = 上下文重置，清除旧角色的 AI 标记记忆，回到该角色基线
             self._last_ai_expr = None
+            # v2.1(UI-Fix-0914): chip 文案已改为「当前角色名」→ 切角色后必须刷新。
+            #   先失效名字缓存，确保取到的是新角色（不依赖其它订阅者的调用顺序）。
+            try:
+                from gui.widgets.message_bubble import invalidate_default_speaker_name
+                invalidate_default_speaker_name()
+            except Exception:
+                pass
+            self.update_maid_chip()
             if self.maid_big_avatar is None:
                 return
             from gui.maid_avatar import role_assets
@@ -540,13 +548,21 @@ class SidebarWidget(QWidget):
         """刷新迷你码铃：表情头像 + 关系称谓文本 + 心情 tooltip（无数值红线）。"""
         state = self._current_maid_state()
         companion = getattr(self.app_ctx, "companion", None)
+        # v2.1(UI-Fix-0914): 文案改为**当前角色名** —— 此前写死 companion 的关系称谓
+        #   （无论切到哪个角色都显示「码铃 · 初识」，用户报「不跟随角色」）。
+        #   取名走聊天气泡同一入口（resolve_speaker_name 三级兜底 → 小鲸 / 小铃 / 码铃）。
+        #   关系称谓不丢，挪到 tooltip 里。
         stage = ""
         if companion is not None:
             try:
                 stage = companion.relation_stage_name()
             except Exception:
                 stage = ""
-        btn_text = f"码铃 · {stage}" if stage else "码铃"
+        try:
+            from gui.widgets.message_bubble import resolve_default_speaker_name
+            btn_text = resolve_default_speaker_name() or "码铃"
+        except Exception:
+            btn_text = "码铃"
         expr = _side_mood_to_expr(state) if _side_mood_to_expr is not None else "normal"
 
         icon = QIcon()
@@ -577,7 +593,9 @@ class SidebarWidget(QWidget):
             except Exception:
                 tooltip = ""
         if not tooltip:
-            tooltip = "码铃在这里陪着主人"
+            tooltip = f"{btn_text}在这里陪着主人"
+        if stage:
+            tooltip = f"{tooltip}\n关系：{stage}"
         self.maid_chip.setToolTip(f"{tooltip}\n点击回首页")
 
     def _apply_maid_chip_style(self) -> None:
