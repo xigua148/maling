@@ -160,6 +160,7 @@ class PageSettings(QWidget):
         theme_row = QHBoxLayout()
         theme_row.addWidget(QLabel("界面风格:"))
         self.theme_combo = QComboBox()
+        self.theme_combo.setObjectName("settingsThemeCombo")
         # v1.9 A(D-V19-13)：四风格（唯一真值源 ThemeEngine.THEME_IDS；旧值不暴露）
         for _tid in ThemeEngine.THEME_IDS:
             self.theme_combo.addItem(
@@ -178,6 +179,7 @@ class PageSettings(QWidget):
             _accent = _td.get("colors", {}).get("accent", "#888888")
             _bg = _td.get("colors", {}).get("bg", "#FFFFFF")
             btn = QToolButton()
+            btn.setObjectName("settingsStyleSwatch")
             btn.setFixedSize(30, 30)
             btn.setToolTip(f"{_td['name']}（{_accent.upper()}）")
             btn.setProperty("style_id", _tid)
@@ -197,6 +199,7 @@ class PageSettings(QWidget):
         mode_row = QHBoxLayout()
         mode_row.addWidget(QLabel("外观模式:"))
         self.appearance_combo = QComboBox()
+        self.appearance_combo.setObjectName("settingsAppearanceCombo")
         self.appearance_combo.addItem("浅色", "light")
         self.appearance_combo.addItem("深色", "dark")
         self.appearance_combo.addItem("跟随系统", "system")
@@ -228,6 +231,7 @@ class PageSettings(QWidget):
         font_row = QHBoxLayout()
         font_row.addWidget(QLabel("界面字体:"))
         self.font_combo = QComboBox()
+        self.font_combo.setObjectName("settingsFontCombo")
         try:
             from gui import fonts as _fonts
             for fid in _fonts.FONT_CHOICES:
@@ -261,6 +265,7 @@ class PageSettings(QWidget):
         anim_row = QHBoxLayout()
         anim_row.addWidget(QLabel("动效强度:"))
         self.animation_combo = QComboBox()
+        self.animation_combo.setObjectName("settingsAnimationCombo")
         self.animation_combo.addItem("关闭动效", "off")
         self.animation_combo.addItem("柔和", "soft")
         self.animation_combo.addItem("标准（默认）", "standard")
@@ -1266,6 +1271,7 @@ class PageSettings(QWidget):
         cols = 6
         for idx, (name, hexv) in enumerate(self.ACCENT_PRESETS):
             btn = QToolButton()
+            btn.setObjectName("settingsAccentSwatch")
             btn.setToolTip(f"{name}（{hexv.upper()}）")
             btn.setFixedSize(28, 28)
             btn.setProperty("accent_hex", hexv.upper())
@@ -1363,12 +1369,12 @@ class PageSettings(QWidget):
             if hexv == current:
                 btn.setStyleSheet(
                     "QToolButton { background-color: %s; border: 3px solid #555; "
-                    "border-radius: 6px; }" % hexv
+                    "border-radius: 9px; }" % hexv
                 )
             else:
                 btn.setStyleSheet(
                     "QToolButton { background-color: %s; border: 2px solid rgba(0,0,0,0.12); "
-                    "border-radius: 6px; }" % hexv
+                    "border-radius: 9px; }" % hexv
                 )
         # 自定义按钮：若当前为自定义（非预设）值，显示该色；否则中性样式
         if hasattr(self, "_accent_custom_btn"):

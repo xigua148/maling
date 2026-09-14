@@ -231,3 +231,42 @@ def test_role_page_buttons_icon_color_from_theme_color(qapp, monkeypatch, tmp_pa
     allowed = set(palette.values())
     for c in icon_colors:
         assert c in allowed, f"角色页图标取色未走 theme_color: {c}"
+
+
+# ---------------------------------------------------------------------------
+# ⑤ 角色信息输入框：页面级 QSS 不得截断主题输入色
+# ---------------------------------------------------------------------------
+def test_role_info_edits_refresh_theme_colors(qapp, monkeypatch, tmp_path):
+    """三个角色信息输入框具名，并随 ThemeEngine 的活动色板重刷。"""
+    from gui.qt_compat import QApplication
+    from gui.theme_engine import ThemeEngine
+    from gui.pages.page_role import PageRole
+
+    _patch_storage_dirs(monkeypatch, tmp_path)
+    engine = ThemeEngine()
+    engine.load_theme("ui_whale")
+    ctx = _ctx(tmp_path)
+    ctx.theme_engine = engine
+    page = PageRole(ctx)
+    try:
+        names = ("roleNameEdit", "roleDescriptionEdit", "roleGivenNameEdit")
+        for attr, name in zip(("name_edit", "desc_edit", "given_name_edit"), names):
+            edit = getattr(page, attr)
+            assert edit.objectName() == name
+
+        whale_qss = page.styleSheet()
+        for name in names:
+            assert f"QLineEdit#{name}" in whale_qss
+        for color in (engine.get_color("text"), engine.get_color("text_hint"),
+                      engine.get_color("bg_card"), engine.get_color("border")):
+            assert color in whale_qss
+        assert "placeholder-text-color:" in whale_qss
+
+        engine.load_theme("ui_night")
+        night_qss = page.styleSheet()
+        assert night_qss != whale_qss
+        for color in (engine.get_color("text"), engine.get_color("text_hint"),
+                      engine.get_color("bg_card"), engine.get_color("border")):
+            assert color in night_qss
+    finally:
+        QApplication.instance().setStyleSheet("")

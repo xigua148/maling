@@ -1184,6 +1184,9 @@ class ChatService(QObject):
         self._group_sched_state: Optional[dict] = None  # {"session","member_roles"}
         self._group_sched_worker = None
         self._group_sched_timer: Optional[QTimer] = None
+        # 已向 companion 投递过的实际升级阶段，防同一轮重入造成重复情绪/成就事件。
+        self._level_up_events_sent: set[int] = set()
+        self._sync_session_intimacy_context()
 
     # ----- v1.1(agent): 授权确认桥 -----
     def _make_gui_confirm_fn(self):
@@ -2539,6 +2542,37 @@ class ChatService(QObject):
     def _on_agent_tool_event(self, event_type: str, data_json: str):
         self.agent_tool_event.emit(event_type, data_json)
 
+    # ----- 好感度同步 / 升级事件 -----
+
+    def _sync_session_intimacy_context(self) -> None:
+        """让 system prompt 与 GUI 计分链共用同一个 tracker，并立即重建上下文。"""
+        tracker = getattr(self._app_ctx, "intimacy", None)
+        session = getattr(self._app_ctx, "session", None)
+        if tracker is None or session is None:
+            return
+        try:
+            if getattr(session, "intimacy", None) is not tracker:
+                session.intimacy = tracker
+            refresh = getattr(session, "refresh_system_context", None)
+            if callable(refresh):
+                refresh()
+        except Exception:
+            logger.debug("同步亲密度到 system context 失败", exc_info=True)
+
+    def _ingest_level_up(self, level: int) -> None:
+        """向 companion 投递一次真实升级事件；缺失或失败均不影响聊天主流程。"""
+        if level in self._level_up_events_sent:
+            return
+        self._level_up_events_sent.add(level)
+        companion = getattr(self._app_ctx, "companion", None)
+        ingest = getattr(companion, "ingest_event", None)
+        if not callable(ingest):
+            return
+        try:
+            ingest("level_up", level=level)
+        except Exception:
+            logger.debug("companion.level_up 事件投递失败", exc_info=True)
+
     # ----- v10.14 好感度兼容（保留 API 以满足 v10.14 回归断言）-----
 
     def _bump_intimacy(self, user_msg: str = "") -> None:
@@ -2589,6 +2623,8 @@ class ChatService(QObject):
                 logger.debug("collab.bump_intimacy 失败: %s", exc)
         else:
             self._bump_intimacy(self._current_user_text)
+        # GUI tracker 是计分唯一真源；同一轮把它绑定回 session 并重建 system prompt。
+        self._sync_session_intimacy_context()
         self._maybe_announce_stage_up(old_level)
 
     def _maybe_announce_stage_up(self, old_level: Optional[int] = None) -> None:
@@ -2608,8 +2644,9 @@ class ChatService(QObject):
             level = int(getattr(tracker, "level", 0) or 0)
         except Exception:
             return
-        if old_level is not None and level <= int(old_level):
-            return  # 本回合未升级：不是播报事件
+        if old_level is None or level <= int(old_level):
+            return  # 本回合未升级：不是升级事件
+        self._ingest_level_up(level)
         notified = -1
         try:
             notified = int(getattr(tracker, "notified_stage", -1))

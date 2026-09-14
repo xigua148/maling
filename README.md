@@ -49,12 +49,12 @@
 | 类型 | 组件 | 许可 |
 |---|---|---|
 | 小游戏（改写） | [2048](https://github.com/tangentecode/2048-pyqt6) / [扫雷](https://github.com/dawsonbooth/pynsweeper) | MIT |
+| Agent 运行时 | [Pi Coding Agent Runtime](https://github.com/earendil-works/pi)（随桌面包分发） | MIT |
 | 图标字体（子集） | [Remix Icon 2.5.0](https://github.com/Remix-Design/RemixIcon) | Apache-2.0 |
 | 中文字体（子集） | [资源圆体](https://github.com/CyanoHao/Resource-Han-Rounded) / [jf open 粉圆](https://github.com/justfont/open-huninn-font) | OFL 1.1 |
 | 运行时依赖 | PySide6 等（见 `requirements*.txt`） | 各自许可（PySide6 = LGPL-3.0） |
 
-- ⚠️ **鲸鱼娘形象素材**（`gui/assets/roles/preset_whale/`）为 **CC BY-NC-SA 4.0**
-  （**非商业**、需署名），不随 MIT 转移；其余角色表情差分均为**项目自有 AI 生成素材**。
+- 所有角色表情差分、女仆主形象与宠物造型均为**项目自有 AI 生成素材**，随本项目 MIT 许可一并分发。
 - 完整登记台账（含 commit 哈希 / 复核记录 / 许可原文副本）：[docs/THIRD_PARTY.md](docs/THIRD_PARTY.md)
   与根目录 [NOTICE](NOTICE)；应用内「关于」页也有展示。
 

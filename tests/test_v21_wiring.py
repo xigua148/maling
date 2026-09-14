@@ -190,6 +190,75 @@ def test_apply_glass_idempotent_when_supported(main_window, glass_stub, monkeypa
     assert win.property("glass") == "on"
 
 
+def test_apply_glass_locks_opacity_before_dwm_apply(main_window, glass_stub, monkeypatch):
+    """V21-18：先移除 WS_EX_LAYERED 透明度，再调用 DWM safe_apply。"""
+    glass, _calls = glass_stub
+    monkeypatch.setattr(glass, "is_supported", lambda: True)
+    monkeypatch.setattr(glass, "detect_capability", _fake_capability)
+    win = main_window
+    sequence = []
+    original_lock = win._lock_window_opacity
+
+    def _record_lock():
+        sequence.append("lock")
+        original_lock()
+
+    def _record_apply(hwnd, kind, *, dark):
+        sequence.append("safe_apply")
+        return True
+
+    monkeypatch.setattr(win, "_lock_window_opacity", _record_lock)
+    monkeypatch.setattr(glass, "safe_apply", _record_apply)
+    win.setWindowOpacity(0.85)
+    win._apply_glass_state()
+
+    assert sequence[:2] == ["lock", "safe_apply"]
+    assert win.windowOpacity() == pytest.approx(1.0)
+
+
+def test_glass_structural_containers_are_named_for_precise_qss(main_window):
+    """V21-18：仅三层中间结构容器是透明目标，页面/卡片不被全量穿透。"""
+    win = main_window
+    assert win.central_outer.objectName() == "glassCentralOuter"
+    assert win.central_splitter.objectName() == "glassCentralSplitter"
+    assert win.page_stack.objectName() == "glassPageStack"
+
+
+def test_glass_qss_targets_only_structural_containers():
+    """V21-18：禁止全后代通配透明；必须精确覆盖 outer/splitter/stack。"""
+    qss = (ROOT / "gui" / "themes" / "base.qss").read_text(encoding="utf-8")
+    required = (
+        'QMainWindow[glass="on"] QWidget#glassCentralOuter',
+        'QMainWindow[glass="on"] QSplitter#glassCentralSplitter',
+        'QMainWindow[glass="on"] QStackedWidget#glassPageStack',
+    )
+    for selector in required:
+        assert selector in qss
+    assert 'QMainWindow[glass="on"] * {' not in qss
+
+
+def test_repolish_includes_all_glass_structural_containers(main_window, monkeypatch):
+    """V21-18：父窗 glass 属性变更时，命中条件选择器的三层后代会一起重抛光。"""
+    win = main_window
+    seen_unpolish = []
+    seen_polish = []
+
+    class _Style:
+        def unpolish(self, widget):
+            seen_unpolish.append(widget)
+
+        def polish(self, widget):
+            seen_polish.append(widget)
+
+    style = _Style()
+    monkeypatch.setattr(type(win), "style", lambda _self: style)
+    win._repolish()
+
+    expected = [win, win.central_outer, win.central_splitter, win.page_stack]
+    assert seen_unpolish == expected
+    assert seen_polish == expected
+
+
 # ---------------------------------------------------------------------------
 # V21-08 · M-1 切页过渡
 # ---------------------------------------------------------------------------

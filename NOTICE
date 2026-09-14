@@ -7,7 +7,7 @@ NOTICE
 Copyright (c) 2026 MaLing project contributors
 
 本项目代码以 MIT 许可证发布（见 LICENSE）。
-**本 NOTICE 所列的第三方组件与素材，各自沿用其自身的许可条款，不因本项目的 MIT 而改变。**
+**本 NOTICE 所列的第三方组件，各自沿用其自身的许可条款，不因本项目的 MIT 而改变。**
 
 完整登记台账（含 commit 哈希、复核记录、改写摘要）见：docs/THIRD_PARTY.md
 许可原文副本目录：docs/third_party_licenses/（源树）与各资产目录内（随包）
@@ -20,9 +20,11 @@ Copyright (c) 2026 MaLing project contributors
 |---|---|---|---|---|
 | 2048 小游戏 | github.com/tangentecode/2048-pyqt6 | MIT | Copyright (c) 2024 jøhann | gui/widgets/games/game_2048.py |
 | 扫雷小游戏 | github.com/dawsonbooth/pynsweeper | MIT | Copyright (c) 2020 Dawson Booth | gui/widgets/games/game_minesweeper.py |
+| Pi Coding Agent Runtime | github.com/earendil-works/pi | MIT | Copyright (c) 2025 Mario Zechner | dist/maling/_internal/pi_runtime/node_modules/@earendil-works/pi-coding-agent/ |
 
-两者均由 PyQt 改写为 PySide6 并裁剪功能；原许可副本见
-docs/third_party_licenses/tangentecode_2048-pyqt6.txt 与 dawsonbooth_pynsweeper.txt。
+前两者均由 PyQt 改写为 PySide6 并裁剪功能；Pi Coding Agent Runtime 作为独立 Node.js
+运行时随桌面包分发。原许可副本见 `docs/third_party_licenses/` 下对应文件（包括
+`earendil-works_pi-coding-agent.txt`）。
 
 
 二、随仓库分发的字体与图标（子集化产物）
@@ -38,22 +40,11 @@ OFL 许可全文副本随包（gui/assets/fonts/OFL-*.txt）与源树（docs/thi
 Apache-2.0 许可全文见 gui/assets/icons/LICENSE 与 docs/third_party_licenses/remix_icon.txt。
 
 
-三、内容素材（美术形象）
--------------------------
+三、角色美术素材
+-----------------
 
-**本项目全部角色表情差分图（女仆主形象 36 张、宠物造型等）均为项目自有素材（AI 生成），
-无第三方归属义务。**
-
-唯一例外 —— 基于社区 OC 角色二创的鲸鱼娘形象（此前已按作者公开声明登记）：
-
-| 素材 | 许可 | 署名义务 | 位置 |
-|---|---|---|---|
-| 鲸鱼娘表情差分图（37 张） | **CC BY-NC-SA 4.0**（署名-非商业性-相同方式共享） | 角色原型 OC「溟月」© 上善无形（2025-06）；女仆装版二次设计 © ZipZipPipe（2026-04）。详见 docs/THIRD_PARTY.md §二 | gui/assets/roles/preset_whale/ |
-
-⚠️ **非商业提示**：上述素材为 CC BY-NC-SA 4.0。本项目当前**免费**开源分发，符合 NC 条款；
-若下游将其用于**商业用途**，须自行向素材作者获取授权，或移除该素材后使用。
-「相同方式共享」：对本素材的衍生加工须沿用同协议。
-本素材**不是** MIT，不随本项目 LICENSE 转移。
+全部角色表情差分图、女仆主形象与宠物造型均为**项目自有 AI 生成素材**，无第三方归属、
+署名或额外许可义务，随本项目 MIT 许可一并分发。
 
 
 四、运行时依赖（随发行包分发的第三方库）

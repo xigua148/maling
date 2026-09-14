@@ -11,6 +11,7 @@
 |---|---|---|---|---|---|---|---|---|
 | 2048（tangentecode/2048-pyqt6） | https://github.com/tangentecode/2048-pyqt6 | main @ 6c5e67c0642bd94e91c4595565bdfca1ecc98a76 | MIT | `Copyright (c) 2024 jøhann` | `gui/widgets/games/game_2048.py` + `docs/third_party_licenses/tangentecode_2048-pyqt6.txt` | PyQt6 → PySide6 单文件 QWidget；去 StartWindow 选单与 3x3/5x5/6x6；固定 4x4；WASD/方向键保留；经典瓦片配色保留；仅保留局内「当前得分」（Q-A1 豁免，不落盘）；壳面换 theme_color；合成 2048 一句庆祝 | 2026-09-04 | 工程师 A（寇豆码） |
 | 扫雷（dawsonbooth/pynsweeper） | https://github.com/dawsonbooth/pynsweeper | master @ 618c22b32c1f2c146978893ef38639f68baf685a | MIT | `Copyright (c) 2020 Dawson Booth` | `gui/widgets/games/game_minesweeper.py` + `docs/third_party_licenses/dawsonbooth_pynsweeper.txt` | PyQt5 → PySide6 单文件 QWidget；去 Windows XP 复古皮图片资产（全部重绘，A4 评审项 ④）；去计时器/胜利记录/ScoreBoard；保留剩余雷数 + 右键标旗 + 零扩散翻开；默认 9x9/10 雷（首版无难度切换）；棋盘/数字中性色 + 壳面 theme_color | 2026-09-04 | 工程师 A（寇豆码） |
+| Pi Coding Agent Runtime（@earendil-works/pi-coding-agent） | https://github.com/earendil-works/pi | npm 0.85.1（随桌面包分发） | MIT | `Copyright (c) 2025 Mario Zechner` | `dist/maling/_internal/pi_runtime/node_modules/@earendil-works/pi-coding-agent/` + `docs/third_party_licenses/earendil-works_pi-coding-agent.txt` | 作为独立 Node.js Agent Runtime 随发行包分发；本项目未修改其源码 | 2026-09-14 | 主理人 |
 
 ### 核验记录
 
@@ -54,20 +55,14 @@
 
 > 红线提醒：候选只要来源仓库无明确白名单 LICENSE（或为 GPL 系）即**拒绝**，不自作主张绕行。
 
-## 二、内容素材特别条目（形象/美术，区别于代码组件）
+## 二、角色美术素材（项目自有）
 
-> R-H 许可白名单针对**代码组件**。以下为**美术/形象内容素材**，依其自身内容许可单独登记；
-> 分发码铃时须遵守对应条款（本项目当前为非商业分发，合规）。
+> 主理人 2026-09-14 确认：**全部角色表情差分图、女仆主形象与宠物造型均为 AI 生成的项目自有素材**。
+> 不含第三方代码或资产，不产生第三方署名、许可或来源登记义务；随本项目 MIT 许可一并分发。
 
-| 素材 | 来源与作者 | 许可 | 使用范围与义务 | 入库位置 | 登记日期 |
-|---|---|---|---|---|---|
-| 鲸鱼娘表情差分图（37 张） | 社区二创角色：原型 OC「溟月」© 上善无形（2025-06 创作）；女仆装版 © ZipZipPipe（2026-04-25 GPT Image 2 二次设计）。背景见萌娘百科「DeepSeek娘」词条 | **CC BY-NC-SA 4.0**（署名-非商业性-相同方式共享，作者 2026-08-02 公开声明） | ①署名：本表及关于页已注明作者与来源；②**非商业**：码铃当前免费分发，若未来商业化须先移除本素材或获作者授权；③相同方式共享：衍生素材沿用同协议 | `gui/assets/roles/preset_whale/*.png`（37 张表情差分） | 2026-09-05 | 主理人 |
-| 女仆主形象表情差分图（36 张） | **项目自有素材（AI 生成）** —— 主理人 2026-09-14 确认：全部角色表情差分均为 AI 生成，无第三方作者 | 项目自有（随本项目 MIT 一并授权） | 无第三方归属义务 | `gui/assets/maid/*.png`（36 张表情差分） | 2026-09-14 | 主理人 |
-| 宠物造型（角落小兽） | **项目自有素材（AI 生成）**，同上 | 项目自有（随本项目 MIT 一并授权） | 无第三方归属义务 | `gui/assets/maid_pet/` | 2026-09-14 | 主理人 |
-
-> **与 R-H 白名单的关系说明**：CC BY-NC-SA 不在代码白名单（MIT/Apache/BSD 系）内，因其为**内容素材**而非代码；
-> 按 NC 条款随码铃非商业分发合法。若码铃未来以 MIT 整体开源，本素材须在仓库中**单独标注许可**（不得声明为 MIT），
-> 且第三方下游若商用需自行向素材作者获取授权。
+| 素材 | 来源 | 许可 | 入库位置 | 登记日期 |
+|---|---|---|---|---|
+| 全部角色表情差分 / 女仆主形象 / 宠物造型 | 项目自有 AI 生成素材 | 项目 MIT | `gui/assets/maid/`、`gui/assets/maid_pet/`、`gui/assets/roles/` | 2026-09-14 |
 
 ## 四、内置字体（v1.9 第二批 B / 红线 R-L）
 

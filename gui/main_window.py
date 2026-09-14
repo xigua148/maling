@@ -140,6 +140,9 @@ class MainWindow(QMainWindow):
         点导航「聊天」随时回到聊天主屏。
         """
         self.central_splitter = QSplitter(Qt.Horizontal)
+        # v2.1(V21-18): 毛玻璃只穿透中间结构容器；用 objectName 让 QSS 精确命中，
+        # 不影响侧栏/页面/卡片等内容控件的正常不透明背景。
+        self.central_splitter.setObjectName("glassCentralSplitter")
 
         # 左栏：功能导航（固定宽度）
         self.sidebar = SidebarWidget(self.app_ctx)
@@ -148,6 +151,7 @@ class MainWindow(QMainWindow):
 
         # 中间主屏：页面栈（聊天主屏在 _setup_pages 注册为 "chat" 页）
         self.page_stack = QStackedWidget()
+        self.page_stack.setObjectName("glassPageStack")
         self.central_splitter.addWidget(self.page_stack)
 
         self.central_splitter.setStretchFactor(0, 0)  # 侧栏不拉伸
@@ -173,13 +177,14 @@ class MainWindow(QMainWindow):
         self.key_banner.setVisible(False)
         self.key_banner.clicked.connect(self.open_model_settings)
 
-        _central_outer = QWidget()
-        _outer_layout = QVBoxLayout(_central_outer)
+        self.central_outer = QWidget()
+        self.central_outer.setObjectName("glassCentralOuter")
+        _outer_layout = QVBoxLayout(self.central_outer)
         _outer_layout.setContentsMargins(0, 0, 0, 0)
         _outer_layout.setSpacing(0)
         _outer_layout.addWidget(self.key_banner)
         _outer_layout.addWidget(self.central_splitter, 1)
-        self.setCentralWidget(_central_outer)
+        self.setCentralWidget(self.central_outer)
 
         # 聊天面板：作为主屏页注册进页面栈（见 _setup_pages），不再单独占右栏
         self.chat_panel = ChatPanelWidget(self.app_ctx)
@@ -548,13 +553,30 @@ class MainWindow(QMainWindow):
     # v2.1(V21-08 / D-V21-04 / D-V21-05)：毛玻璃单一收口
     # ------------------------------------------------------------------
     def _repolish(self) -> None:
-        """动态属性变更后重刷样式（QSS 条件规则才会重新求值）。"""
+        """重刷玻璃条件规则实际影响到的结构控件（安全、范围受控）。
+
+        ``glass`` 是主窗的动态属性，但 QSS 条件规则命中的是它的中间容器
+        （central outer / splitter / page stack）。只 polish 主窗时，这些后代控件
+        在部分 Qt 平台不会重算祖先属性选择器，导致 Mica 虽已设好却仍被主题背景盖住。
+        这里仅刷新 4 个固定结构控件；调用时机只有玻璃开关或换肤，避免递归遍历
+        页面子树带来的性能成本。
+        """
         try:
             style = self.style()
-            if style is not None:
-                style.unpolish(self)
-                style.polish(self)
-            self.update()
+            if style is None:
+                return
+            widgets = (
+                self,
+                getattr(self, "central_outer", None),
+                getattr(self, "central_splitter", None),
+                getattr(self, "page_stack", None),
+            )
+            for widget in widgets:
+                if widget is None:
+                    continue
+                style.unpolish(widget)
+                style.polish(widget)
+                widget.update()
         except Exception:
             logger.debug("静默降级：_repolish 中忽略异常", exc_info=True)
 
@@ -598,8 +620,9 @@ class MainWindow(QMainWindow):
         判据：``cfg.glass_enabled`` 且 ``glass.is_supported()`` 且 kind 适用。
           · 不满足 → ``glass.remove()`` + **移除** ``glass`` 动态属性 + 恢复透明度
             （R-Q③：关掉后与改动前观感一致）；
-          · 满足 → ``glass.safe_apply(winId, "mica", dark=is_dark_effective)``，成功后
-            置动态属性 ``glass="on"`` 并 ``unpolish/polish``，同时锁 ``setWindowOpacity(1.0)``。
+          · 满足 → 先锁 ``setWindowOpacity(1.0)``（避免 WS_EX_LAYERED 与 DWM 材质冲突），
+            再 ``glass.safe_apply(winId, "mica", dark=is_dark_effective)``；成功后置动态属性
+            ``glass="on"`` 并重刷实际受影响的结构控件。
         ``winId()`` 在 show 前可能无效 → ``safe_apply`` 返回 False 时不设属性、不崩，
         由 ``showEvent`` 重试。全部 try/except，绝不抛。
         """
@@ -629,6 +652,10 @@ class MainWindow(QMainWindow):
         except Exception:
             dark = False
 
+        # DWM Mica 与低于 1.0 的 Qt 窗口透明度（WS_EX_LAYERED）不可叠加：必须在
+        # safe_apply *之前* 锁到 1.0，否则 Windows 可能接受 API 调用却不显示材质。
+        self._lock_window_opacity()
+
         applied = False
         if glass is not None:
             try:
@@ -640,7 +667,6 @@ class MainWindow(QMainWindow):
             if self.property("glass") != "on":
                 self.setProperty("glass", "on")
                 self._repolish()
-            self._lock_window_opacity()
         else:
             # winId 尚未有效 / DWM 应用失败 → 纯色降级（fail-safe，不黑窗）
             if self.property("glass") is not None:
@@ -726,11 +752,24 @@ class MainWindow(QMainWindow):
         self.status_mode.setText(f"模式: {label} {'开' if state else '关'}")
 
     def _on_intimacy_changed(self, message: str) -> None:
-        """v10.14: 好感度等级 / 感谢回应 → 状态栏 5 秒气泡提示。"""
+        """好感度升级：显示提示，并刷新首页关系称谓。"""
         try:
             self.status_bar.showMessage(f"💕 {message}", 5000)
         except Exception:
             logger.debug("静默降级：_on_intimacy_changed 中忽略异常", exc_info=True)
+        try:
+            home_page = self.pages.get("home") if isinstance(self.pages, dict) else None
+            refresh = getattr(home_page, "_refresh_companion_panel", None)
+            if callable(refresh):
+                refresh()
+        except Exception:
+            logger.debug("刷新首页关系称谓失败", exc_info=True)
+        try:
+            refresh_chip = getattr(getattr(self, "sidebar", None), "update_maid_chip", None)
+            if callable(refresh_chip):
+                refresh_chip()
+        except Exception:
+            logger.debug("刷新侧栏角色与关系称谓失败", exc_info=True)
 
     def _on_project_file_opened(self, file_path: str) -> None:
         """项目页面双击文件 → 切换到文件编辑器页面。"""

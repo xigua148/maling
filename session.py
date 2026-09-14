@@ -116,31 +116,27 @@ class ChatSession:
     def set_gui_role_prompt(self, prompt: Optional[str]) -> None:
         """v10.13: 设置角色面板覆盖的 system prompt。
 
-        prompt 非空时，请求链路使用该提示词（含性格参数量化描述），
-        覆盖 config.yaml persona 的构建结果；传 None 清除覆盖，
-        回到 persona 配置。立即生效（更新 history 首条 system 消息）。
+        prompt 非空时，作为当前角色设定追加到通用 persona、记忆与关系规则后；
+        传 None 清除该定制设定。立即生效（更新 history 首条 system 消息）。
         """
         self.gui_role_prompt = prompt or None
         self._update_system()
 
     # -- system prompt 构建 --
     def _build_system_prompt(self) -> str:
-        # v10.13: 角色面板已设置有效覆盖时，直接使用角色提示词（含性格参数），
-        # 完全覆盖 config.yaml persona 的构建结果（两者取其一）。
-        # Bug1-延伸: set_gui_role_prompt 是**覆盖式替换**（gui_role_prompt 非空
-        # 即整体取代 persona 构建），不叠加——人设来源唯一，确认无误。
+        # 通用 persona、记忆与关系规则始终保留；角色面板的定制提示词作为更具体的
+        # 当前角色设定追加，避免覆盖式替换丢失亲密度阶段口吻。
+        memory_ctx = self.memory_mgr.build_memory_context()
+        intimacy_prompt = self.intimacy.build_intimacy_prompt()
+        base = self.pm.build_system_prompt(
+            deep=self.deep_mode,
+            coding=self.coding_mode,
+            intimacy_level=self.intimacy.level,
+            memory_context=memory_ctx + "\n" + intimacy_prompt if memory_ctx else intimacy_prompt,
+            chat_mode=self.chat_mode.is_chat_mode,
+        )
         if self.gui_role_prompt:
-            base = self.gui_role_prompt
-        else:
-            memory_ctx = self.memory_mgr.build_memory_context()
-            intimacy_prompt = self.intimacy.build_intimacy_prompt()
-            base = self.pm.build_system_prompt(
-                deep=self.deep_mode,
-                coding=self.coding_mode,
-                intimacy_level=self.intimacy.level,
-                memory_context=memory_ctx + "\n" + intimacy_prompt if memory_ctx else intimacy_prompt,
-                chat_mode=self.chat_mode.is_chat_mode,
-            )
+            base = base + "\n\n【当前角色设定】\n" + self.gui_role_prompt
         # v1.4.x(Bug1-延伸/Bug8): 表情指南单点注入 —— 无论人设来自角色覆盖还是
         # persona，都在末尾追加同一份指南（expr_guide_enabled 守卫，CLI 不注入）。
         # 此前指南由 page_role.sync 拼进 gui_role_prompt，未定制角色时会出现

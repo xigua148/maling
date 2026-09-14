@@ -67,12 +67,15 @@ def _patch_update_state(monkeypatch):
     monkeypatch.setattr("gui.update_checker.load_update_state", lambda: {})
 
 
-def _make_page(monkeypatch, tmp_path, cfg=None):
+def _make_page(monkeypatch, tmp_path, cfg=None, engine=None):
     _isolate_config(monkeypatch, tmp_path)
     _patch_update_state(monkeypatch)
     from gui.pages.page_settings import PageSettings
     config = cfg if cfg is not None else GuiConfig()
-    page = PageSettings(SimpleNamespace(config=config, cfg=None))
+    context = SimpleNamespace(config=config, cfg=None)
+    if engine is not None:
+        context.theme_engine = engine
+    page = PageSettings(context)
     return page, config
 
 
@@ -262,6 +265,42 @@ class TestSettingsPageControls:
         items = [page.animation_combo.itemData(i)
                  for i in range(page.animation_combo.count())]
         assert items == ["off", "soft", "standard"]
+
+    def test_appearance_controls_use_scoped_rounded_qss_and_refresh(
+            self, monkeypatch, tmp_path, qapp):
+        """外观区四个下拉框走专属圆角/字体规则，换主题后规则仍在。"""
+        engine = ThemeEngine()
+        engine.load_theme("ui_whale")
+        page, _ = _make_page(monkeypatch, tmp_path, engine=engine)
+        try:
+            controls = (
+                (page.theme_combo, "settingsThemeCombo"),
+                (page.appearance_combo, "settingsAppearanceCombo"),
+                (page.font_combo, "settingsFontCombo"),
+                (page.animation_combo, "settingsAnimationCombo"),
+            )
+            whale_qss = qapp.styleSheet()
+            for combo, name in controls:
+                assert combo.objectName() == name
+                assert f"QComboBox#{name}" in whale_qss
+            assert "min-height: 32px;" in whale_qss
+            assert "font-family:" in whale_qss
+            assert "QWidget#settingsSection QPushButton#secondaryBtn" in whale_qss
+            for button in (page._accent_custom_btn, page._accent_reset_btn):
+                assert button.objectName() == "secondaryBtn"
+                assert button.height() == 28
+            assert all(btn.objectName() == "settingsStyleSwatch"
+                       for btn, *_rest in page._style_swatches)
+            assert all(btn.objectName() == "settingsAccentSwatch"
+                       for btn, *_rest in page._accent_buttons)
+
+            engine.load_theme("ui_night")
+            night_qss = qapp.styleSheet()
+            assert night_qss != whale_qss
+            for _combo, name in controls:
+                assert f"QComboBox#{name}" in night_qss
+        finally:
+            qapp.setStyleSheet("")
 
     def test_hint_labels_present(self, monkeypatch, tmp_path, qapp):
         page, _ = _make_page(monkeypatch, tmp_path)

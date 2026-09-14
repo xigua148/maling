@@ -234,6 +234,53 @@ QWidget#settingsSection QPushButton#secondaryBtn {
     padding: 2px 10px;
 }
 
+/* ---------- 1e. 设置页「外观与效果」控件密度与圆角 ----------
+   这四个下拉框不应依赖各肤感层的通用 QComboBox：通用规则的 radius_sm、
+   6px 上下 padding 在不同字体度量下会显得生硬，且与 28px 定高操作按钮不协调。
+   此处只命名空间化覆盖设置页外观区，字体仍取全局 ${font_family}，换字体后随
+   ThemeEngine 重建 QSS 一并刷新；不影响模型、更新等其它下拉控件。 */
+QWidget#settingsSection QComboBox#settingsThemeCombo,
+QWidget#settingsSection QComboBox#settingsAppearanceCombo,
+QWidget#settingsSection QComboBox#settingsFontCombo,
+QWidget#settingsSection QComboBox#settingsAnimationCombo {
+    background-color: ${bg_card};
+    color: ${text};
+    border: 1px solid ${border};
+    border-radius: ${radius_md};
+    min-height: 32px;
+    padding: 2px 10px;
+    font-family: ${font_family};
+    font-size: 13px;
+}
+QWidget#settingsSection QComboBox#settingsThemeCombo:focus,
+QWidget#settingsSection QComboBox#settingsAppearanceCombo:focus,
+QWidget#settingsSection QComboBox#settingsFontCombo:focus,
+QWidget#settingsSection QComboBox#settingsAnimationCombo:focus {
+    border-color: ${focus_accent};
+}
+QWidget#settingsSection QComboBox#settingsThemeCombo::drop-down,
+QWidget#settingsSection QComboBox#settingsAppearanceCombo::drop-down,
+QWidget#settingsSection QComboBox#settingsFontCombo::drop-down,
+QWidget#settingsSection QComboBox#settingsAnimationCombo::drop-down {
+    border: none;
+    width: 26px;
+}
+QWidget#settingsSection QComboBox#settingsThemeCombo QAbstractItemView,
+QWidget#settingsSection QComboBox#settingsAppearanceCombo QAbstractItemView,
+QWidget#settingsSection QComboBox#settingsFontCombo QAbstractItemView,
+QWidget#settingsSection QComboBox#settingsAnimationCombo QAbstractItemView {
+    background-color: ${bg_card};
+    color: ${text};
+    border: 1px solid ${border};
+    border-radius: ${radius_md};
+    padding: 2px;
+    font-family: ${font_family};
+}
+QWidget#settingsSection QToolButton#settingsStyleSwatch,
+QWidget#settingsSection QToolButton#settingsAccentSwatch {
+    border-radius: ${radius_sm};
+}
+
 /* ---------- 2. 首页「模型设置」快捷入口（U-4 最小入口） ---------- */
 
 QPushButton#homeModelEntry {
@@ -329,9 +376,16 @@ QLabel#editorEmptyTitle {
    （R-Q③：行为与改动前一致）。属性名/值必须与本规则严格一致（glass / "on"）。
    卡片/气泡保留各自不透明底，材质只在留白/间隙透出（§6 共享知识第 8 条）。 */
 QMainWindow[glass="on"],
-QMainWindow[glass="on"] > QWidget {
+QMainWindow[glass="on"] QWidget#glassCentralOuter,
+QMainWindow[glass="on"] QSplitter#glassCentralSplitter,
+QMainWindow[glass="on"] QStackedWidget#glassPageStack {
     background: transparent;
 }
+/*
+   ⚠ 不使用「glass 主窗下所有后代都 transparent」的通配规则：页面根、侧栏、
+   卡片、输入框与按钮仍需各自的主题底色保持可读。上面仅穿透
+   MainWindow._setup_central_layout() 的三层结构容器；可见页面及内容控件不受影响。
+*/
 
 /* ---------- 2. 全局滚动条（竖向 + 横向，含全部子控件） ----------
    四风格肤感层仅定义 ChatWindow 局部滚动条，主区滚动条此前走原生样式；

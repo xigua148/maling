@@ -1113,6 +1113,7 @@ class PageRole(QWidget):
         name_row = QHBoxLayout()
         name_row.addWidget(QLabel("角色名称:"))
         self.name_edit = QLineEdit()
+        self.name_edit.setObjectName("roleNameEdit")
         self.name_edit.setPlaceholderText("输入角色名称...")
         name_row.addWidget(self.name_edit, 1)
         name_desc_layout.addLayout(name_row)
@@ -1120,6 +1121,7 @@ class PageRole(QWidget):
         desc_row = QHBoxLayout()
         desc_row.addWidget(QLabel("角色描述:"))
         self.desc_edit = QLineEdit()
+        self.desc_edit.setObjectName("roleDescriptionEdit")
         self.desc_edit.setPlaceholderText("简短描述这个角色...")
         desc_row.addWidget(self.desc_edit, 1)
         name_desc_layout.addLayout(desc_row)
@@ -1129,6 +1131,7 @@ class PageRole(QWidget):
         given_row = QHBoxLayout()
         given_row.addWidget(QLabel("角色名字:"))
         self.given_name_edit = QLineEdit()
+        self.given_name_edit.setObjectName("roleGivenNameEdit")
         self.given_name_edit.setPlaceholderText("她自称的名字（留空则自称「我」）")
         self.given_name_edit.setToolTip(
             "她的名字（如「小铃」「小鲸」）。\n"
@@ -2094,8 +2097,11 @@ class PageRole(QWidget):
         text = theme_engine.get_color("text", "#5D4037")
         primary = theme_engine.get_color("primary", "#FF6B9D")
         secondary = theme_engine.get_color("text_secondary", "#888888")
+        hint = theme_engine.get_color("text_hint", secondary)
         border = theme_engine.get_color("border", "#FFE4EC")
         card_bg = theme_engine.get_color("bg_card", "#FFFFFF")
+        focus = theme_engine.get_color("focus_accent", primary)
+        text_on_accent = theme_engine.get_color("text_on_accent", "#FFFFFF")
 
         self.setStyleSheet(f"""
             QWidget#rolePage {{
@@ -2139,6 +2145,31 @@ class PageRole(QWidget):
             QLabel#roleHint {{
                 color: {secondary};
                 font-size: 11px;
+            }}
+            /* 页面级样式表会成为本页子树的样式根；因此三个角色信息输入框
+               必须在这里显式补足前景/占位/表面/边框，避免全局 QLineEdit 色彩
+               被页面级 QSS 截断。所有色值均来自 ThemeEngine 当前活动色板。 */
+            QLineEdit#roleNameEdit,
+            QLineEdit#roleDescriptionEdit,
+            QLineEdit#roleGivenNameEdit {{
+                background-color: {card_bg};
+                color: {text};
+                placeholder-text-color: {hint};
+                border: 1px solid {border};
+                border-radius: 8px;
+                padding: 6px 10px;
+                selection-background-color: {primary};
+                selection-color: {text_on_accent};
+            }}
+            QLineEdit#roleNameEdit:hover,
+            QLineEdit#roleDescriptionEdit:hover,
+            QLineEdit#roleGivenNameEdit:hover {{
+                border-color: {focus};
+            }}
+            QLineEdit#roleNameEdit:focus,
+            QLineEdit#roleDescriptionEdit:focus,
+            QLineEdit#roleGivenNameEdit:focus {{
+                border-color: {primary};
             }}
         """)
 

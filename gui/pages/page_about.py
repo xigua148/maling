@@ -17,6 +17,9 @@ _THIRD_PARTY_ITEMS = [
     "　　仓库：https://github.com/tangentecode/2048-pyqt6",
     "扫雷 —— dawsonbooth/pynsweeper（MIT，Copyright (c) 2020 Dawson Booth）",
     "　　仓库：https://github.com/dawsonbooth/pynsweeper",
+    # v2.1(license): 随桌面包内置的 Node.js Agent Runtime，必须在应用内也可见。
+    "Pi Coding Agent Runtime —— earendil-works/pi（MIT，Copyright (c) 2025 Mario Zechner）",
+    "　　仓库：https://github.com/earendil-works/pi　用途：Agent 工具循环运行时",
     # v1.9 B/R-L②: 内置字体（OFL 1.1，许可副本随包 docs/third_party_licenses/）
     "资源圆体 Resource Han Rounded —— CyanoHao/Resource-Han-Rounded（OFL 1.1）",
     "　　仓库：https://github.com/CyanoHao/Resource-Han-Rounded　用途：正文 / 界面默认字体",

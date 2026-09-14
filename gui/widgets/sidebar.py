@@ -127,11 +127,18 @@ class SidebarWidget(QWidget):
         # Bug2 修复：AI 自选表情的"保持"语义 —— 心情引擎回落事件（如 idle 回 normal）
         # 不应把 AI 标记的表情打回基线；记住最近一次 AI 标记，回落时优先沿用。
         self._last_ai_expr: Optional[str] = None
+        self._current_role_id = ""
+        self._current_role_name = "码铃"
+        self._current_role_assets = None
         self._init_ui()
         # v1.2(A-11): 订阅 mood_changed（心情换表情）+ theme_changed（换肤刷新）
         self._connect_maid_companion()
         # v1.4.2: 订阅角色生效 → 左下角大形象切角色专属资产集
         self._connect_role_bridge()
+        # role_changed 的启动广播可能早于 Sidebar 构造，主动读取当前默认角色补齐首帧。
+        self._refresh_current_role()
+        self.update_maid_chip()
+        self._apply_current_role_assets_to_big_avatar()
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -197,8 +204,8 @@ class SidebarWidget(QWidget):
             except Exception:
                 self.maid_big_avatar = None
 
-        # v1.2(A-11)(B5): 码铃形象入口行 —— 迷你码铃头像(随心情) + 关系称谓文本。
-        # 位于模型状态行之下、帮助/关于之上；u1 的 B9 行原样保留、二者共存。
+        # 码铃形象入口行：当前角色专属小形象（随心情）+「角色名 · 好感度阶段」。
+        # 位于模型状态行之下、帮助/关于之上；B9 行原样保留、二者共存。
         self.maid_chip = QPushButton("码铃 · 初识")
         self.maid_chip.setObjectName("sidebarMaidChip")
         self.maid_chip.setCursor(Qt.PointingHandCursor)
@@ -495,26 +502,46 @@ class SidebarWidget(QWidget):
         except Exception:
             logger.debug("静默降级：_connect_role_bridge 中忽略异常", exc_info=True)
 
+    def _refresh_current_role(self, role_id: str = "") -> None:
+        """读取当前角色的展示名与专属资产；资源缺失时保留默认形象回退链。"""
+        try:
+            from gui.pages.page_role import RoleManager
+            manager = RoleManager()
+            role = manager.get_role(role_id) if role_id else manager.default_role
+            if role is not None:
+                self._current_role_id = str(getattr(role, "id", "") or role_id)
+                self._current_role_name = str(getattr(role, "name", "") or "码铃")
+            elif role_id:
+                self._current_role_id = role_id
+            from gui.maid_avatar import role_assets
+            self._current_role_assets = role_assets(self._current_role_id)
+        except Exception:
+            logger.debug("读取当前角色信息失败", exc_info=True)
+
+    def _apply_current_role_assets_to_big_avatar(self) -> None:
+        """将当前角色专属资产应用到大形象；None 由控件回退默认码铃资产。"""
+        if self.maid_big_avatar is None:
+            return
+        try:
+            if hasattr(self.maid_big_avatar, "set_assets"):
+                self.maid_big_avatar.set_assets(self._current_role_assets)
+            self.maid_big_avatar.set_maid_expression(self._role_base_expr)
+        except Exception:
+            logger.debug("刷新侧栏大形象失败", exc_info=True)
+
     def _on_role_changed(self, role_id: str, avatar_path: str, base_expr: str) -> None:
         try:
             self._role_base_expr = base_expr or "normal"
-            # Bug2: 切角色 = 上下文重置，清除旧角色的 AI 标记记忆，回到该角色基线
+            # 切角色 = 上下文重置，清除旧角色的 AI 标记记忆，回到该角色基线。
             self._last_ai_expr = None
-            # v2.1(UI-Fix-0914): chip 文案已改为「当前角色名」→ 切角色后必须刷新。
-            #   先失效名字缓存，确保取到的是新角色（不依赖其它订阅者的调用顺序）。
             try:
                 from gui.widgets.message_bubble import invalidate_default_speaker_name
                 invalidate_default_speaker_name()
             except Exception:
                 pass
+            self._refresh_current_role(role_id)
             self.update_maid_chip()
-            if self.maid_big_avatar is None:
-                return
-            from gui.maid_avatar import role_assets
-            assets = role_assets(role_id)  # None → set_assets 回落码铃本体
-            if hasattr(self.maid_big_avatar, "set_assets"):
-                self.maid_big_avatar.set_assets(assets)
-            self.maid_big_avatar.set_maid_expression(self._role_base_expr)
+            self._apply_current_role_assets_to_big_avatar()
         except Exception:
             logger.debug("静默降级：_on_role_changed 中忽略异常", exc_info=True)
 
@@ -545,38 +572,36 @@ class SidebarWidget(QWidget):
         return "normal"
 
     def update_maid_chip(self) -> None:
-        """刷新迷你码铃：表情头像 + 关系称谓文本 + 心情 tooltip（无数值红线）。"""
+        """刷新小形象：当前角色名、IntimacyTracker 阶段与角色专属表情资产。"""
         state = self._current_maid_state()
         companion = getattr(self.app_ctx, "companion", None)
-        # v2.1(UI-Fix-0914): 文案改为**当前角色名** —— 此前写死 companion 的关系称谓
-        #   （无论切到哪个角色都显示「码铃 · 初识」，用户报「不跟随角色」）。
-        #   取名走聊天气泡同一入口（resolve_speaker_name 三级兜底 → 小鲸 / 小铃 / 码铃）。
-        #   关系称谓不丢，挪到 tooltip 里。
-        stage = ""
-        if companion is not None:
-            try:
-                stage = companion.relation_stage_name()
-            except Exception:
-                stage = ""
+        stage = "初识"
+        tracker = getattr(self.app_ctx, "intimacy", None)
         try:
-            from gui.widgets.message_bubble import resolve_default_speaker_name
-            btn_text = resolve_default_speaker_name() or "码铃"
+            level_name = getattr(tracker, "level_name", None)
+            if callable(level_name):
+                stage = str(level_name() or stage)
         except Exception:
-            btn_text = "码铃"
+            logger.debug("读取好感度阶段失败", exc_info=True)
+        role_name = str(getattr(self, "_current_role_name", "") or "码铃")
+        btn_text = f"{role_name} · {stage}"
         expr = _side_mood_to_expr(state) if _side_mood_to_expr is not None else "normal"
 
         icon = QIcon()
         if _SIDEBAR_MAID_OK:
             try:
-                assets = _sidebar_assets()
-                if assets is not None:
+                # 当前角色的专属资产优先；角色没有资源或该表情缺图时才回退默认形象。
+                for assets in (getattr(self, "_current_role_assets", None), _sidebar_assets()):
+                    if assets is None:
+                        continue
                     pix = assets.rounded(expr, 28)
                     if pix is not None:
                         icon = QIcon(pix)
-                        self.maid_chip.setIcon(icon)
-                        self.maid_chip.setIconSize(QSize(24, 24))
-                        if not btn_text.startswith(" "):
-                            btn_text = " " + btn_text
+                        break
+                if not icon.isNull():
+                    self.maid_chip.setIcon(icon)
+                    self.maid_chip.setIconSize(QSize(24, 24))
+                    btn_text = " " + btn_text
             except Exception:
                 logger.debug("静默降级：update_maid_chip 中忽略异常", exc_info=True)
         if icon.isNull():
@@ -585,7 +610,7 @@ class SidebarWidget(QWidget):
             btn_text = f"🔔 {btn_text}"
         self.maid_chip.setText(btn_text)
 
-        # tooltip：心情句 + 关系称谓 + 最近事件 + 操作提示（全部自然语言）
+        # tooltip：心情句 + IntimacyTracker 阶段 + 最近事件 + 操作提示（全部自然语言）
         tooltip = ""
         if _side_mood_tooltip is not None:
             try:
@@ -593,10 +618,8 @@ class SidebarWidget(QWidget):
             except Exception:
                 tooltip = ""
         if not tooltip:
-            tooltip = f"{btn_text}在这里陪着主人"
-        if stage:
-            tooltip = f"{tooltip}\n关系：{stage}"
-        self.maid_chip.setToolTip(f"{tooltip}\n点击回首页")
+            tooltip = f"{role_name}在这里陪着主人"
+        self.maid_chip.setToolTip(f"{tooltip}\n关系：{stage}\n点击回首页")
 
     def _apply_maid_chip_style(self) -> None:
         """主题色样式（theme_color，禁裸色）。"""
