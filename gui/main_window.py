@@ -8,8 +8,31 @@ from gui.qt_compat import (
     QMainWindow, QWidget, QStackedWidget, QSplitter,
     QVBoxLayout, QStatusBar, QLabel, Qt,
     QPushButton,  # v1.2.1: 顶部 Key 引导横幅
+    QEvent, QGraphicsOpacityEffect,  # v2.1(V21-08): 窗口状态重应用 / 切页淡入收尾
 )
+from gui.utils import theme_color  # v2.1(V21-08): 取色唯一入口
 from core import __version__ as CORE_VERSION
+
+# v2.1(V21-08): 三内核只调用不改；缺失时静默降级（R-Q⑤：模块可整体剥离）
+try:
+    from gui import glass
+except Exception:  # pragma: no cover - 内核剥离兜底
+    glass = None
+try:
+    from gui import motion
+except Exception:  # pragma: no cover
+    motion = None
+try:
+    from gui import icons
+except Exception:  # pragma: no cover
+    icons = None
+# v2.1(质感试点): 通用过渡层（**当前仅按钮按压反馈**）；缺失时静默降级（R-Q⑤）
+# 注意：切页淡入由本文件 _on_page_switched 直接走 motion.fade，不经 transitions。
+try:
+    from gui import transitions
+except Exception:  # pragma: no cover
+    transitions = None
+
 from gui.theme_engine import ThemeEngine
 from gui.page_manager import PageManager
 from gui.widgets.sidebar import SidebarWidget
@@ -30,12 +53,24 @@ from gui.pages.onboarding import OnboardingDialog
 logger = logging.getLogger("maid_coder.gui")
 
 
+def _icon_glyph(name: str, fallback: str) -> str:
+    """文本内嵌图标字形；图标内核缺失 / 字体不可用时原样返回 emoji（R-Q⑤）。"""
+    if icons is None:
+        return fallback
+    try:
+        return icons.text_glyph(name, fallback)
+    except Exception:
+        return fallback
+
+
 class MainWindow(QMainWindow):
     """应用主窗口：三栏布局 + 页面栈 + 聊天面板常驻。"""
 
     def __init__(self, app_context):
         super().__init__()
         self.app_ctx = app_context
+        # v2.1(V21-08/M-1): 每页在跑的淡入动画（防同页快速重切时旧动画收尾误删新 effect）
+        self._page_fade_anims: Dict[QWidget, object] = {}
 
         # 1. 初始化主题引擎（必须在任何 widget 创建之前）
         self.theme_engine = ThemeEngine(self)
@@ -51,7 +86,7 @@ class MainWindow(QMainWindow):
         try:
             self.theme_engine.set_theme_mode(_mode)
         except Exception:
-            pass
+            logger.debug("静默降级：__init__ 中忽略异常", exc_info=True)
         # v1.4.3「主题强调色色盘」：启动时把持久化的自定义强调色注入引擎，
         # 随后 load_theme 即以派生色板渲染（空串=用主题默认，无副作用）。
         try:
@@ -59,7 +94,7 @@ class MainWindow(QMainWindow):
                 getattr(self.app_ctx.config, "custom_accent", "") or ""
             )
         except Exception:
-            pass
+            logger.debug("静默降级：__init__ 中忽略异常", exc_info=True)
         self.theme_engine.load_theme(_theme_name)
 
         # 2. 设置窗口基础属性
@@ -122,7 +157,7 @@ class MainWindow(QMainWindow):
 
         # v1.2.1: 顶部「配置模型」引导横幅 —— 小白首次打开未配 Key 时醒目提示，
         # 点击直达设置「模型与接口」；配置完成后自动隐藏（refresh_api_status 维护）。
-        self.key_banner = QPushButton("⚠️ 尚未配置模型 Key —— 点这里打开「模型与接口」设置（只需一次）")
+        self.key_banner = QPushButton(f"{_icon_glyph('warning', '⚠️')} 尚未配置模型 Key —— 点这里打开「模型与接口」设置（只需一次）")
         self.key_banner.setObjectName("apiKeyBanner")
         self.key_banner.setCursor(Qt.PointingHandCursor)
         self.key_banner.setFixedHeight(36)
@@ -198,10 +233,13 @@ class MainWindow(QMainWindow):
                 try:
                     self.maid_pet.relayout()
                 except Exception:
-                    pass
+                    logger.debug("静默降级：set_pet_enabled 中忽略异常", exc_info=True)
         else:
             if self.maid_pet is not None:
+                # v2.1(UI-Fix-0912): 单纯 hide() 在某些布局下不彻底(桌宠的 parent 是
+                # central_splitter,会被 splitter 布局重排触发重显)。加 lower() 加强制刷新。
                 self.maid_pet.hide()
+                self.maid_pet.lower()
 
     def _setup_pages(self) -> None:
         """注册主页面到页面栈。聊天面板 = 主屏页（index 0，默认显示）。"""
@@ -244,8 +282,8 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(40, 40, 40, 40)
 
         label = QLabel(f"{title}")
+        label.setObjectName("placeholderTitle")
         font = page.font()
-        font.setPointSize(18)
         font.setBold(True)
         label.setFont(font)
         layout.addWidget(label)
@@ -256,7 +294,10 @@ class MainWindow(QMainWindow):
         return page
 
     def _setup_status_bar(self) -> None:
-        """构建状态栏。v10.15: API 状态通过 refresh_api_status() 统一刷新。"""
+        """构建状态栏。v10.15: API 状态通过 refresh_api_status() 统一刷新。
+
+        v2.1(V21-08/I-3): 三个 QLabel 图标化（矢量优先；字体不可用回落纯文本）。
+        """
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
 
@@ -269,8 +310,40 @@ class MainWindow(QMainWindow):
         self.status_api = QLabel("API: 未配置")
         self.status_bar.addWidget(self.status_api)
 
+        # v2.1(V21-08): 三标签矢量图标（不可用时不加图标，文本原样保留）
+        self._status_icon_specs = (
+            ("status_theme", "palette"),
+            ("status_mode", "mode"),
+            ("status_api", "api"),
+        )
+        self._refresh_status_icons()
+
         # v10.15: 初始化时调用 refresh_api_status()，由它判断已配置/未配置
         self.refresh_api_status()
+
+    def _refresh_status_icons(self) -> None:
+        """V21-08/I-3: 状态栏三图标化（换肤后按新色重渲染）。
+
+        ``icons.available()`` 为假时不设图标（回落纯文本，绝不空白/崩）。
+        """
+        if icons is None:
+            return
+        try:
+            if not icons.available():
+                return
+            color = theme_color(self.app_ctx, "text_secondary", "#8A8A8A")
+        except Exception:
+            return
+        for attr, name in getattr(self, "_status_icon_specs", ()):
+            label = getattr(self, attr, None)
+            if label is None:
+                continue
+            try:
+                rendered = icons.icon(name, 14, color)
+                if rendered is not None and not rendered.isNull():
+                    label.setPixmap(rendered.pixmap(14, 14))
+            except Exception:
+                continue
 
     def refresh_api_status(self) -> None:
         """v10.15: 统一刷新底部 API 状态栏。
@@ -299,13 +372,13 @@ class MainWindow(QMainWindow):
                 if banner.isVisible() != (not configured):
                     banner.setVisible(not configured)
         except Exception:
-            pass
+            logger.debug("静默降级：refresh_api_status 中忽略异常", exc_info=True)
         # v1.2(B9): 侧栏「模型状态」按钮同步刷新（provider/脱敏 Key/状态点）
         if hasattr(self, "sidebar"):
             try:
                 self.sidebar.update_model_status()
             except Exception:
-                pass
+                logger.debug("静默降级：refresh_api_status 中忽略异常", exc_info=True)
 
     def _connect_signals(self) -> None:
         """连接跨组件信号。"""
@@ -316,7 +389,7 @@ class MainWindow(QMainWindow):
         try:
             self.page_manager.page_changed.connect(self.sidebar.set_active_page)
         except Exception:
-            pass
+            logger.debug("静默降级：_connect_signals 中忽略异常", exc_info=True)
 
         # 侧边栏底部按钮
         self.sidebar.help_clicked.connect(self._on_help_clicked)
@@ -326,16 +399,40 @@ class MainWindow(QMainWindow):
         try:
             self.sidebar.model_clicked.connect(self.open_model_settings)
         except Exception:
-            pass
+            logger.debug("静默降级：_connect_signals 中忽略异常", exc_info=True)
 
         # v1.2(A-11): 侧栏「码铃形象入口」点击 → 回首页（兜底导航在 sidebar 内部也有）
         try:
             self.sidebar.maid_clicked.connect(self._on_sidebar_maid_clicked)
         except Exception:
-            pass
+            logger.debug("静默降级：_connect_signals 中忽略异常", exc_info=True)
 
         # 主题变更 → 状态栏更新
         self.theme_engine.theme_changed.connect(self._on_theme_changed)
+        # v2.1(V21-08/D-V21-04): 追加订户——深浅变化须重设 DWM 材质/图标着色
+        # （既有 _on_theme_changed 签名与语义零变更，仅新增订阅者）
+        try:
+            self.theme_engine.theme_changed.connect(self._on_theme_changed_glass)
+        except Exception:
+            logger.debug("静默降级：_connect_signals 中忽略异常", exc_info=True)
+
+        # v2.1(V21-08/M-1): 切页过渡（页面栈换页处挂 motion.fade）
+        try:
+            self.page_manager.page_changed.connect(self._on_page_switched)
+        except Exception:
+            logger.debug("静默降级：_connect_signals 中忽略异常", exc_info=True)
+
+        # v2.1(P1 铺开): 按压反馈由「仅侧栏」扩到**整个主窗** —— 覆盖各页静态按钮
+        # 与工具栏 QToolButton（页面/状态栏已在 _setup_pages / _setup_status_bar 建好）；
+        # 对话框按需创建且数量多，改用一个应用级过滤器在「显示时」自动铺开。
+        # 只改 opacity，不动 geometry/size/font；off 档或已挂非 opacity effect 的控件
+        # 自动跳过；永不吞事件，原有点击逻辑零影响。
+        try:
+            if transitions is not None:
+                transitions.install_press_feedback_recursive(self)
+                transitions.install_press_feedback_for_dialogs()
+        except Exception:
+            logger.debug("静默降级：_connect_signals 中忽略异常", exc_info=True)
 
         # 模式变更 → 状态栏更新
         gui_session = getattr(self.app_ctx, "gui_session", None)
@@ -377,7 +474,7 @@ class MainWindow(QMainWindow):
         try:
             self.refresh_api_status()
         except Exception:
-            pass
+            logger.debug("静默降级：_on_onboarding_finished 中忽略异常", exc_info=True)
         # 引导完成 → 进入聊天主屏
         self.page_manager.navigate("chat")
 
@@ -403,7 +500,7 @@ class MainWindow(QMainWindow):
             try:
                 settings_page.scroll_to_model()
             except Exception:
-                pass
+                logger.debug("静默降级：open_model_settings 中忽略异常", exc_info=True)
 
     def _on_help_clicked(self) -> None:
         """侧边栏帮助按钮点击。"""
@@ -421,7 +518,7 @@ class MainWindow(QMainWindow):
             try:
                 self.page_manager.navigate("home")
             except Exception:
-                pass
+                logger.debug("静默降级：_on_sidebar_maid_clicked 中忽略异常", exc_info=True)
 
     def _on_theme_changed(self, theme_name: str) -> None:
         """主题变更处理（v1.9 A：四风格标签 + 旧值归一兜底）。"""
@@ -433,6 +530,191 @@ class MainWindow(QMainWindow):
         }
         label = theme_labels.get(theme_name, theme_name)
         self.status_theme.setText(f"主题: {label}")
+        # v2.1(V21-08/I-3): 换肤后状态栏图标按新色重渲染（字体不可用则跳过）
+        self._refresh_status_icons()
+
+    def _on_theme_changed_glass(self, _theme_name: str) -> None:
+        """v2.1(V21-08/D-V21-04): 深浅切换后重应用毛玻璃材质（幂等，绝不抛）。
+
+        材质深浅由 ``DWMWA_USE_IMMERSIVE_DARK_MODE`` 决定，必须在换肤后重设，
+        否则切深色后材质仍是浅色调。
+        """
+        try:
+            self._apply_glass_state()
+        except Exception:
+            logger.debug("静默降级：_on_theme_changed_glass 中忽略异常", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # v2.1(V21-08 / D-V21-04 / D-V21-05)：毛玻璃单一收口
+    # ------------------------------------------------------------------
+    def _repolish(self) -> None:
+        """动态属性变更后重刷样式（QSS 条件规则才会重新求值）。"""
+        try:
+            style = self.style()
+            if style is not None:
+                style.unpolish(self)
+                style.polish(self)
+            self.update()
+        except Exception:
+            logger.debug("静默降级：_repolish 中忽略异常", exc_info=True)
+
+    def _lock_window_opacity(self) -> None:
+        """玻璃生效 → 窗口不透明度锁 100%（Q-V8：不与材质叠加成双半透明）。"""
+        try:
+            if abs(float(self.windowOpacity()) - 1.0) > 1e-6:
+                self.setWindowOpacity(1.0)
+        except Exception:
+            logger.debug("静默降级：_lock_window_opacity 中忽略异常", exc_info=True)
+
+    def _restore_window_opacity(self, config) -> None:
+        """玻璃关 / 不支持 → 恢复用户透明度设置（R-Q③：与改动前一致）。"""
+        try:
+            target = float(getattr(config, "window_opacity", 1.0))
+        except Exception:
+            target = 1.0
+        try:
+            if abs(float(self.windowOpacity()) - target) > 1e-6:
+                self.setWindowOpacity(target)
+        except Exception:
+            logger.debug("静默降级：_restore_window_opacity 中忽略异常", exc_info=True)
+
+    def _glass_applicable(self, config) -> bool:
+        """判据：``glass_enabled`` 且环境支持且能力 ``kind`` 为主窗适用。"""
+        if not bool(getattr(config, "glass_enabled", True)):
+            return False
+        if glass is None:
+            return False
+        try:
+            if not bool(glass.is_supported()):
+                return False
+            kind = getattr(glass.detect_capability(), "kind", "none") or "none"
+            return kind in ("mica", "acrylic")
+        except Exception:
+            return False
+
+    def _apply_glass_state(self) -> None:
+        """毛玻璃单一收口（幂等）：DWM 材质 + 根属性 + 透明度互斥。
+
+        判据：``cfg.glass_enabled`` 且 ``glass.is_supported()`` 且 kind 适用。
+          · 不满足 → ``glass.remove()`` + **移除** ``glass`` 动态属性 + 恢复透明度
+            （R-Q③：关掉后与改动前观感一致）；
+          · 满足 → ``glass.safe_apply(winId, "mica", dark=is_dark_effective)``，成功后
+            置动态属性 ``glass="on"`` 并 ``unpolish/polish``，同时锁 ``setWindowOpacity(1.0)``。
+        ``winId()`` 在 show 前可能无效 → ``safe_apply`` 返回 False 时不设属性、不崩，
+        由 ``showEvent`` 重试。全部 try/except，绝不抛。
+        """
+        config = getattr(self.app_ctx, "config", None)
+        applicable = self._glass_applicable(config)
+
+        # 取窗口句柄（无效 = 0；safe_apply/remove 内部同样校验）
+        try:
+            hwnd = int(self.winId())
+        except Exception:
+            hwnd = 0
+
+        if not applicable:
+            if glass is not None:
+                try:
+                    glass.remove(hwnd)
+                except Exception:
+                    logger.debug("静默降级：_apply_glass_state 中忽略异常", exc_info=True)
+            if self.property("glass") is not None:
+                self.setProperty("glass", None)  # 移除动态属性 → 恢复主题背景
+                self._repolish()
+            self._restore_window_opacity(config)
+            return
+
+        try:
+            dark = bool(self.theme_engine.is_dark_effective())
+        except Exception:
+            dark = False
+
+        applied = False
+        if glass is not None:
+            try:
+                applied = bool(glass.safe_apply(hwnd, "mica", dark=dark))
+            except Exception:
+                applied = False
+
+        if applied:
+            if self.property("glass") != "on":
+                self.setProperty("glass", "on")
+                self._repolish()
+            self._lock_window_opacity()
+        else:
+            # winId 尚未有效 / DWM 应用失败 → 纯色降级（fail-safe，不黑窗）
+            if self.property("glass") is not None:
+                self.setProperty("glass", None)
+                self._repolish()
+            self._restore_window_opacity(config)
+
+    def showEvent(self, event) -> None:
+        """窗口显示后 HWND 才有效 → 应用毛玻璃（失败静默降级）。"""
+        super().showEvent(event)
+        try:
+            self._apply_glass_state()
+        except Exception:
+            logger.debug("静默降级：showEvent 中忽略异常", exc_info=True)
+
+    def changeEvent(self, event) -> None:
+        """最小化还原 / 重显后部分 Windows 版本会丢材质 → 窗口状态变化时重应用。"""
+        try:
+            super().changeEvent(event)
+        except Exception:
+            logger.debug("静默降级：changeEvent 中忽略异常", exc_info=True)
+        try:
+            if event is not None and event.type() == QEvent.WindowStateChange:
+                self._apply_glass_state()
+        except Exception:
+            logger.debug("静默降级：changeEvent 中忽略异常", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # v2.1(V21-08 / M-1)：切页过渡（淡入新页，动画结束移除 effect）
+    # ------------------------------------------------------------------
+    def _on_page_switched(self, key: str) -> None:
+        """页面切换后对新页淡入（不滑动整页，避免布局震荡；切页返回不阻塞）。"""
+        try:
+            page = None
+            pages = getattr(self, "pages", None)
+            if isinstance(pages, dict):
+                page = pages.get(key)
+            if page is None:
+                page = self.page_stack.currentWidget()
+            if page is None:
+                return
+            if motion is None:
+                self._finish_page_fade(page)
+                return
+            # 同页快速重切：先停掉上一段未完成的淡入（stop 不发 finished，不会误触发收尾）
+            running = self._page_fade_anims.pop(page, None)
+            if running is not None:
+                try:
+                    running.stop()
+                except Exception:
+                    logger.debug("静默降级：_on_page_switched 中忽略异常", exc_info=True)
+            # 切页淡入**唯一落点**：直接走 motion.fade，不经 gui.transitions
+            # （transitions 本轮只提供按钮按压反馈，勿在此重复接入）。
+            anim = motion.fade(
+                page, to=1.0,
+                on_finished=lambda p=page: self._finish_page_fade(p),
+            )
+            if anim is None:
+                # off 档 / 系统减少动画 → 直接终态（不创建 effect/动画）
+                self._finish_page_fade(page)
+            else:
+                self._page_fade_anims[page] = anim
+        except Exception:
+            logger.debug("静默降级：_on_page_switched 中忽略异常", exc_info=True)
+
+    def _finish_page_fade(self, page) -> None:
+        """淡入收尾：移除 ``QGraphicsOpacityEffect``（防长期重绘开销，R-P）。"""
+        self._page_fade_anims.pop(page, None)
+        try:
+            effect = page.graphicsEffect()
+            if isinstance(effect, QGraphicsOpacityEffect):
+                page.setGraphicsEffect(None)
+        except Exception:
+            logger.debug("静默降级：_finish_page_fade 中忽略异常", exc_info=True)
 
     def _on_mode_changed(self, mode_name: str, state: bool) -> None:
         """模式变更处理。"""
@@ -448,7 +730,7 @@ class MainWindow(QMainWindow):
         try:
             self.status_bar.showMessage(f"💕 {message}", 5000)
         except Exception:
-            pass
+            logger.debug("静默降级：_on_intimacy_changed 中忽略异常", exc_info=True)
 
     def _on_project_file_opened(self, file_path: str) -> None:
         """项目页面双击文件 → 切换到文件编辑器页面。"""
@@ -490,13 +772,13 @@ class MainWindow(QMainWindow):
             self.raise_()
             self.activateWindow()
         except Exception:
-            pass
+            logger.debug("静默降级：_show_and_navigate 中忽略异常", exc_info=True)
         pm = getattr(self.app_ctx, "page_manager", None)
         if pm is not None and hasattr(pm, "navigate"):
             try:
                 pm.navigate(page_key)
             except Exception:
-                pass
+                logger.debug("静默降级：_show_and_navigate 中忽略异常", exc_info=True)
 
     def navigate_settings(self) -> None:
         """⚙️ 设置：呼主窗 + 导航设置页。"""
@@ -510,7 +792,7 @@ class MainWindow(QMainWindow):
                 panel._on_expand_chat()
                 return
             except Exception:
-                pass
+                logger.debug("静默降级：open_float_chat 中忽略异常", exc_info=True)
         # 浮窗不可用兜底：回聊天主屏
         self._show_and_navigate("chat")
 
@@ -522,7 +804,7 @@ class MainWindow(QMainWindow):
             try:
                 panel._on_camera_capture()
             except Exception:
-                pass
+                logger.debug("静默降级：trigger_camera 中忽略异常", exc_info=True)
 
     def trigger_voice(self) -> None:
         """🎤 语音输入：呼主窗并触发聊天面板单次语音输入路径。"""
@@ -532,7 +814,7 @@ class MainWindow(QMainWindow):
             try:
                 panel._on_voice_input()
             except Exception:
-                pass
+                logger.debug("静默降级：trigger_voice 中忽略异常", exc_info=True)
 
     def trigger_screenshot(self) -> None:
         """🖼 截图提问：调 chat_panel.capture_screenshot（内部自带呼出+导航，P1-2 既有链）。"""
@@ -541,7 +823,7 @@ class MainWindow(QMainWindow):
             try:
                 panel.capture_screenshot()
             except Exception:
-                pass
+                logger.debug("静默降级：trigger_screenshot 中忽略异常", exc_info=True)
 
     def closeEvent(self, event) -> None:
         """窗口关闭处理。
@@ -583,7 +865,7 @@ class MainWindow(QMainWindow):
                         "窗口已最小化到托盘啦——右键托盘图标可呼出或退出。",
                     )
             except Exception:
-                pass
+                logger.debug("静默降级：closeEvent 中忽略异常", exc_info=True)
             return
 
         # quitting=True（托盘退出路径已完成 shutdown）或 无托盘 / close_quits=True
