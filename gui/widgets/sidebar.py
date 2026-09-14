@@ -510,7 +510,9 @@ class SidebarWidget(QWidget):
             role = manager.get_role(role_id) if role_id else manager.default_role
             if role is not None:
                 self._current_role_id = str(getattr(role, "id", "") or role_id)
-                self._current_role_name = str(getattr(role, "name", "") or "码铃")
+                # 显示姓名而非人设标签；与聊天气泡复用同一三级兜底规则。
+                from gui.widgets.message_bubble import resolve_speaker_name
+                self._current_role_name = resolve_speaker_name(role) or "码铃"
             elif role_id:
                 self._current_role_id = role_id
             from gui.maid_avatar import role_assets

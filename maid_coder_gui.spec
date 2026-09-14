@@ -40,6 +40,10 @@ a = Analysis(
         ('config.yaml', '.'),
         # v1.4.8: 版本号单源
         ('version.json', '.'),
+        # v2.1.1: 发包可审计性 —— 根目录 NOTICE 汇总第三方组件/许可，
+        # 与 LICENSE 一同放进 onedir 根；用户无需猜测 Pi Runtime 等随包组件来源。
+        ('NOTICE', '.'),
+        ('LICENSE', '.'),
         # v1.6(P0-2): 意图词表数据文件（gui/intent.py 加载；缺文件时内置词表兜底可跑）
         ('gui/assets/intent_words.json', 'assets'),
         # v1.7(F4/F7): 每日一句语录库（缺文件时内置小池兜底可跑）

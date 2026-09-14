@@ -40,6 +40,9 @@ a = Analysis(
         ('config.yaml', '.'),
         # v1.4.8: 版本号单源
         ('version.json', '.'),
+        # v2.1.1: 单文件自解压目录内也提供 NOTICE / LICENSE，确保分发组件归属可查。
+        ('NOTICE', '.'),
+        ('LICENSE', '.'),
         # v1.6(P0-2): 意图词表数据文件（gui/intent.py 加载；缺文件时内置词表兜底可跑）
         ('gui/assets/intent_words.json', 'assets'),
         # v1.7(F3/D-V17-02): 每日一句语录库（缺文件时内置小池兜底可跑）

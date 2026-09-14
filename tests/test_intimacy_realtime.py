@@ -179,6 +179,7 @@ def test_sidebar_chip_uses_current_role_assets_and_intimacy_stage(monkeypatch, t
     default_assets.calls.clear()
     sidebar._on_role_changed("whale", "", "normal")
 
-    assert sidebar.maid_chip.text().strip() == "鲸鱼娘 · 亲近"
+    assert sidebar.maid_chip.text().strip() == "小鲸 · 亲近"
     assert whale_assets.calls == [("happy", 28)]
+    assert "鲸鱼娘" not in sidebar.maid_chip.text()
     assert default_assets.calls == []
