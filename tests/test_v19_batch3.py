@@ -368,7 +368,18 @@ class TestConfigDefaults:
 # ---------------------------------------------------------------------------
 class TestSwitcherWiring:
     def _read(self, rel):
-        return (ROOT / rel).read_text(encoding="utf-8")
+        """读取源码；``chat_panel.py`` 会自动并入 ``chat_panel_parts/*``。
+
+        v2.1(P0-②)：chat_panel 已按职责拆为 ``chat_panel.py`` + ``chat_panel_parts/*``，
+        源码断言须看「面板全部源码」，否则拆分后会误红。
+        """
+        p = ROOT / rel
+        src = p.read_text(encoding="utf-8")
+        parts_dir = p.parent / "chat_panel_parts"
+        if p.name == "chat_panel.py" and parts_dir.is_dir():
+            for extra in sorted(parts_dir.glob("*.py")):
+                src += "\n" + extra.read_text(encoding="utf-8")
+        return src
 
     def test_settings_has_four_style_selector(self):
         src = self._read("gui/pages/page_settings.py")

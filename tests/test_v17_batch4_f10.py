@@ -559,8 +559,15 @@ class TestF10bGroupLifecycle:
         assert sm.get_session(s.id) is None
 
     def test_group_settings_menu_action_present(self):
-        """右键菜单群聊设置分支的判定源：群会话才注入设置项（源码断言）。"""
-        src = (ROOT / "gui" / "widgets" / "chat_panel.py").read_text(encoding="utf-8")
+        """右键菜单群聊设置分支的判定源：群会话才注入设置项（源码断言）。
+
+        v2.1(P0-②)：chat_panel 已按职责拆为 ``chat_panel.py`` + ``chat_panel_parts/*``，
+        故在「面板全部源码」范围内断言，避免拆分导致误红。
+        """
+        panel = ROOT / "gui" / "widgets" / "chat_panel.py"
+        src = panel.read_text(encoding="utf-8")
+        for extra in sorted((panel.parent / "chat_panel_parts").glob("*.py")):
+            src += "\n" + extra.read_text(encoding="utf-8")
         assert "群聊设置" in src and "_on_group_settings" in src
         assert "解散群聊" in src
 
