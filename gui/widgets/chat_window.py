@@ -1,23 +1,33 @@
 """独立聊天窗口 —— 无边框圆角浮窗，支持拖拽移动、消息列表、输入发送、文件拖拽附件。"""
 from __future__ import annotations
 
+import logging
 import os
 from typing import List, Optional
 
 from gui.qt_compat import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton,
-    QLabel, QScrollArea, QFrame, Qt, QSizePolicy, QFont,
+    QLabel, QScrollArea, QFrame, Qt, QSize, QSizePolicy, QFont,
     QApplication, QGraphicsDropShadowEffect, QColor, QPoint,
     QGridLayout, QSystemTrayIcon, QMenu, QAction, Signal, QObject,
     QFileDialog, QMessageBox, QDialog, QDragEnterEvent, QDropEvent,
-    QDragMoveEvent,
+    QDragMoveEvent, QEvent,
 )
 from gui.utils import theme_color
-from gui.widgets.message_bubble import MessageBubble
+# v2.1(G-2/D-V21-04/D-V21-02/I-2): 毛玻璃 / 动效 / 图标内核 —— 仅调用，内核零改动
+from gui import glass, motion, icons
+from gui.widgets.message_bubble import (
+    MessageBubble, invalidate_default_speaker_name, resolve_default_speaker_name,
+)
 from gui.widgets.thinking_indicator import ThinkingIndicator
 from gui.widgets.attachment_bar import AttachmentBar
 from gui.widgets import voice_input as voice_input_mod
 from gui.chat_exporter import ChatExporter
+
+# v2.1(可观测性)：静默 except 收敛用 —— 本文件此前 26 处 `except ...: pass` 无任何
+#   记录，异常被完全吞掉，问题只能靠肉眼发现。改走 logger.debug 后可在日志里定位
+#   （仅记录、不重抛，行为零变化）。
+logger = logging.getLogger("maid_coder.gui.chat_window")
 
 # v1.4：自绘标题栏窗口控制按钮尺寸（宽 ≥28、高 ≥24，符号才看得清）
 _TITLE_BTN_WIDTH = 32
@@ -68,6 +78,8 @@ class ChatWindow(QWidget):
         self._current_ai_bubble: Optional[MessageBubble] = None
         self._is_pinned = False
         self._tray_icon: Optional[QSystemTrayIcon] = None
+        # v2.1(G-2): 顶层浮窗 Acrylic 应用态（仅记账，失败即回落纯色）
+        self._glass_applied: bool = False
         # 第四阶段：拖拽支持
         self.setAcceptDrops(True)
 
@@ -86,6 +98,84 @@ class ChatWindow(QWidget):
         y = (screen.height() - height) // 2
         self.setGeometry(x, y, width, height)
         self.setMinimumSize(400, 500)
+
+    # ==================================================================
+    # v2.1(G-2/D-V21-04): 顶层浮窗 Acrylic（与既有 WA_TranslucentBackground 协调）
+    # ==================================================================
+    def _glass_popups_enabled(self) -> bool:
+        """浮层 Acrylic 开关（``GuiConfig.glass_popups_enabled``，缺键默认开）。"""
+        cfg = getattr(self.app_ctx, "config", None)
+        return bool(getattr(cfg, "glass_popups_enabled", True))
+
+    def _is_dark_effective(self) -> bool:
+        """当前是否生效深色（供 DWM immersive dark 联动；取不到 → False）。"""
+        engine = getattr(self.app_ctx, "theme_engine", None)
+        if engine is None:
+            return False
+        fn = getattr(engine, "is_dark_effective", None)
+        if callable(fn):
+            try:
+                return bool(fn())
+            except Exception:
+                return False
+        return False
+
+    def _apply_glass_popup(self) -> None:
+        """对本浮窗应用 / 移除 Acrylic 材质（best-effort，绝不抛）。
+
+        与既有 ``WA_TranslucentBackground`` 的协调（R-§9 风险点）：
+          · 本窗以「**透明留白 + 不透明主容器 ``chatWindowContainer``**」表达圆角与
+            投影；主容器不透明白底，DWM 材质**不会**与之叠加成「二次半透明发灰」；
+          · 故**保持** ``WA_TranslucentBackground`` 不动（改为不透明会让 10px 留白
+            露出窗口底色 → 直角 / 黑边，违 R-Q）；
+          · 材质只从留白处透出，深浅联动经 ``dark`` 重设 immersive dark；
+          · 不满足开关 / 不支持 / 任一步失败 → ``glass.remove`` 回落原观感、不黑窗。
+        """
+        try:
+            hwnd = int(self.winId())
+        except Exception:
+            return
+        try:
+            if not self._glass_popups_enabled() or not glass.is_supported():
+                glass.remove(hwnd)
+                self._glass_applied = False
+                return
+            ok = glass.safe_apply(hwnd, "acrylic", dark=self._is_dark_effective())
+            self._glass_applied = bool(ok)
+            if not ok:
+                glass.remove(hwnd)
+        except Exception:
+            self._glass_applied = False
+            try:
+                glass.remove(hwnd)
+            except Exception:
+                logger.debug("静默降级：_apply_glass_popup 中忽略异常", exc_info=True)
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        """窗口显示后应用材质（HWND 此时才有效）。"""
+        super().showEvent(event)
+        self._apply_glass_popup()
+
+    def changeEvent(self, event) -> None:  # noqa: N802
+        """最小化还原 / 重显后部分 Windows 版本会丢材质 → 重应用。"""
+        super().changeEvent(event)
+        try:
+            if event.type() == QEvent.WindowStateChange and self.isVisible():
+                self._apply_glass_popup()
+        except Exception:
+            logger.debug("静默降级：changeEvent 中忽略异常", exc_info=True)
+
+    def _exec_modal_fade(self, dialog):
+        """模态 ``exec()`` 对话框**只做淡入**，透传返回值（design D-V21-02）。
+
+        模态阻塞语义下延迟关闭会与返回值时序纠缠 → 只淡入、不淡出、不延迟关闭；
+        ``off`` 档 / 无系统动画时直接原样 ``exec()``。
+        """
+        try:
+            motion.fade(dialog, to=1.0)
+        except Exception:
+            logger.debug("静默降级：_exec_modal_fade 中忽略异常", exc_info=True)
+        return dialog.exec_()
 
     def _init_ui(self) -> None:
         """构建窗口 UI：阴影容器 + 标题栏 + 消息区 + 输入区。"""
@@ -133,7 +223,7 @@ class ChatWindow(QWidget):
         title_layout.setContentsMargins(16, 0, 12, 0)
         title_layout.setSpacing(8)
 
-        icon_label = QLabel("💬")
+        icon_label = QLabel(icons.text_glyph("chat", "💬"))
         icon_label.setStyleSheet("font-size: 16px;")
         title_layout.addWidget(icon_label)
 
@@ -151,7 +241,9 @@ class ChatWindow(QWidget):
         title_layout.addStretch()
 
         # 置顶按钮
-        self.pin_btn = QPushButton("📌")
+        # v2.1(I-2): 图标位改矢量字形（文案内嵌 → QSS color/hover 仍生效，置顶态重着色不丢；
+        # 缺字体自动回落原 emoji）。manifest 无 pushpin 名，取 anchor（锚定/固定）语义。
+        self.pin_btn = QPushButton(icons.text_glyph("anchor", "📌"))
         self.pin_btn.setFixedSize(28, 28)
         self.pin_btn.setCursor(Qt.PointingHandCursor)
         self.pin_btn.setStyleSheet(
@@ -164,7 +256,7 @@ class ChatWindow(QWidget):
         title_layout.addWidget(self.pin_btn)
 
         # 合并按钮（Attach）
-        self.attach_btn = QPushButton("🔗")
+        self.attach_btn = QPushButton(icons.text_glyph("link", "🔗"))
         self.attach_btn.setFixedSize(28, 28)
         self.attach_btn.setCursor(Qt.PointingHandCursor)
         self.attach_btn.setStyleSheet(
@@ -210,7 +302,14 @@ class ChatWindow(QWidget):
         main_layout.addWidget(self.scroll_area, 1)
 
         # 思考指示器
-        self.thinking_indicator = ThinkingIndicator("AI 正在思考", app_context=self.app_ctx, parent=self)
+        # v2.1(UI)：思考文案用**当前角色名**替代固定「AI」
+        #   （ThinkingIndicator.start() 每次还会再刷新一次，双保险，切角色后自动跟上）
+        try:
+            _think_name = resolve_default_speaker_name() or "AI"
+        except Exception:
+            _think_name = "AI"
+        self.thinking_indicator = ThinkingIndicator(
+            f"{_think_name} 正在思考", app_context=self.app_ctx, parent=self)
         self.messages_layout.insertWidget(self.messages_layout.count() - 1, self.thinking_indicator)
 
         # --- 输入区 ---
@@ -307,7 +406,7 @@ class ChatWindow(QWidget):
         input_row.addWidget(self.input_edit, 1)
 
         # 停止按钮
-        self.stop_btn = QPushButton("⏹")
+        self.stop_btn = QPushButton(icons.text_glyph("stop", "⏹"))
         self.stop_btn.setObjectName("chatStopBtn")
         self.stop_btn.setFixedSize(40, 40)
         self.stop_btn.setCursor(Qt.PointingHandCursor)
@@ -325,7 +424,7 @@ class ChatWindow(QWidget):
         self.stop_btn.setVisible(False)
         input_row.addWidget(self.stop_btn, alignment=Qt.AlignBottom)
 
-        self.send_btn = QPushButton("➤")
+        self.send_btn = QPushButton(icons.text_glyph("send", "➤"))
         self.send_btn.setObjectName("chatSendBtn")
         self.send_btn.setFixedSize(40, 40)
         self.send_btn.setCursor(Qt.PointingHandCursor)
@@ -349,7 +448,7 @@ class ChatWindow(QWidget):
 
         # 底部工具行：表情按钮 + 导出按钮 + 快捷键提示
         bottom_row = QHBoxLayout()
-        self.emoji_btn = QPushButton("😊 表情")
+        self.emoji_btn = QPushButton(f"{icons.text_glyph('emoji', '😊')} 表情")
         self.emoji_btn.setFixedHeight(24)
         self.emoji_btn.setStyleSheet(
             "QPushButton { background: transparent; border: none; color: #FF9EB5; font-size: 12px; }"
@@ -359,7 +458,7 @@ class ChatWindow(QWidget):
         self.emoji_btn.clicked.connect(self._on_toggle_emoji_panel)
         bottom_row.addWidget(self.emoji_btn)
 
-        self.export_btn = QPushButton("📤 导出")
+        self.export_btn = QPushButton(f"{icons.text_glyph('export', '📤')} 导出")
         self.export_btn.setFixedHeight(24)
         self.export_btn.setStyleSheet(
             "QPushButton { background: transparent; border: none; color: #4A90D9; font-size: 12px; }"
@@ -371,7 +470,7 @@ class ChatWindow(QWidget):
         bottom_row.addWidget(self.export_btn)
 
         # 第四阶段：语音输入入口
-        self.voice_btn = QPushButton("🎤 语音")
+        self.voice_btn = QPushButton(f"{icons.text_glyph('voice', '🎤')} 语音")
         self.voice_btn.setFixedHeight(24)
         self.voice_btn.setStyleSheet(
             "QPushButton { background: transparent; border: none; color: #FF6B9D; font-size: 12px; }"
@@ -421,7 +520,7 @@ class ChatWindow(QWidget):
                     and hasattr(bridge.mood_changed, "connect"):
                 bridge.mood_changed.connect(self._on_tray_mood_changed)
         except Exception:
-            pass
+            logger.debug("静默降级：_connect_signals 中忽略异常", exc_info=True)
 
         gui_session = getattr(self.app_ctx, "gui_session", None)
         if gui_session is not None:
@@ -431,13 +530,23 @@ class ChatWindow(QWidget):
         if theme_engine is not None:
             theme_engine.theme_changed.connect(self._on_theme_changed)
 
+        # v2.1(UI-P2): 角色生效 → 气泡人名（given_name）缓存失效（浮窗独立订阅，
+        # 保证浮窗单独使用时也能跟上角色切换；解析次数 = 角色切换次数，非气泡条数）
+        try:
+            _rb = getattr(self.app_ctx, "role_bridge", None)
+            if _rb is not None and hasattr(_rb, "role_changed") \
+                    and hasattr(_rb.role_changed, "connect"):
+                _rb.role_changed.connect(self._on_role_changed)
+        except Exception:
+            logger.debug("静默降级：_connect_signals 中忽略异常", exc_info=True)
+
         # v1.3(P1-1): TTS 朗读归属变化 -> 刷新浮窗气泡「朗读/停止」按钮态
         tts = getattr(self.app_ctx, "tts", None)
         if tts is not None and hasattr(tts, "state_changed"):
             try:
                 tts.state_changed.connect(self._on_tts_state_changed)
             except Exception:
-                pass
+                logger.debug("静默降级：_connect_signals 中忽略异常", exc_info=True)
 
     def _adjust_input_height(self) -> None:
         """v1.4.6: 输入框随内容多行增高（48~120）。"""
@@ -445,7 +554,7 @@ class ChatWindow(QWidget):
             doc_h = int(self.input_edit.document().size().height() + 14)
             self.input_edit.setFixedHeight(max(48, min(doc_h, 120)))
         except Exception:
-            pass
+            logger.debug("静默降级：_adjust_input_height 中忽略异常", exc_info=True)
 
     def _apply_title_button_theme(self) -> None:
         """给自绘标题栏的窗口控制按钮上符号 / 中文 tooltip / 主题色 hover 态。
@@ -484,7 +593,18 @@ class ChatWindow(QWidget):
 
     def _on_theme_changed(self, theme_name: str) -> None:
         """主题变更时刷新所有消息气泡颜色 + 附件栏。"""
+        # v2.1(UI-Fix-0913)：补上容器/输入区主题刷新 —— `_apply_theme` 此前**定义了却从未
+        #   被调用**（全文件无调用点，实为死代码），导致切换主题后 main_container /
+        #   messages_container / 输入框 / 发送按钮等仍停在 _init_ui 里的硬编码粉色上
+        #   （气泡能跟随是因为这里单独调了 widget.update_theme()）。
+        self._apply_theme()
         self._apply_title_button_theme()
+        # v2.1(G-2/D-V21-04): 深浅切换 → 重设 DWM immersive dark（否则材质色调不对）
+        try:
+            if self.isVisible():
+                self._apply_glass_popup()
+        except Exception:
+            logger.debug("静默降级：_on_theme_changed 中忽略异常", exc_info=True)
         for i in range(self.messages_layout.count() - 1):
             item = self.messages_layout.itemAt(i)
             if item is None:
@@ -496,7 +616,7 @@ class ChatWindow(QWidget):
             try:
                 self.attachment_bar.refresh_theme()
             except Exception:
-                pass
+                logger.debug("静默降级：_on_theme_changed 中忽略异常", exc_info=True)
 
     def _apply_theme(self) -> None:
         """应用当前主题到聊天窗口容器。"""
@@ -514,6 +634,90 @@ class ChatWindow(QWidget):
         )
         self.messages_container.setStyleSheet(f"background: {bg};")
         self._update_hint_theme()
+
+        # v2.1(UI-Fix-0913) 输入区主题化：输入框 + 发送按钮。
+        #   这两处在 _init_ui 里是硬编码粉色，切主题时若不重刷就会残留。
+        #   停止按钮为「停止生成」的语义警示红，跨主题应保持一致，故刻意不主题化。
+        try:
+            _bg_l = theme_engine.get_color("bg_light", "#FFF5F7")
+            _bd = theme_engine.get_color("border", "#FFD6E0")
+            _txt = theme_engine.get_color("text", "#4A4A4A")
+            _ac_l = theme_engine.get_color("accent_light", "#FFB6C1")
+            _bg_card = theme_engine.get_color("bg_card", "#FFFFFF")
+            if getattr(self, "input_edit", None) is not None:
+                self.input_edit.setStyleSheet(
+                    f"QTextEdit#chatInput {{"
+                    f"  background: {_bg_l};"
+                    f"  border: 1px solid {_bd};"
+                    f"  border-radius: 20px;"
+                    f"  padding: 10px 16px;"
+                    f"  font-size: 14px;"
+                    f"  color: {_txt};"
+                    f"  line-height: 1.5;"
+                    f"  selection-background-color: {_ac_l};"
+                    f"}}"
+                    f"QTextEdit#chatInput:focus {{"
+                    f"  border-color: {_ac_l};"
+                    f"  background: {_bg_card};"
+                    f"}}"
+                )
+        except Exception:
+            logger.debug("静默降级：_apply_theme 中忽略异常", exc_info=True)
+        try:
+            _primary = theme_engine.get_color("primary", "#FF9EB5")
+            _primary_d = theme_engine.get_color("primary_dark", "#FF8AA5")
+            _disabled = theme_engine.get_color("disabled_bg", "#FFD6E0")
+            if getattr(self, "send_btn", None) is not None:
+                self.send_btn.setStyleSheet(
+                    f"QPushButton#chatSendBtn {{"
+                    f"  background: {_primary};"
+                    f"  color: #FFFFFF;"
+                    f"  border: none;"
+                    f"  border-radius: 20px;"
+                    f"  font-size: 16px;"
+                    f"  font-weight: bold;"
+                    f"}}"
+                    f"QPushButton#chatSendBtn:hover {{ background: {_primary_d}; }}"
+                    f"QPushButton#chatSendBtn:pressed {{ background: {_primary_d}; }}"
+                    f"QPushButton#chatSendBtn:disabled {{ background: {_disabled}; }}"
+                )
+        except Exception:
+            logger.debug("静默降级：_apply_theme 中忽略异常", exc_info=True)
+        # 表情面板 / 表情按钮 / 快捷回复：均在 _init_ui 的循环内创建（无 self 引用），
+        # 故用 findChildren 取回再刷。
+        try:
+            _e_bg = theme_engine.get_color("bg_card", "#FFFFFF")
+            _e_bg_l = theme_engine.get_color("bg_light", "#FFF0F5")
+            _e_ac = theme_engine.get_color("accent", "#FF69B4")
+            _e_ac_l = theme_engine.get_color("accent_light", "#FFB6C1")
+            if getattr(self, "emoji_panel", None) is not None:
+                self.emoji_panel.setStyleSheet(
+                    f"QWidget#emojiPanel {{ background: {_e_bg}; border-radius: 12px; }}")
+                for _b in self.emoji_panel.findChildren(QPushButton):
+                    _b.setStyleSheet(
+                        f"QPushButton {{ background: {_e_bg_l}; border: 1px solid {_e_ac_l};"
+                        f" border-radius: 8px; font-size: 14px; }}"
+                        f"QPushButton:hover {{ background: {_e_ac_l}; }}")
+            for _b in self.findChildren(QPushButton, "quickReplyBtn"):
+                _b.setStyleSheet(
+                    f"QPushButton#quickReplyBtn {{ background: {_e_bg_l}; color: {_e_ac};"
+                    f" border: 1px solid {_e_ac_l}; border-radius: 10px;"
+                    f" font-size: 11px; padding: 2px 10px; }}"
+                    f"QPushButton#quickReplyBtn:hover {{ background: {_e_ac_l}; color: white; }}")
+        except Exception:
+            logger.debug("静默降级：_apply_theme 中忽略异常", exc_info=True)
+        # 底部图标按钮（表情 / 语音）—— 导出按钮 #4A90D9 为功能色，刻意保留
+        try:
+            _i_ac = theme_engine.get_color("accent_light", "#FF9EB5")
+            _i_ac_h = theme_engine.get_color("accent", "#FF69B4")
+            for _b in (getattr(self, "emoji_btn", None), getattr(self, "voice_btn", None)):
+                if _b is not None:
+                    _b.setStyleSheet(
+                        f"QPushButton {{ background: transparent; border: none;"
+                        f" color: {_i_ac}; font-size: 12px; }}"
+                        f"QPushButton:hover {{ color: {_i_ac_h}; }}")
+        except Exception:
+            logger.debug("静默降级：_apply_theme 中忽略异常", exc_info=True)
 
     def _update_hint_theme(self) -> None:
         """更新快捷键提示标签颜色。"""
@@ -579,7 +783,7 @@ class ChatWindow(QWidget):
             box.setInformativeText("允许本次及本次会话内后续操作吗？（白名单目录内会自动放行）")
             yes_btn = box.addButton("允许（本次会话）", QMessageBox.AcceptRole)
             box.addButton("拒绝本次", QMessageBox.RejectRole)
-            box.exec_()
+            self._exec_modal_fade(box)
             approved = box.clickedButton() is yes_btn
         except Exception:
             approved = False
@@ -587,7 +791,7 @@ class ChatWindow(QWidget):
             if self.chat_service is not None:
                 self.chat_service.resolve_agent_authorization(approved)
         except Exception:
-            pass
+            logger.debug("静默降级：_on_agent_authorization_requested 中忽略异常", exc_info=True)
 
     def _on_agent_tool_event(self, event_type: str, data_json: str) -> None:
         """Agent 工具轨迹状态提示（独立窗口）。
@@ -612,7 +816,7 @@ class ChatWindow(QWidget):
                     if set_text is not None:
                         set_text(text)
         except Exception:
-            pass
+            logger.debug("静默降级：_on_agent_tool_event 中忽略异常", exc_info=True)
 
     # ==================================================================
     # 聊天记录导出
@@ -669,6 +873,14 @@ class ChatWindow(QWidget):
         """点击快捷回复按钮，填入输入框并触发发送。"""
         self.input_edit.setPlainText(text)
         self._on_send()
+
+    def _on_role_changed(self, role_id: str, avatar_path: str = "",
+                         base_expr: str = "normal") -> None:
+        """v2.1(UI-P2): 角色生效广播 → 只清人名缓存（历史气泡不追溯）。"""
+        try:
+            invalidate_default_speaker_name()
+        except Exception:
+            logger.debug("静默降级：_on_role_changed 中忽略异常", exc_info=True)
 
     def _on_message_added(self, role: str, content: str) -> None:
         # R1: 发送方已抑制回声（面板/窗口直插气泡）时跳过，避免双气泡
@@ -785,20 +997,20 @@ class ChatWindow(QWidget):
             return
         add_highlight(self.app_ctx, role, text, session_id="")
         try:
-            self.subtitle_label.setText("已收藏 ✨")
+            self.subtitle_label.setText(f"已收藏 {icons.text_glyph('auto_awesome', '✨')}")
         except Exception:
-            pass
+            logger.debug("静默降级：_on_favorite_requested 中忽略异常", exc_info=True)
         try:
             from gui.qt_compat import QTimer
             QTimer.singleShot(1500, self._restore_subtitle)
         except Exception:
-            pass
+            logger.debug("静默降级：_on_favorite_requested 中忽略异常", exc_info=True)
 
     def _restore_subtitle(self) -> None:
         try:
             self.subtitle_label.setText("在线")
         except Exception:
-            pass
+            logger.debug("静默降级：_restore_subtitle 中忽略异常", exc_info=True)
 
     # ----- v1.3(P1-1): 朗读本条（TTS，浮窗版）-----
     def _on_bubble_read_aloud(self, bubble: Optional[MessageBubble]) -> None:
@@ -811,7 +1023,7 @@ class ChatWindow(QWidget):
             try:
                 tts.stop()
             except Exception:
-                pass
+                logger.debug("静默降级：_on_bubble_read_aloud 中忽略异常", exc_info=True)
             return
         text = (bubble.get_text() or "").strip()
         if not text:
@@ -819,7 +1031,7 @@ class ChatWindow(QWidget):
         try:
             tts.speak(text, owner=bubble)
         except Exception:
-            pass
+            logger.debug("静默降级：_on_bubble_read_aloud 中忽略异常", exc_info=True)
 
     def _on_tts_state_changed(self, owner) -> None:
         try:
@@ -831,7 +1043,7 @@ class ChatWindow(QWidget):
                 if isinstance(w, MessageBubble):
                     w.set_read_aloud(w is owner)
         except Exception:
-            pass
+            logger.debug("静默降级：_on_tts_state_changed 中忽略异常", exc_info=True)
 
     def _scroll_to_bottom(self) -> None:
         scrollbar = self.scroll_area.verticalScrollBar()
@@ -935,7 +1147,7 @@ class ChatWindow(QWidget):
             text = mood_tooltip_text(companion, state)
             self._tray_icon.setToolTip(f"{text}\n点开浮窗找码铃聊聊")
         except Exception:
-            pass
+            logger.debug("静默降级：_refresh_tray_mood 中忽略异常", exc_info=True)
 
     # ----- v1.6(P0-3/D-V16-05): 反馈三键动作行（浮窗侧，不入会话存档） -----
     def _on_proactive_feedback_ready(self, subject: str, scene: str) -> None:
@@ -952,7 +1164,7 @@ class ChatWindow(QWidget):
             self.messages_layout.insertWidget(idx, bar)
             self._feedback_bars.append(bar)
         except Exception:
-            pass
+            logger.debug("静默降级：_on_proactive_feedback_ready 中忽略异常", exc_info=True)
 
     def _on_feedback_picked(self, subject: str, scene: str, kind: str) -> None:
         """三键回调：纯 memory 策略写入（绝不触碰 intimacy / 交互打点）。"""
@@ -962,7 +1174,7 @@ class ChatWindow(QWidget):
             try:
                 memory_mgr.record_followup_feedback(subject, kind)
             except Exception:
-                pass
+                logger.debug("静默降级：_on_feedback_picked 中忽略异常", exc_info=True)
 
     def _clear_feedback_bars(self) -> None:
         """新一条用户消息发出时移除未点击的反馈动作行（防堆积）。"""
@@ -992,7 +1204,7 @@ class ChatWindow(QWidget):
                 6000,
             )
         except Exception:
-            pass
+            logger.debug("静默降级：_on_proactive_ready 中忽略异常", exc_info=True)
 
     def show_normal(self) -> None:
         """从托盘恢复显示窗口。"""
@@ -1127,7 +1339,7 @@ class ChatWindow(QWidget):
             )
             return
         dlg = voice_input_mod.VoiceInputDialog(self.app_ctx, self)
-        if dlg.exec() == voice_input_mod.VoiceInputDialog.Accepted:
+        if self._exec_modal_fade(dlg) == voice_input_mod.VoiceInputDialog.Accepted:
             text = dlg.transcript
             if text:
                 self.input_edit.setPlainText(text)

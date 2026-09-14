@@ -175,11 +175,11 @@ DANGEROUS_COMMANDS = [
     ":(){ :|:& };:", "> /etc/passwd", "> /etc/shadow",
 ]
 
+# ⚠ 真值源 = command_runner.ALLOWED_COMMANDS（AGENTS.md §2.2）。
+# 本列表仅用于快速预检，必须始终为 ALLOWED_COMMANDS 的**子集**（预检不得比执行更宽）；
+# 修改安全列表必须同步更新两处，否则会再次漂移。
 SAFE_COMMAND_WHITELIST = [
-    "python", "python3", "pytest",
-    "gcc", "g++", "javac", "java",
-    "cargo", "rustc", "go",
-    "black", "flake8", "mypy", "isort",
+    "python", "python3", "pytest", "node",
 ]
 
 SENSITIVE_PATTERNS = [

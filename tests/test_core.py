@@ -42,6 +42,19 @@ class TestSafeCommandWhitelist:
         overlap = set(SAFE_COMMAND_WHITELIST) & set(FORBIDDEN_COMMANDS)
         assert not overlap, f"白名单与禁止列表有交集: {overlap}"
 
+    def test_whitelist_is_subset_of_allowed_commands(self):
+        """预检白名单必须是权威源 ALLOWED_COMMANDS 的子集（AGENTS.md §2.2）。
+
+        防漂移守卫：SAFE_COMMAND_WHITELIST 仅用于快速预检，不得比
+        command_runner.ALLOWED_COMMANDS 更宽；否则预检放行的命令会被执行层拒绝，
+        造成"双向矛盾"（历史违规，已收敛）。
+        """
+        from core import SAFE_COMMAND_WHITELIST
+        from command_runner import ALLOWED_COMMANDS
+        extra = set(SAFE_COMMAND_WHITELIST) - set(ALLOWED_COMMANDS)
+        assert not extra, f"预检白名单超出权威源（漂移）: {extra}"
+        assert set(SAFE_COMMAND_WHITELIST) <= set(ALLOWED_COMMANDS)
+
 
 class TestNormalizeProvider:
     """normalize_provider 映射测试。"""

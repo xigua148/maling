@@ -27,6 +27,19 @@ def confirm_harness_call(task_prompt: str) -> bool:
     - GUI 当前没有接入 call_harness；若未来接入，建议在调用方
       弹 QMessageBox.question 后再传 confirm_fn=lambda _: True
       或直接传自己的对话框包装函数。
+
+    ⚠ 风险说明（fail-open，与 AGENTS.md §2.1 存在张力）：
+    - 本函数在**非 TTY**（脚本 / CI / 子进程 / GUI）下**返回 True 自动放行**，
+      属 fail-open；§2.1 要求「确认渠道未配置时一律拒绝」。当前仅靠前置的
+      `is_command_safe(task_prompt, safety_mode)`（默认 blacklist）兜底，
+      并非完全无防护，但**仍与 §2.1 精神不符**（已记为既存红线，见
+      `_codebase_map.md §6.8.3 #3`）。
+    - 正确修法：为 GUI 路径传入**显式确认对话框**（在调用方弹窗后再决定），
+      而非在 harness 内部把非 TTY 直接改为拒绝——后者会让**永远非 TTY 的 GUI
+      直接失去 harness 功能**，属功能回归。
+    - 该修法需要改动 `confirm_fn` 的注入点 `session.py`（`call_harness` 的
+      confirm_fn 由 `session.py` 传入），而 `session.py` 属保护区，
+      **需另行授权后方可实施**。当前**不修行为**，仅留此说明。
     """
     if not sys.stdin.isatty():
         return True

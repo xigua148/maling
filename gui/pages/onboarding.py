@@ -30,8 +30,8 @@ class DependencyCheckWidget(QWidget):
         layout.setSpacing(20)
 
         title = QLabel("环境检查")
+        title.setObjectName("onboardingSectionTitle")
         font = QFont()
-        font.setPointSize(16)
         font.setBold(True)
         title.setFont(font)
         layout.addWidget(title)
@@ -114,8 +114,8 @@ class FeatureCarouselWidget(QWidget):
         layout.setSpacing(20)
 
         title = QLabel("核心功能")
+        title.setObjectName("onboardingSectionTitle")
         font = QFont()
-        font.setPointSize(16)
         font.setBold(True)
         title.setFont(font)
         layout.addWidget(title)
@@ -143,14 +143,13 @@ class FeatureCarouselWidget(QWidget):
             c_layout.setSpacing(8)
 
             icon_label = QLabel(icon)
+            icon_label.setObjectName("featureCardIcon")
             icon_font = QFont()
-            icon_font.setPointSize(24)
             icon_label.setFont(icon_font)
             c_layout.addWidget(icon_label)
 
             t = QLabel(feat_title)
             t_font = QFont()
-            t_font.setPointSize(12)
             t_font.setBold(True)
             t.setFont(t_font)
             c_layout.addWidget(t)
@@ -182,8 +181,8 @@ class AIConfigWidget(QWidget):
         layout.setSpacing(20)
 
         title = QLabel("AI 配置")
+        title.setObjectName("onboardingSectionTitle")
         font = QFont()
-        font.setPointSize(16)
         font.setBold(True)
         title.setFont(font)
         layout.addWidget(title)
@@ -288,8 +287,8 @@ class ThemePreviewWidget(QWidget):
         layout.setSpacing(14)
 
         title = QLabel("主题预览")
+        title.setObjectName("onboardingSectionTitle")
         font = QFont()
-        font.setPointSize(16)
         font.setBold(True)
         title.setFont(font)
         layout.addWidget(title)
@@ -319,8 +318,8 @@ class ThemePreviewWidget(QWidget):
             cl = QVBoxLayout(card)
             cl.setContentsMargins(20, 14, 20, 14)
             t = QLabel(name)
+            t.setObjectName("themePreviewName")
             tf = QFont()
-            tf.setPointSize(13)
             tf.setBold(True)
             t.setFont(tf)
             cl.addWidget(t)
@@ -374,8 +373,8 @@ class OnboardingDialog(QWidget):
 
         # 步骤标题
         self.step_title = QLabel(self.STEP_TITLES[0])
+        self.step_title.setObjectName("onboardingStepTitle")
         step_font = QFont()
-        step_font.setPointSize(14)
         step_font.setBold(True)
         self.step_title.setFont(step_font)
         self.step_title.setContentsMargins(20, 12, 20, 0)
@@ -392,6 +391,10 @@ class OnboardingDialog(QWidget):
         self.stack.addWidget(self.feature_carousel)
         self.stack.addWidget(self.ai_config)
         self.stack.addWidget(self.theme_preview)
+        # v2.1(UI bugfix): theme_preview.theme_selected 必须接住 —— 此前全文件无任何
+        #   connect()，用户点「选择此风格」后信号发出去没人收，「完成」时应用的仍是
+        #   _selected_theme 的默认值 ui_minimal。这是「选了不生效」bug 的根因。
+        self.theme_preview.theme_selected.connect(self._on_theme_selected)
 
         layout.addWidget(self.stack, 1)
 
@@ -437,6 +440,11 @@ class OnboardingDialog(QWidget):
         if self._current_step > 0:
             self._current_step -= 1
             self._update_step()
+
+    def _on_theme_selected(self, theme_name: str) -> None:
+        # v2.1(UI bugfix): 收 theme_preview.theme_selected，记录到 _selected_theme，
+        #   完成时（onboarding.py:490-507）会据此调用 theme_engine.load_theme 并写 config。
+        self._selected_theme = theme_name
 
     def _update_step(self) -> None:
         self.stack.setCurrentIndex(self._current_step)

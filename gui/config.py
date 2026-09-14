@@ -10,6 +10,11 @@ from gui.utils import get_user_data_dir
 
 logger = logging.getLogger("maid_coder.gui")
 
+# v2.1(D-V21-10): 动效档合法值域（与 gui/motion.py LEVELS 一致；此处本地声明
+# 避免 config 层 import Qt 侧模块）。非法值读时归一为 standard。
+ANIMATION_LEVELS = ("off", "soft", "standard")
+DEFAULT_ANIMATION_LEVEL = "standard"
+
 
 class GuiConfig:
     """GUI 专属配置，持久化到本地 JSON。"""
@@ -109,6 +114,14 @@ class GuiConfig:
         self.auto_download: bool = True       # 后台自动下载（安装仍需用户确认，Q-U9）
         self.use_mirror: bool = True          # 启用备用链（镜像）
         self.mirror_url: str = ""             # 自定义镜像直链（其 host 进 R-M 白名单）
+        # ---- v2.1(D-V21-10/§4.1): 外观与效果（M-6 动效档 / G-2/G-3 毛玻璃 / C-2 省电）----
+        # 既有键零改动；旧存档缺这些键 → hasattr 循环跳过 → 取本类默认（零迁移）。
+        self.animation_level: str = "standard"          # off / soft / standard（非法归一 standard）
+        self.glass_enabled: bool = True                 # 主窗毛玻璃总开关（G-3 默认开）
+        self.glass_popups_enabled: bool = True          # 浮层毛玻璃开关（G-2）
+        self.power_save_mode: bool = False              # 省电模式（C-2 一键关动效+毛玻璃）
+        self.animation_level_pre_power_save: str = "standard"   # 进省电前的动效档快照
+        self.glass_enabled_pre_power_save: bool = True          # 进省电前的毛玻璃快照
 
     @classmethod
     def load(cls) -> "GuiConfig":
@@ -125,6 +138,9 @@ class GuiConfig:
                 # 保证设置页下拉与消费侧读到的是同一个形态（下次保存即落盘 maid）。
                 if cfg.pet_style != "maid":
                     cfg.pet_style = "maid"
+                # v2.1(D-V21-10/§4.1)：非法动效档归一为 standard（既有键不受影响）。
+                if cfg.animation_level not in ANIMATION_LEVELS:
+                    cfg.animation_level = DEFAULT_ANIMATION_LEVEL
                 logger.info("GUI 配置已加载: %s", path.resolve())
             except Exception as exc:
                 logger.warning("GUI 配置加载失败，使用默认: %s", exc)
@@ -203,6 +219,13 @@ class GuiConfig:
             "auto_download": self.auto_download,
             "use_mirror": self.use_mirror,
             "mirror_url": self.mirror_url,
+            # v2.1(D-V21-10/§4.1): 外观与效果（既有键零改动）
+            "animation_level": self.animation_level,
+            "glass_enabled": self.glass_enabled,
+            "glass_popups_enabled": self.glass_popups_enabled,
+            "power_save_mode": self.power_save_mode,
+            "animation_level_pre_power_save": self.animation_level_pre_power_save,
+            "glass_enabled_pre_power_save": self.glass_enabled_pre_power_save,
         }
         try:
             self._config_path().write_text(

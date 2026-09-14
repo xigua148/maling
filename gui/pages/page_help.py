@@ -3,10 +3,25 @@ from __future__ import annotations
 
 from typing import Optional
 
+from gui import icons
 from gui.qt_compat import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QTextBrowser,
     QHBoxLayout, Qt, QFont,
 )
+from gui.utils import theme_color
+
+
+def _vector_icon(app_ctx, name: str, size: int, color):
+    """取矢量 ``QIcon``；字体/名字不可用或渲染失败 → ``None``（调用方回落纯文字）。"""
+    try:
+        if not name or not icons.available() or not icons.has(name):
+            return None
+        ic = icons.icon(name, size, color)
+        if ic is None or ic.isNull():
+            return None
+        return ic
+    except Exception:
+        return None
 
 
 class PageHelp(QWidget):
@@ -23,13 +38,24 @@ class PageHelp(QWidget):
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(20)
 
-        # 页面标题
+        # 页面标题（v2.1/V21-12：统一矢量图标；字体不可用时纯文字）
+        title_row = QHBoxLayout()
+        title_row.setSpacing(8)
         title_label = QLabel("帮助中心")
+        title_label.setObjectName("pageTitle")
         title_font = QFont()
-        title_font.setPointSize(16)
         title_font.setBold(True)
         title_label.setFont(title_font)
-        layout.addWidget(title_label)
+        tic = _vector_icon(self.app_ctx, "help", 20,
+                           theme_color(self.app_ctx, "text", "#5D4037"))
+        if tic is not None:
+            icon_lab = QLabel()
+            icon_lab.setPixmap(tic.pixmap(20, 20))
+            icon_lab.setFixedSize(20, 20)
+            title_row.addWidget(icon_lab)
+        title_row.addWidget(title_label)
+        title_row.addStretch()
+        layout.addLayout(title_row)
 
         # 简介
         intro = QLabel("欢迎使用码铃！以下是常用功能和快捷操作指南。")
@@ -39,8 +65,8 @@ class PageHelp(QWidget):
 
         # 快捷命令
         cmds_title = QLabel("快捷命令")
+        cmds_title.setObjectName("helpSectionTitle")
         cmds_font = QFont()
-        cmds_font.setPointSize(13)
         cmds_font.setBold(True)
         cmds_title.setFont(cmds_font)
         layout.addWidget(cmds_title)
@@ -62,6 +88,7 @@ class PageHelp(QWidget):
 
         # 快捷键
         keys_title = QLabel("快捷键")
+        keys_title.setObjectName("helpSectionTitle")
         keys_title.setFont(cmds_font)
         layout.addWidget(keys_title)
 

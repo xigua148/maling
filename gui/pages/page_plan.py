@@ -8,16 +8,35 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from gui import icons
 from gui.qt_compat import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QTextEdit, QComboBox, QProgressBar, QTreeWidget,
     QTreeWidgetItem, QFrame, Qt, QFont, QMessageBox, QInputDialog,
-    QMenu, QListWidget, QListWidgetItem,
+    QMenu, QListWidget, QListWidgetItem, QSize,
 )
+from gui.utils import theme_color
 
 logger = logging.getLogger("maid_coder.gui")
 
 DEFAULT_PLANS_DIR = Path.home() / ".maid_coder" / "plans"
+
+# v2.1(V21-12/D-V21-06): 里程碑图标统一 —— 只记「图标名 + 尺寸 + theme_color 取色」，
+# 字体不可用时回落原 emoji。
+_MILESTONE_ICON_SIZE = 16
+
+
+def _vector_icon(app_ctx, name: str, size: int, color):
+    """取矢量 ``QIcon``；字体/名字不可用或渲染失败 → ``None``（调用方回落 emoji）。"""
+    try:
+        if not name or not icons.available() or not icons.has(name):
+            return None
+        ic = icons.icon(name, size, color)
+        if ic is None or ic.isNull():
+            return None
+        return ic
+    except Exception:
+        return None
 
 
 class Task:
@@ -249,8 +268,8 @@ class PagePlan(QWidget):
         # 顶部工具栏
         header = QHBoxLayout()
         title = QLabel("计划编辑器")
+        title.setObjectName("sidebarTitle")
         title_font = QFont()
-        title_font.setPointSize(14)
         title_font.setBold(True)
         title.setFont(title_font)
         header.addWidget(title)
@@ -397,7 +416,6 @@ class PagePlan(QWidget):
         layout.setSpacing(12)
         title_label = QLabel(title)
         title_font = QFont()
-        title_font.setPointSize(12)
         title_font.setBold(True)
         title_label.setFont(title_font)
         layout.addWidget(title_label)
@@ -444,9 +462,16 @@ class PagePlan(QWidget):
 
     def _refresh_milestone_tree(self, plan: Plan) -> None:
         self.milestone_tree.clear()
+        self.milestone_tree.setIconSize(QSize(_MILESTONE_ICON_SIZE, _MILESTONE_ICON_SIZE))
         for milestone in plan.milestones:
             ms_item = QTreeWidgetItem(self.milestone_tree)
-            ms_item.setText(0, f"📌 {milestone.name}")
+            ic = _vector_icon(self.app_ctx, "bookmark", _MILESTONE_ICON_SIZE,
+                              theme_color(self.app_ctx, "accent", "#FF6B9D"))
+            if ic is not None:
+                ms_item.setText(0, milestone.name)
+                ms_item.setIcon(0, ic)
+            else:
+                ms_item.setText(0, f"📌 {milestone.name}")
             ms_item.setData(0, Qt.UserRole, ("milestone", milestone.id))
             ms_item.setFlags(ms_item.flags() | Qt.ItemIsEditable)
 
@@ -677,6 +702,10 @@ class PagePlan(QWidget):
             QWidget#planPage {{
                 background: {bg};
             }}
+            /* v2.1(UI-Fix-0912): 显式兜住本页 QLabel 颜色 —— 页面自有 setStyleSheet
+               会遮蔽应用级 QSS 的继承,若主题加载失败/明暗错配则本页文字失去颜色。
+               更具体的 ID 规则(如 QLabel#roleHint)按特异性胜出,不受影响。 */
+            QLabel {{ color: {text}; }}
             QWidget#planSidebar {{
                 background: {card_bg};
                 border-right: 1px solid {border};

@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
+from gui import icons
+
 
 def should_trigger_command_popup(text: str) -> bool:
     """判断输入文本是否应触发指令补全弹窗。
@@ -62,22 +64,22 @@ def format_agent_event_status(event_type: str, data: dict) -> Optional[str]:
     """
     if event_type == "llm_start":
         step = data.get("step", 1)
-        return f"🤖 Agent 第 {step} 步：正在思考…"
+        return f"{icons.text_glyph('agent', '🤖')} Agent 第 {step} 步：正在思考…"
     if event_type == "tool_call":
         name = data.get("name", "")
         args = data.get("arguments", {})
         summary = str(args)[:60]
-        return f"🔧 调用工具 {name}({summary})…"
+        return f"{icons.text_glyph('plugin', '🔧')} 调用工具 {name}({summary})…"
     if event_type == "tool_done":
         name = data.get("name", "")
         ok = data.get("ok", False)
-        mark = "✅" if ok else "❌"
+        mark = icons.text_glyph("check", "✅") if ok else icons.text_glyph("close", "❌")
         return f"{mark} 工具 {name} 执行完成"
     if event_type == "tool_denied":
         name = data.get("name", "")
-        return f"⛔ 工具 {name} 已被你拒绝授权"
+        return f"{icons.text_glyph('lock', '⛔')} 工具 {name} 已被你拒绝授权"
     if event_type == "max_steps":
-        return "⚠️ 达到最大步骤上限，提前收尾"
+        return f"{icons.text_glyph('warning', '⚠️')} 达到最大步骤上限，提前收尾"
     return None
 
 

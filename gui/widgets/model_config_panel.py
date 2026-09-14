@@ -119,7 +119,6 @@ class ModelConfigPanel(QWidget):
         # ---- ② 厂商卡片 ----
         picker_title = QLabel("选择厂商（点选卡片）")
         pf = QFont()
-        pf.setPointSize(12)
         pf.setBold(True)
         picker_title.setFont(pf)
         layout.addWidget(picker_title)

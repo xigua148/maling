@@ -63,8 +63,8 @@ class PageProject(QWidget):
         # 页面标题
         title_row = QHBoxLayout()
         self.title_label = QLabel("项目")
+        self.title_label.setObjectName("pageTitle")
         title_font = QFont()
-        title_font.setPointSize(16)
         title_font.setBold(True)
         self.title_label.setFont(title_font)
         title_row.addWidget(self.title_label)

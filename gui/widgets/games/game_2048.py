@@ -288,15 +288,19 @@ class Game2048(QWidget):
                     tile.setText(str(v))
                 font = tile.font()
                 if v < 128:
-                    font.setPointSize(26)
+                    _fs_px = 35      # 原 26pt
                 elif v < 1024:
-                    font.setPointSize(22)
+                    _fs_px = 29      # 原 22pt
                 else:
-                    font.setPointSize(18)
+                    _fs_px = 24      # 原 18pt
                 font.setBold(True)
                 tile.setFont(font)
+                # v2.1 后续：应用级 QSS 的 `QWidget { font-size: 14px }` 会压过 setFont，
+                # 故值相关字号只写进瓦片自身样式表（控件级优先级最高），三档差异由此保留；
+                # 代码侧不再 setPointSize（会被样式表压掉，徒留死行）。
                 tile.setStyleSheet(
-                    f"QLabel {{ background: {bg}; color: {fg}; border-radius: 10px; }}"
+                    f"QLabel {{ background: {bg}; color: {fg}; border-radius: 10px;"
+                    f" font-size: {_fs_px}px; }}"
                 )
 
     # ------------------------------------------------------------------

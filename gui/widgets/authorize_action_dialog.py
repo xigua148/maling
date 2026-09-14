@@ -19,6 +19,7 @@ from gui.qt_compat import (
     QFrame,
 )
 from gui.utils import theme_color
+from gui import icons
 
 logger = logging.getLogger("maid_coder.gui.authorize_action")
 
@@ -46,7 +47,8 @@ def detect_sensitive(text: str) -> Optional[str]:
     if not hit:
         return None
     return (
-        "⚠️ 这段输入看起来含敏感信息（检测到「{}」类语义）。"
+        icons.text_glyph("warning", "⚠️")
+        + " 这段输入看起来含敏感信息（检测到「{}」类语义）。"
         "码铃会**照原文如实输入**预览框里的内容，请先确认目标输入框与内容都正确；"
         "码铃不会记录你的输入。"
     ).format(hit)
@@ -77,8 +79,8 @@ class AuthorizeActionDialog(QDialog):
 
         atype = str(self._action.get("type") or "")
         title = QLabel("码铃想执行一个电脑操作")
+        title.setObjectName("authDialogTitle")
         f = QFont()
-        f.setPointSize(13)
         f.setBold(True)
         title.setFont(f)
         title.setStyleSheet(f"color: {text_main};")
@@ -141,7 +143,7 @@ class AuthorizeActionDialog(QDialog):
             txt.setWordWrap(True)
             txt.setTextInteractionFlags(Qt.TextSelectableByMouse)
             txt.setStyleSheet(
-                f"color: {text_main}; font-size: 12px; font-family: Consolas, 'Microsoft YaHei';"
+                f"color: {text_main}; font-size: 12px; font-family: \"Consolas\", \"Microsoft YaHei\";"
             )
             box_l.addWidget(txt)
             layout.addWidget(box)
@@ -169,7 +171,7 @@ class AuthorizeActionDialog(QDialog):
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
-        allow = QPushButton("✅ 允许这一次")
+        allow = QPushButton(f"{icons.text_glyph('check', '✅')} 允许这一次")
         allow.setCursor(Qt.PointingHandCursor)
         allow.setStyleSheet(
             f"QPushButton {{ background: {accent}; color: {theme_color(self, 'text_on_accent', '#FFFFFF')};"

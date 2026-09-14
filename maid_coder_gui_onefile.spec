@@ -49,6 +49,11 @@ a = Analysis(
         # 的源码态基准 gui/ 对齐（frozen 态基准 sys._MEIPASS）；否则单文件版
         # get_resource_path("assets/fonts/…") 落空 → 静默回退雅黑、内置字体白做。
         ('gui/assets/fonts', 'assets/fonts'),
+        # ---- v2.1(图标字形体系)：图标字体 TTF + manifest + 许可副本。必须与 onedir.spec
+        #    对齐（目标目录 'assets/icons'，与 gui/icons.py 的 ICON_DIR_REL="assets/icons"
+        #    一致）；否则 frozen 态 get_resource_path("assets/icons/…") 落空 → 图标内核
+        #    available() 为假 → 静默回退 emoji，本轮新增的图标字形体系在单文件版失效。
+        ('gui/assets/icons', 'assets/icons'),
         # ---- v2.0(V20-17): 内嵌自动更新 sidecar（design D-V20-08）----
         # onefile 下 datas 进自解压 _MEIPASS → 运行时 _MEIPASS/updater/maling_updater.exe；
         # 与 gui/main.py:977 get_resource_path("updater") + ensure_self_installed 布局对齐。

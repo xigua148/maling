@@ -16,6 +16,7 @@ from typing import Optional
 
 from gui.qt_compat import QWidget, QHBoxLayout, QLabel, QPushButton, Signal, Qt
 from gui.utils import theme_color, brand_persona_self
+from gui import icons
 
 STATE_RUNNING = "running"
 STATE_PAUSED = "paused"
@@ -46,16 +47,18 @@ class ScreenWatchBar(QWidget):
         self._row.setContentsMargins(12, 2, 12, 2)
         self._row.setSpacing(8)
 
-        self._dot = QLabel("●")
-        self._dot.setFixedWidth(14)
-        self._row.addWidget(self._dot)
+        # v2.x 落点③（阶段 B「融入度」复核后**回退**）：**不再新增指示图形**。
+        # 原 ``LoopIndicator("ripple")`` 经复核判为**外来母题**（涟漪 = 声呐/雷达，
+        # 码铃别处无此词汇），且与紧邻的 👀 **语义重复**；本控件原本亦无任何图形。
+        # 故回到"👀 文案即指示"的克制形态。详见 ``_phaseB_report.md §2③``。
+        # （已无循环动效 → 本控件不再有 hideEvent/showEvent 停启逻辑。）
 
         self._status = QLabel(self._compose_text())
         self._status.setObjectName("screenWatchStatus")
         self._status.setWordWrap(True)
         self._row.addWidget(self._status, 1)
 
-        self._peek_btn = QPushButton("📷 看一帧")
+        self._peek_btn = QPushButton(f"{icons.text_glyph('camera', '📷')} 看一帧")
         self._peek_btn.setObjectName("screenWatchBtn")
         self._peek_btn.setCursor(Qt.PointingHandCursor)
         self._peek_btn.setFixedHeight(24)
@@ -63,7 +66,7 @@ class ScreenWatchBar(QWidget):
         self._peek_btn.clicked.connect(lambda: self.peek_requested.emit())
         self._row.addWidget(self._peek_btn)
 
-        self._ask_btn = QPushButton("🔍 按当前屏提问")
+        self._ask_btn = QPushButton(f"{icons.text_glyph('search', '🔍')} 按当前屏提问")
         self._ask_btn.setObjectName("screenWatchBtn")
         self._ask_btn.setCursor(Qt.PointingHandCursor)
         self._ask_btn.setFixedHeight(24)
@@ -81,7 +84,7 @@ class ScreenWatchBar(QWidget):
         self._resume_btn.setVisible(False)
         self._row.addWidget(self._resume_btn)
 
-        self._close_btn = QPushButton("✕ 关")
+        self._close_btn = QPushButton(f"{icons.text_glyph('close', '✕')} 关")
         self._close_btn.setObjectName("screenWatchBtn")
         self._close_btn.setCursor(Qt.PointingHandCursor)
         self._close_btn.setFixedHeight(24)
@@ -162,7 +165,9 @@ class ScreenWatchBar(QWidget):
         # v1.9(V19-16/D-V19-14): D 风格（ui_whale）状态 chip 自称随当前角色
         who = brand_persona_self(self.app_ctx) or "码铃"
         if self._ask_pending:
-            return "👀 {}在看 · 已分析 {} 帧 · {} · 🔍 下一条将带上当前屏幕".format(who, self._frames, token_txt)
+            return "👀 {}在看 · 已分析 {} 帧 · {} · {} 下一条将带上当前屏幕".format(
+                who, self._frames, token_txt, icons.text_glyph("search", "🔍")
+            )
         return "👀 {}在看 · 已分析 {} 帧 · {}".format(who, self._frames, token_txt)
 
     def _on_theme_changed(self) -> None:
@@ -208,7 +213,6 @@ class ScreenWatchBar(QWidget):
                 f"ScreenWatchBar {{ background: {bg}; border: 1px solid {border};"
                 f" border-radius: 10px; }}"
             )
-            self._dot.setStyleSheet(f"color: {dot}; font-size: 10px;")
             self._status.setStyleSheet(
                 f"color: {text}; font-size: 11px; background: transparent;"
             )
@@ -233,6 +237,6 @@ class ScreenWatchBar(QWidget):
             f"QPushButton#screenWatchBtn:hover {{ background: {bg_light}; }}"
         )
 
-    def showEvent(self, event) -> None:  # noqa: N802
-        super().showEvent(event)
-        self._apply_theme()
+    # v2.x 落点③回退后：本控件**已无循环动效**（涟漪已移除），故不再需要
+    # hideEvent/showEvent 的"隐藏即停 / 显示复启"逻辑；主题变更由
+    # ``_on_theme_changed`` 承接（`theme_changed` 信号）。

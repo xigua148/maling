@@ -10,9 +10,11 @@ from gui.qt_compat import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
     QPushButton, Qt, QSizePolicy, QFont, QTextBrowser, QFrame,
     QMenu, Signal, QPainter, QColor, QPixmap, QPainterPath,
+    QTimer,
 )
 from gui.syntax_highlighter import SimpleSyntaxHighlighter
 from gui.utils import theme_color
+from gui import icons
 from gui.widgets.attachment_bar import attachment_icon, human_size
 
 # v1.2 A-10 (B3): AI 气泡旁 Q 版头像 —— 复用 MaidAssets 主形象（圆形裁剪）。
@@ -46,6 +48,66 @@ except Exception:
 
 _bubble_assets_cache = None
 _bubble_pet_assets_cache = None
+
+# v2.1(UI-P2)：气泡「谁在说话」显示的是**人名**（given_name），**不是人设标签**。
+# 「女仆」/「猫娘」/「毒舌博士」是角色**类型**，绝不能进姓名位（用户亲述口径）。
+# 最终兜底用产品名「码铃」—— 不用 role.name、不用任何旧人设标签。
+SPEAKER_NAME_FALLBACK = "码铃"
+USER_SPEAKER_NAME = "主人"
+_default_speaker_name_cache: Optional[str] = None
+
+
+def resolve_speaker_name(role) -> str:
+    """把一个 Role 解析成**显示人名**（三级兜底，真值源 gui/pages/page_role.py）。
+
+    1. ``role.given_name`` 非空                       → 用它（小铃 / 小咪 / 铃奈 / 小鲸）
+    2. 空 且 ``role.name`` 命中 ``ROLE_PRESETS`` 且该预设 ``given_name`` 非空
+                                                      → 用预设 given_name
+       （覆盖 v1.9 之前的角色 JSON 快照：无 given_name 字段 → 仍得「小铃」，
+         无需改用户数据、无需写迁移）
+    3. 空 且预设也没有（编程老手 / 温柔姐姐 / 毒舌博士 的 given_name 确为空串）
+                                                      → 「码铃」（产品名）
+
+    v1.9 语义：``given_name`` 空是**合法状态**（无名字 → 自称「我」），
+    所以第 3 步兜底必须存在；但**绝不能退化成 role.name**（那是人设标签）。
+    """
+    given = (getattr(role, "given_name", "") or "").strip()
+    if given:
+        return given
+    try:
+        from gui.pages.page_role import ROLE_PRESETS
+        preset = ROLE_PRESETS.get((getattr(role, "name", "") or "").strip()) or {}
+        preset_given = (preset.get("given_name", "") or "").strip()
+        if preset_given:
+            return preset_given
+    except Exception:
+        pass
+    return SPEAKER_NAME_FALLBACK
+
+
+def resolve_default_speaker_name() -> str:
+    """当前默认角色的人名，模块级缓存（解析次数 = 角色切换次数）。
+
+    ``RoleManager()`` 构造即 ``_load_all()``（同步读盘），聊天一次可能上百条气泡，
+    **绝不能每条 new 一次** → 模块级缓存，只在「角色生效广播」时失效
+    （见 :func:`invalidate_default_speaker_name`）。
+    """
+    global _default_speaker_name_cache
+    if _default_speaker_name_cache is None:
+        name = SPEAKER_NAME_FALLBACK
+        try:
+            from gui.pages.page_role import RoleManager
+            name = resolve_speaker_name(RoleManager().default_role)
+        except Exception:
+            name = SPEAKER_NAME_FALLBACK
+        _default_speaker_name_cache = name
+    return _default_speaker_name_cache
+
+
+def invalidate_default_speaker_name() -> None:
+    """角色生效（role_changed）后清缓存 —— 下一条 AI 气泡即取新名字。"""
+    global _default_speaker_name_cache
+    _default_speaker_name_cache = None
 
 
 def _bubble_maid_assets():
@@ -275,6 +337,7 @@ class MessageBubble(QWidget):
         attachments: Optional[List[dict]] = None,
         error_style: bool = False,  # v10.15: 错误气泡红框
         avatar_path: Optional[str] = None,  # Bug4: 角色自定义头像文件路径（仅 AI 气泡消费）
+        speaker_name: Optional[str] = None,  # v2.1(UI-P2): 发言者**人名**（群聊）；空=取默认角色 given_name
     ):
         super().__init__(parent)
         self.role = role
@@ -286,6 +349,9 @@ class MessageBubble(QWidget):
         self.error_style = error_style  # v10.15
         # Bug4: 角色头像路径缓存（空串 = 无自定义头像 → 回落女仆表情头像）
         self.avatar_path = str(avatar_path or "")
+        # v2.1(UI-P2): 显示名 = 显式传入的人名 > 默认角色 given_name > 兜底「女仆」
+        self.speaker_name = (str(speaker_name or "").strip()
+                             or resolve_default_speaker_name())
         # 兼容 attachment dict（name/path/size/ext）
         self.attachments: List[dict] = []
         for a in attachments or []:
@@ -416,7 +482,9 @@ class MessageBubble(QWidget):
     def _show_context_menu(self, pos) -> None:
         """右键菜单：收藏高光 / 复制文本 / 删除消息 / 编辑或重新生成。"""
         menu = QMenu(self)
-        favorite_action = menu.addAction("✨ 收藏为高光回忆")
+        favorite_action = menu.addAction(
+            f"{icons.text_glyph('auto_awesome', '✨')} 收藏为高光回忆"
+        )
         menu.addSeparator()
         copy_action = menu.addAction("复制文本")
         copy_md_action = menu.addAction("复制 Markdown")
@@ -495,9 +563,15 @@ class MessageBubble(QWidget):
             meta_layout.setContentsMargins(0, 0, 0, 0)
             meta_layout.setSpacing(8)
 
-            name_label = QLabel("主人" if is_user else "女仆")
+            # v2.1(UI-P2): 显示**人名**（小铃 / 群聊成员名），不是人设标签（女仆）。
+            name_label = QLabel(USER_SPEAKER_NAME if is_user else self.speaker_name)
             name_label.setObjectName("nameLabel")
-            name_color = "#FF9EB5" if is_user else "#FF6B9D"
+            # v2.1(UI-P1): 裸色值 → 取主题色。
+            # 旧裸色 #FF6B9D / #FF9EB5 在 ui_minimal 下对比度仅 2.50 / 1.81。
+            # 第三轮：人名是 12px 小字，须满足小字 AA（vs bg ≥4.5）。改为取
+            # accent_text（「文字用」强调色，四风格 4.51~7.95），不再用「填充用」
+            # primary / primary_dark（仅 3.05 / 3.45，达不到小字 AA）。
+            name_color = theme_color(self.app_ctx, "accent_text", "#B45073")
             name_label.setStyleSheet(
                 f"QLabel {{ font-size: 12px; font-weight: 500; color: {name_color}; padding: 0 4px; }}"
             )
@@ -594,7 +668,7 @@ class MessageBubble(QWidget):
 
             # v1.3(P1-1): 朗读本条 —— AI 气泡同排按钮（朗读中切「⏹ 停止」，
             # 按钮态由 chat_panel/chat_window 经 TTSController.state_changed 驱动）
-            read_btn = QPushButton("🔊 朗读本条")
+            read_btn = QPushButton(f"{icons.text_glyph('volume', '🔊')} 朗读本条")
             read_btn.setObjectName("readAloudBtn")
             read_btn.setFixedHeight(24)
             read_btn.setCursor(Qt.PointingHandCursor)
@@ -876,7 +950,10 @@ class MessageBubble(QWidget):
 
         text_color = c["user_text"] if is_user else c["ai_text"]
         return (
-            f'<div style="color:{text_color};font-family:Microsoft YaHei,Segoe UI,sans-serif;'
+            # 注意：这是 HTML 富文本（style="..." 属性）而非 QSS；族名双引号必须写成
+            # &quot; —— 属性内直用 " 会在第一个内层引号处截断属性，font-family 整条丢失
+            # （真机实测：families=None）。
+            f'<div style="color:{text_color};font-family:&quot;Microsoft YaHei&quot;, &quot;Segoe UI&quot;, sans-serif;'
             f'font-size:14px;line-height:1.6;">{"".join(formatted)}</div>'
         )
 
@@ -931,10 +1008,10 @@ class MessageBubble(QWidget):
         editor.setObjectName("codeEditor")
         editor.setStyleSheet(
             "QTextEdit#codeEditor { background-color: #2D2D2D; color: #F8F8F2;"
-            " border: none; border-radius: 4px; font-family: Consolas, JetBrains Mono, monospace; font-size: 12px; }"
+            " border: none; border-radius: 4px; font-family: \"Consolas\", \"JetBrains Mono\", monospace; font-size: 12px; }"
         )
-        font = QFont("Consolas, JetBrains Mono, monospace")
-        font.setPointSize(10)
+        font = QFont()
+        font.setFamilies(["Consolas", "JetBrains Mono", "monospace"])
         editor.setFont(font)
 
         # 应用语法高亮
@@ -945,22 +1022,31 @@ class MessageBubble(QWidget):
         return container
 
     def update_text(self, new_content: str) -> None:
-        """更新消息内容，用于流式输出时原地刷新。"""
+        """更新消息内容（流式输出时原地刷新）。
+
+        v2.1(UI-P2)：纯文本路径走「原地 setHtml」—— 不销毁重建内容 widget，
+        零布局抖动、逐字平滑（vs. 上版 40ms 合批的「一段一段」）。出现/消失代码块
+        （```）或 widget 结构变更时自动切到完整重建路径（一次性小幅抖动，可接受）。
+        """
         self.raw_content = new_content
-        # 找到 bubbleFrame 并替换内容 widget
         bubble = self.findChild(QWidget, "bubbleFrame")
-        if bubble is None:
+        if bubble is None or bubble.layout() is None or bubble.layout().count() == 0:
             return
-        bubble_layout = bubble.layout()
-        # 第一个 widget 是内容区域
-        if bubble_layout.count() > 0:
-            old_widget = bubble_layout.itemAt(0).widget()
-            if old_widget is not None:
-                bubble_layout.removeWidget(old_widget)
-                old_widget.deleteLater()
+        old_widget = bubble.layout().itemAt(0).widget()
+        has_code_block = "```" in new_content
+        if not has_code_block and old_widget is not None and hasattr(old_widget, "setHtml"):
+            try:
+                old_widget.setHtml(self._markdown_to_html(new_content, self.role == "user"))
+                return
+            except Exception:
+                pass
+        # 含代码块 / 结构变更 → 完整重建
+        if old_widget is not None:
+            bubble.layout().removeWidget(old_widget)
+            old_widget.deleteLater()
         is_user = self.role == "user"
         new_widget = self._build_content_widget(new_content, is_user)
-        bubble_layout.insertWidget(0, new_widget)
+        bubble.layout().insertWidget(0, new_widget)
 
     def get_text(self) -> str:
         """获取消息原始文本内容。"""
@@ -1031,7 +1117,10 @@ class MessageBubble(QWidget):
         btn = self.findChild(QPushButton, "readAloudBtn")
         if btn is None:
             return
-        btn.setText("⏹ 停止" if active else "🔊 朗读本条")
+        btn.setText(
+            f"{icons.text_glyph('stop', '⏹')} 停止" if active
+            else f"{icons.text_glyph('volume', '🔊')} 朗读本条"
+        )
         btn.setToolTip("停止朗读" if active else "朗读本条 AI 回复（只朗读 AI 文本）")
         btn.setStyleSheet(self._read_btn_style(active=active))
 

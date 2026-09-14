@@ -75,6 +75,20 @@ EXPRESSION_IDS = MOOD_IDS + ACTIVITY_STATES + EXTENDED_EXPRESSIONS
 # 保留映射常量便于未来「表情与心情解耦」时只改一处。
 MOOD_TO_EXPRESSION: Dict[str, str] = {m: m for m in EXPRESSION_IDS}
 
+# 19 态表情完整中文标签（v2.1(UI-Fix-0912-2)补全；仅 5 态原有中文）
+EXPRESSION_LABELS: Dict[str, str] = {
+    # MOOD_IDS (5)
+    "normal": "平静", "happy": "开心", "concerned": "担忧", "shy": "害羞", "tired": "困倦",
+    # ACTIVITY_STATES (3)
+    "thinking": "思考中", "focus": "专注", "surprised": "惊讶",
+    # EXTENDED_EXPRESSIONS (12+)
+    "giggle": "偷笑", "wink": "眨眼", "pout": "嘟嘴", "teary": "委屈",
+    "greet": "打招呼", "heart": "比心", "cheeky": "调皮", "victory": "胜利",
+    "sparkle": "期待", "cry": "大哭", "bow": "鞠躬", "meltdown": "崩溃",
+    "nod": "点头", "shake": "摇头", "clap": "鼓掌",
+}
+
+
 # 心情态中文标签（后端语义/reason 生成用；GUI 心情只经表情与文案表达，勿挂「当前心情」标签）
 MOOD_LABELS = {
     "normal": "平静",

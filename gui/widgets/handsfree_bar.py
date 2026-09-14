@@ -11,20 +11,27 @@
 """
 from __future__ import annotations
 
-import math
-
 from typing import Optional
 
-from gui.qt_compat import QWidget, QHBoxLayout, QLabel, QPushButton, QTimer, Signal, Qt
+from gui.qt_compat import QWidget, QHBoxLayout, QLabel, QPushButton, Signal, Qt
 from gui.utils import theme_color
+from gui import icons
+from gui.widgets.loop_indicator import LoopIndicator
 
-STATE_TEXTS = {
-    "idle": "免提未开启：点下方「🎙 免提」即可开口发消息（说「暂停」或敲键盘会自动停下）",
-    "listening": "🎧 免提中 · 我在听，主人直接说就好～（开始打字/动鼠标会自动暂停）",
-    "recognizing": "👂 听到了，正在识别…",
-    "sending": "📨 正在发送给码铃… 稍等一下下~",
-    "speaking": "🔊 码铃正在把回答读给主人听…",
-}
+
+def state_texts() -> dict:
+    """免提各状态文案（运行时构建：图标字形随图标字体可用性 / 主题自动定）。
+
+    v2.1(D-V21-06): 状态图标改用 ``icons.text_glyph``，图标不可用时
+    原样回落 emoji（不空白、不崩）。禁止改为模块级常量（启动期字体未注册）。
+    """
+    return {
+        "idle": f"免提未开启：点下方「{icons.text_glyph('voice', '🎙')} 免提」即可开口发消息（说「暂停」或敲键盘会自动停下）",
+        "listening": f"{icons.text_glyph('headphone', '🎧')} 免提中 · 我在听，主人直接说就好～（开始打字/动鼠标会自动暂停）",
+        "recognizing": "👂 听到了，正在识别…",
+        "sending": f"{icons.text_glyph('send', '📨')} 正在发送给码铃… 稍等一下下~",
+        "speaking": f"{icons.text_glyph('volume', '🔊')} 码铃正在把回答读给主人听…",
+    }
 
 
 class HandsfreeBar(QWidget):
@@ -41,21 +48,23 @@ class HandsfreeBar(QWidget):
         self._row.setContentsMargins(12, 2, 12, 2)
         self._row.setSpacing(8)
 
-        self._dot = QLabel("●")
-        self._dot.setFixedWidth(14)
-        self._row.addWidget(self._dot)
+        # v2.x 落点②（阶段 B「融入度」复核后**回退**）：listening 态动效 =
+        # **单点 ● 呼吸**（``LoopIndicator("pulse")``）。
+        # 原 4 柱「弹跳柱条」经复核判为**外来母题** —— 柱条在通用软件里固定表示
+        # "音频电平 / 录音"，与本控件自述"**非音频电平**"（见下 R-B/R-A）
+        # **语义自相矛盾**；故回退为应用既有的"单点呼吸"语言
+        # （也是本控件改造前的原貌）。详见 ``_phaseB_report.md §2②``。
+        # R-P：隐藏即停（hideEvent → pause）；R-Q：off 档画**静态实心点**（不空白）。
+        # R-B/R-A：仍为纯 UI 形态，**非音频电平**（无波形分析、无音量映射）。
+        self._indicator = LoopIndicator("pulse", color="#FF6B9D", period_ms=1200)
+        self._row.addWidget(self._indicator)
 
-        # v1.6(P1-1/D-V16-11): listening 态录音呼吸动画 —— QTimer 驱动 ● 透明度
-        # 正弦波动（纯 UI；无波形分析、无音频落盘，R-B）。仅 listening 启停。
-        self._breath_timer: Optional[QTimer] = None
-        self._breath_phase: float = 0.0
-
-        self._status = QLabel(STATE_TEXTS["idle"])
+        self._status = QLabel(state_texts()["idle"])
         self._status.setObjectName("handsfreeStatus")
         self._status.setWordWrap(True)
         self._row.addWidget(self._status, 1)
 
-        self._stop_btn = QPushButton("⏹ 停止免提")
+        self._stop_btn = QPushButton(f"{icons.text_glyph('stop', '⏹')} 停止免提")
         self._stop_btn.setObjectName("handsfreeStopBtn")
         self._stop_btn.setCursor(Qt.PointingHandCursor)
         self._stop_btn.setFixedHeight(24)
@@ -77,49 +86,30 @@ class HandsfreeBar(QWidget):
     # 对外
     # ------------------------------------------------------------------
     def set_state(self, state: str) -> None:
-        self._state = state if state in STATE_TEXTS else "idle"
-        self._status.setText(STATE_TEXTS.get(self._state, STATE_TEXTS["idle"]))
+        texts = state_texts()
+        self._state = state if state in texts else "idle"
+        self._status.setText(texts.get(self._state, texts["idle"]))
         active = self._state != "idle"
         self._stop_btn.setVisible(active)
         self._apply_theme()
-        self._set_breathing(self._state == "listening")
+        # v2.x 落点②：4 柱循环仅 listening 态启停（经 motion.loop 收口）
+        if self._state == "listening":
+            self._indicator.start()
+        else:
+            self._indicator.stop()
 
     # ------------------------------------------------------------------
-    # v1.6(P1-1/D-V16-11): 录音呼吸动画（仅 listening 态启停，防常驻耗电）
+    # v2.x 落点②：R-P 隐藏即停（柱条循环停、保留 listening 意图，显示时复启）
     # ------------------------------------------------------------------
-    def _set_breathing(self, on: bool) -> None:
-        try:
-            if on:
-                if self._breath_timer is None:
-                    self._breath_timer = QTimer(self)
-                    self._breath_timer.setInterval(120)
-                    self._breath_timer.timeout.connect(self._on_breath_tick)
-                    self._breath_phase = 0.0
-                if not self._breath_timer.isActive():
-                    self._breath_timer.start()
-            else:
-                if self._breath_timer is not None and self._breath_timer.isActive():
-                    self._breath_timer.stop()
-                self._dot.setStyleSheet(
-                    f"color: {theme_color(self.app_ctx, 'accent', '#FF6B9D')};"
-                    f" font-size: 10px;"
-                )
-        except Exception:
-            pass
+    def hideEvent(self, event) -> None:  # noqa: N802
+        self._indicator.pause()
+        super().hideEvent(event)
 
-    def _on_breath_tick(self) -> None:
-        try:
-            self._breath_phase += 0.28
-            alpha = 0.45 + 0.55 * abs(math.sin(self._breath_phase))
-            hex_color = theme_color(self.app_ctx, "accent", "#FF6B9B").lstrip("#")
-            r = int(hex_color[0:2], 16)
-            g = int(hex_color[2:4], 16)
-            b = int(hex_color[4:6], 16)
-            self._dot.setStyleSheet(
-                f"color: rgba({r}, {g}, {b}, {alpha:.2f}); font-size: 10px;"
-            )
-        except Exception:
-            pass
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        self._apply_theme()
+        if self._state == "listening":
+            self._indicator.resume()
 
     def set_notice(self, text: str) -> None:
         """一次性说明（识别失败/自动暂停等），2.4s 后回落为状态文案。"""
@@ -135,7 +125,8 @@ class HandsfreeBar(QWidget):
         try:
             if not self.isVisible():
                 return
-            self._status.setText(STATE_TEXTS.get(self._state, STATE_TEXTS["idle"]))
+            texts = state_texts()
+            self._status.setText(texts.get(self._state, texts["idle"]))
         except RuntimeError:
             pass
 
@@ -157,7 +148,7 @@ class HandsfreeBar(QWidget):
                 f"HandsfreeBar {{ background: {bg}; border: 1px solid {border};"
                 f" border-radius: 10px; }}"
             )
-            self._dot.setStyleSheet(f"color: {dot}; font-size: 10px;")
+            self._indicator.set_color(dot)
             self._status.setStyleSheet(
                 f"color: {text}; font-size: 11px; background: transparent;"
             )
@@ -171,7 +162,3 @@ class HandsfreeBar(QWidget):
             )
         except Exception:
             pass
-
-    def showEvent(self, event) -> None:
-        super().showEvent(event)
-        self._apply_theme()

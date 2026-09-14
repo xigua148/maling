@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-from utils import _validate_file_path, _backup_path
+from core.path_guard import _validate_file_path, _backup_path
 
 
 # ---------------------------------------------------------------------------

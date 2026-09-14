@@ -42,6 +42,9 @@ build_updater/
 # 构建脚本产生的版本化发布目录（命名格式: release_v*）
 release_v*/
 
+# 当前活动发布目录（build_release.py 默认 --out release，含完整制品 ~515MB；历史版本见 release_v*/）
+release/
+
 # PyInstaller spec 的备份文件，属本地编辑残留，开源包无需携带
 *.spec.bak
 
@@ -82,3 +85,11 @@ _scratch_*/
 # ---- 工具私有元数据（不属项目代码，且可能含会话/记忆内容）----
 # 注意：该目录是工具运行所需，勿删除；仅不纳入版本控制
 .workbuddy/
+
+# ---- 编辑备份与临时打包产物（v2.1 补）----
+# `*.bak_*`：历史编辑备份（如 main_window.py.bak_transition / version.json.bak_210）
+*.bak
+*.bak_*
+# `wN_onedir` / `wN_onefile`：某轮 ad-hoc 打包产物目录（单个 30–200MB）
+w[0-9]*_onedir/
+w[0-9]*_onefile/

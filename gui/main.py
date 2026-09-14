@@ -74,7 +74,7 @@ def _setup_logging() -> logging.Logger:
         root.addHandler(_fh)
         root.info("调试日志文件: %s", _log_file)
     except Exception:
-        pass
+        logger.debug("静默降级：_setup_logging 中忽略异常", exc_info=True)
     return root
 
 
@@ -259,7 +259,7 @@ agent:
             try:
                 session.plugin_mgr.register_with_router(router)
             except Exception:
-                pass
+                logger.debug("静默降级：_init_cli_core 中忽略异常", exc_info=True)
 
         logger.info("CLI 核心初始化完成")
         return True
@@ -563,7 +563,7 @@ def _mount_v13_services(app: QApplication, app_ctx: AppContext) -> None:
                 try:
                     mw.toggle_visibility()
                 except Exception:
-                    pass
+                    logger.debug("静默降级：_toggle_main 中忽略异常", exc_info=True)
 
         def _screenshot_capture() -> None:
             mw = getattr(app_ctx, "main_window", None)
@@ -572,7 +572,7 @@ def _mount_v13_services(app: QApplication, app_ctx: AppContext) -> None:
                 try:
                     panel.capture_screenshot()
                 except Exception:
-                    pass
+                    logger.debug("静默降级：_screenshot_capture 中忽略异常", exc_info=True)
 
         hk.register("toggle", getattr(gui_config, "hotkey_toggle", "Ctrl+Alt+M"), _toggle_main)
         hk.register("screenshot",
@@ -585,15 +585,16 @@ def _mount_v13_services(app: QApplication, app_ctx: AppContext) -> None:
             if mw is None or getattr(mw, "status_bar", None) is None:
                 return
             try:
+                from gui import icons
                 mw.status_bar.showMessage(
-                    f"⚠️ 全局热键 {name} 注册失败（可能被占用），可在设置中更换", 8000)
+                    f"{icons.text_glyph('warning', '⚠️')} 全局热键 {name} 注册失败（可能被占用），可在设置中更换", 8000)
             except Exception:
-                pass
+                logger.debug("静默降级：_on_hotkey_state 中忽略异常", exc_info=True)
 
         try:
             hk.hotkey_registered.connect(_on_hotkey_state)
         except Exception:
-            pass
+            logger.debug("静默降级：_on_hotkey_state 中忽略异常", exc_info=True)
         logger.info("全局热键管理器初始化完成（toggle=%s, screenshot=%s）",
                     getattr(gui_config, "hotkey_toggle", "Ctrl+Alt+M"),
                     getattr(gui_config, "hotkey_screenshot", "Ctrl+Alt+S"))
@@ -1022,7 +1023,7 @@ def _bootstrap_update_subsystem(app_ctx: AppContext) -> dict:
             try:
                 app_ctx.update_last_install = res
             except Exception:
-                pass
+                logger.debug("静默降级：_bootstrap_update_subsystem 中忽略异常", exc_info=True)
             # R-A：不在聊天区/首页弹错，只在设置页留一句（last_install 已落盘供设置页读）
             logger.info("上轮更新结果：result=%s version=%s",
                         res.get("result"), res.get("version"))
@@ -1093,7 +1094,7 @@ def _start_update_check(app_ctx: AppContext, window, state=None) -> None:
                 "channel": channel,
             })
         except Exception:
-            pass
+            logger.debug("静默降级：_start_update_check 中忽略异常", exc_info=True)
         checker = UpdateChecker(parent=window, channel=channel)
         _update_ctx["checker"] = checker
         checker.update_available.connect(
@@ -1194,7 +1195,7 @@ def _start_update_download(app_ctx: AppContext, info: dict, window=None) -> None
                 dlg.show()
                 dlg.raise_()
             except Exception:
-                pass
+                logger.debug("静默降级：_start_update_download 中忽略异常", exc_info=True)
             return
         cfg = getattr(app_ctx, "config", None)
         form = getattr(app_ctx, "update_install_form", None) or detect_install_form()
@@ -1283,7 +1284,7 @@ def _on_update_download_failed(app_ctx: AppContext, reason: str) -> None:
     try:
         app_ctx.update_last_download_error = str(reason)
     except Exception:
-        pass
+        logger.debug("静默降级：_on_update_download_failed 中忽略异常", exc_info=True)
 
 
 def _show_install_ready_prompt(app_ctx: AppContext, version: str, window=None) -> None:
@@ -1301,7 +1302,7 @@ def _show_install_ready_prompt(app_ctx: AppContext, version: str, window=None) -
         try:
             restart_btn.setEnabled(False)
         except Exception:
-            pass
+            logger.debug("静默降级：_show_install_ready_prompt 中忽略异常", exc_info=True)
     else:
         box.setText(f"v{version} 已下载并校验通过，重启后启用")
     box.addButton("稍后（下次退出时安装）", QMessageBox.ButtonRole.RejectRole)
@@ -1320,7 +1321,7 @@ def _trigger_restart_install(app_ctx: AppContext) -> None:
     try:
         app_ctx.quitting = True
     except Exception:
-        pass
+        logger.debug("静默降级：_trigger_restart_install 中忽略异常", exc_info=True)
     try:
         from gui.qt_compat import QApplication
         app = QApplication.instance()
@@ -1490,7 +1491,7 @@ def main() -> int:
             lambda: logger.info("QUIT-aboutToQuit: 进程即将退出（上方最后一条 QUIT-* 即触发源）")
         )
     except Exception:
-        pass
+        logger.debug("静默降级：main 中忽略异常", exc_info=True)
     # 应用图标：窗口标题栏 + Windows 任务栏 + 任务切换（malingic 内置多尺寸，
     # Qt 按 DPI 自动选用；spec datas 已含 assets 目录，PyInstaller 打包后路径一致）
     try:
@@ -1503,13 +1504,22 @@ def main() -> int:
         QCoreApplication.setOrganizationName("maid_coder")
         QCoreApplication.setApplicationName("MaLing")
     except Exception:
-        pass
+        logger.debug("静默降级：main 中忽略异常", exc_info=True)
 
     _setup_logging()
     logger.info("码铃 GUI 启动中...")
 
     # 加载 GUI 配置
     gui_config = GuiConfig.load()
+
+    # v2.1(V21-13/D-V21-10): 动效档位接线 —— GuiConfig.load() 之后即 configure；
+    # 非法值由 motion.configure 内部回落默认档。失败绝不阻断启动（R-Q）。
+    try:
+        from gui import motion
+        motion.configure(getattr(gui_config, "animation_level", "standard") or "standard")
+        logger.info("动效档位已配置: %s", motion.level())
+    except Exception as exc:
+        logger.warning("动效档位配置失败（回退默认档，不影响运行）: %s", exc)
 
     # v1.9 B/D-V19-05: 注册内置字体（资源圆体 / jf open 粉圆）—— 必须在 MainWindow
     # 构造（其内 load_theme 取 family）之前；缺字体文件 / 注册失败均静默回退不阻断。
@@ -1519,6 +1529,15 @@ def main() -> int:
         logger.info("内置字体注册完成: %s", registered)
     except Exception as exc:
         logger.warning("内置字体注册失败（回退系统字体，不影响运行）: %s", exc)
+
+    # v2.1(V21-13/D-V21-06): 注册矢量图标字体（与界面字体并列；须在 MainWindow
+    # 构造前，侧栏/状态栏构建时才可渲染）。缺资源 → available()==False → emoji 回退。
+    try:
+        from gui import icons
+        icon_family = icons.register_icon_font()
+        logger.info("图标字体注册完成: %s", icon_family)
+    except Exception as exc:
+        logger.warning("图标字体注册失败（回退 emoji，不影响运行）: %s", exc)
 
     # 构建 AppContext
     app_ctx = AppContext()
@@ -1604,7 +1623,22 @@ def main() -> int:
     # 创建主窗口
     window = MainWindow(app_ctx)
     app_ctx.main_window = window  # v1.3(P1-3): 托盘/热键/Idle 装配前先挂好引用
+
+    # v2.1(V21-13/D-V21-06): 注入 app_ctx 供 icons.icon() 取活动色板 + 订阅
+    # theme_changed 清缓存（须在 MainWindow 构造后，theme_engine 才挂到 app_ctx）。
+    try:
+        from gui import icons
+        icons.configure(app_ctx)
+    except Exception as exc:
+        logger.warning("图标内核注入失败（图标着色降级，不影响运行）: %s", exc)
+
     window.show()
+
+    # v2.1(V21-13/D-V21-04): show() 后 HWND 才有效 → 应用毛玻璃（fail-safe 不阻断）。
+    try:
+        window._apply_glass_state()
+    except Exception as exc:
+        logger.warning("毛玻璃状态应用失败（保持纯色，不影响运行）: %s", exc)
 
     logger.info("主窗口已显示")
 

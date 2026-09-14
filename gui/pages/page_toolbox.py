@@ -9,11 +9,30 @@ import time
 import urllib.parse
 from typing import Optional
 
+from gui import icons
 from gui.qt_compat import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTextEdit, QPlainTextEdit, QListWidget, QFrame, Qt, QFont,
-    QLineEdit, QComboBox, QMessageBox, QApplication, QListWidgetItem,
+    QLineEdit, QComboBox, QMessageBox, QApplication, QListWidgetItem, QSize,
 )
+from gui.utils import theme_color
+
+# v2.1(V21-12/D-V21-06): 工具箱列表图标统一 —— 只记「图标名 + 尺寸 + theme_color 取色」，
+# 字体不可用时回落原 emoji。
+_TOOL_ICON_SIZE = 16
+
+
+def _vector_icon(app_ctx, name: str, size: int, color):
+    """取矢量 ``QIcon``；字体/名字不可用或渲染失败 → ``None``（调用方回落 emoji）。"""
+    try:
+        if not name or not icons.available() or not icons.has(name):
+            return None
+        ic = icons.icon(name, size, color)
+        if ic is None or ic.isNull():
+            return None
+        return ic
+    except Exception:
+        return None
 
 
 class PageToolbox(QWidget):
@@ -69,16 +88,24 @@ class PageToolbox(QWidget):
         left_layout.setSpacing(8)
 
         title = QLabel("工具箱")
+        title.setObjectName("sidebarTitle")
         title_font = QFont()
-        title_font.setPointSize(14)
         title_font.setBold(True)
         title.setFont(title_font)
         left_layout.addWidget(title)
 
         self.tool_list = QListWidget()
         self.tool_list.setObjectName("toolList")
+        self.tool_list.setIconSize(QSize(_TOOL_ICON_SIZE, _TOOL_ICON_SIZE))
         for category, tools in self.TOOLS:
-            cat_item = QListWidgetItem(f"📁 {category}")
+            cat_item = QListWidgetItem()
+            ic = _vector_icon(self.app_ctx, "folder", _TOOL_ICON_SIZE,
+                              theme_color(self.app_ctx, "text", "#5D4037"))
+            if ic is not None:
+                cat_item.setIcon(ic)
+                cat_item.setText(category)
+            else:
+                cat_item.setText(f"📁 {category}")
             cat_item.setFlags(Qt.ItemIsEnabled)
             cat_item.setData(Qt.UserRole, "category")
             self.tool_list.addItem(cat_item)
@@ -101,8 +128,8 @@ class PageToolbox(QWidget):
 
         # 工具标题
         self.tool_title = QLabel("Python 美化")
+        self.tool_title.setObjectName("toolboxToolTitle")
         tool_title_font = QFont()
-        tool_title_font.setPointSize(14)
         tool_title_font.setBold(True)
         self.tool_title.setFont(tool_title_font)
         work_layout.addWidget(self.tool_title)
@@ -175,7 +202,6 @@ class PageToolbox(QWidget):
         layout.setSpacing(12)
         title_label = QLabel(title)
         title_font = QFont()
-        title_font.setPointSize(11)
         title_font.setBold(True)
         title_label.setFont(title_font)
         layout.addWidget(title_label)
@@ -503,6 +529,10 @@ class PageToolbox(QWidget):
             QWidget#toolboxPage {{
                 background: {bg};
             }}
+            /* v2.1(UI-Fix-0912): 显式兜住本页 QLabel 颜色 —— 页面自有 setStyleSheet
+               会遮蔽应用级 QSS 的继承,若主题加载失败/明暗错配则本页文字失去颜色。
+               更具体的 ID 规则(如 QLabel#roleHint)按特异性胜出,不受影响。 */
+            QLabel {{ color: {text}; }}
             QWidget#toolboxSidebar {{
                 background: {card_bg};
                 border-right: 1px solid {border};

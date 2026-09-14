@@ -20,6 +20,8 @@ from PySide6.QtWidgets import (
     QScrollArea, QFrame, QSizePolicy, QLayout,
     QTreeView, QTextBrowser, QGraphicsDropShadowEffect,
     QInputDialog, QSystemTrayIcon, QToolButton,
+    # v2.1(V21-01 契约冻结): 动效淡入淡出 opacity 效果（motion.fade 用）
+    QGraphicsOpacityEffect,
 )
 
 # Core
@@ -30,6 +32,9 @@ from PySide6.QtCore import (
     QDir,
     # v1.4(V-1.4-0 预编): 帧压缩/内存 JPG（screen_grab 与 games 绘板需要）
     QBuffer, QByteArray,
+    # v2.1(V21-01 契约冻结): 动效内核（gui/motion.py）+ 系统深浅原生事件监听（D-V21-11）
+    QPropertyAnimation, QEasingCurve, QParallelAnimationGroup,
+    QAbstractNativeEventFilter,
 )
 
 # Gui
@@ -45,6 +50,10 @@ from PySide6.QtGui import (
     QGuiApplication, QScreen,
     # v1.4(V-1.4-0 预编): 内存帧缩放/编码 + 游戏自绘板（screen_grab / games 需要）
     QImage, QImageWriter,
+    # v2.1(V21-01 契约冻结): 图标位图缓存（gui/icons.py 用）
+    QPixmapCache,
+    # v2.1(阶段 C-1): 侧栏滚动条 hover 门控按全局光标位置判定（sidebar.py 用）
+    QCursor,
 )
 
 __all__ = [
@@ -60,6 +69,8 @@ __all__ = [
     "QScrollArea", "QFrame", "QSizePolicy", "QLayout",
     "QTreeView", "QTextBrowser", "QGraphicsDropShadowEffect",
     "QInputDialog", "QSystemTrayIcon", "QToolButton", "QFileSystemModel",
+    # v2.1 预编增补（Widgets）
+    "QGraphicsOpacityEffect",
     # Core
     "Qt", "QThread", "Signal", "Slot", "QObject", "QTimer",
     "QSize", "QPoint", "QRect", "QSettings", "QStandardPaths",
@@ -67,6 +78,9 @@ __all__ = [
     "QDir",
     # v1.4 预编增补（Core）
     "QBuffer", "QByteArray",
+    # v2.1 预编增补（Core）
+    "QPropertyAnimation", "QEasingCurve", "QParallelAnimationGroup",
+    "QAbstractNativeEventFilter",
     # Gui
     "QFont", "QFontDatabase", "QIcon", "QPixmap", "QColor",
     "QPalette", "QKeySequence", "QShortcut", "QTextCursor",
@@ -75,6 +89,8 @@ __all__ = [
     "QDragEnterEvent", "QDragMoveEvent", "QDropEvent",
     # v1.4 预编增补（Gui）
     "QImage", "QImageWriter",
+    # v2.1 预编增补（Gui）
+    "QPixmapCache",
     # v1.3(P1-2)
     "QGuiApplication", "QScreen",
     # Core 增补：v1.3(P1-2) screen_capture 选区绘制用

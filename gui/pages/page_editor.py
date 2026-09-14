@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import Optional, Dict, Tuple
 
+from gui import icons
 from gui.qt_compat import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QPlainTextEdit, QTabWidget, QShortcut, QKeySequence,
@@ -222,10 +223,30 @@ class CodeHighlighter(QSyntaxHighlighter):
         self._rebuild_formats()
         self.rehighlight()
 
+    def _select_palette(self) -> Dict[str, str]:
+        """v2.1 S-5：按「代码区实际底色」明暗选择语法高亮色谱。
+
+        四风格 × 浅深下代码区底色 ``${code_bg}`` 两套取值（浅色模式 #2B2B33 /
+        深色模式 #16161B）均为**深底**（design-v19 「始终深色底 + 浅字」约定）。
+        若沿用主题明暗 (``_is_dark``) 在浅色模式下会得到「浅色谱 + 深底」的
+        低对比组合（黑字压深灰底），故此处改按 ``code_bg`` 亮度判定；
+        取色不可用时回落 ``_is_dark``（is_dark_effective 原链路保留）。
+        仅影响配色选择，不涉及语法高亮算法。
+        """
+        engine = self._theme_engine
+        if engine is not None and hasattr(engine, "get_color"):
+            try:
+                color = QColor(engine.get_color("code_bg", ""))
+                if color.isValid():
+                    return _DARK_COLORS if color.lightnessF() < 0.5 else _LIGHT_COLORS
+            except Exception:
+                pass
+        return _DARK_COLORS if self._is_dark else _LIGHT_COLORS
+
     def _rebuild_formats(self) -> None:
         """根据当前主题重建格式映射。"""
         self._formats.clear()
-        palette = _DARK_COLORS if self._is_dark else _LIGHT_COLORS
+        palette = self._select_palette()
         for token_name, color_hex in palette.items():
             fmt = QTextCharFormat()
             fmt.setForeground(QColor(color_hex))
@@ -542,9 +563,8 @@ class PageEditor(QWidget):
         empty_layout = QVBoxLayout(self.empty_state)
         empty_layout.setAlignment(Qt.AlignCenter)
 
-        empty_icon = QLabel("\u270E")
+        empty_icon = QLabel(icons.text_glyph("edit", "\u270E"))
         empty_icon_font = QFont()
-        empty_icon_font.setPointSize(48)
         empty_icon.setFont(empty_icon_font)
         empty_icon.setObjectName("editorEmptyIcon")
         empty_icon.setAlignment(Qt.AlignCenter)
@@ -552,7 +572,6 @@ class PageEditor(QWidget):
 
         empty_title = QLabel("未打开任何文件")
         empty_title_font = QFont()
-        empty_title_font.setPointSize(16)
         empty_title_font.setBold(True)
         empty_title.setFont(empty_title_font)
         empty_title.setObjectName("editorEmptyTitle")

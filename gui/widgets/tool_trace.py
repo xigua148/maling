@@ -29,6 +29,8 @@ from gui.qt_compat import (
     QSizePolicy, Signal, QScrollArea,
 )
 from gui.utils import theme_color
+# v2.1(I-2/D-V21-06): 图标位改矢量字形（text_glyph 缺字体自动回落原 emoji）
+from gui import icons
 
 
 class _ClickableHeader(QFrame):
@@ -82,7 +84,7 @@ class ToolTracePanel(QWidget):
         head_layout = QHBoxLayout(self._header)
         head_layout.setContentsMargins(0, 0, 0, 0)
         head_layout.setSpacing(6)
-        self._title_label = QLabel("🤖 Agent 执行过程")
+        self._title_label = QLabel(f"{icons.text_glyph('agent', '🤖')} Agent 执行过程")
         self._meta_label = QLabel("")
         self._meta_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self._arrow_label = QLabel("▾")
@@ -218,7 +220,7 @@ class ToolTracePanel(QWidget):
             tag = ""
             if name == "run_command":
                 tag = " · 独立进程运行 · 非沙箱 · 受白名单约束"
-            return f"🔧 {step_part}调用 {name}{tag}{arg_part}"
+            return f"{icons.text_glyph('plugin', '🔧')} {step_part}调用 {name}{tag}{arg_part}"
         if event_type == "tool_done":
             name = str(data.get("name") or "?")
             ok = bool(data.get("ok", False))
@@ -230,23 +232,23 @@ class ToolTracePanel(QWidget):
             extra = ""
             if summary is not None and str(summary).strip():
                 extra = f" · {self._brief(summary, 80)}"
-            return f"{'✅' if ok else '❌'} {name} {'完成' if ok else '失败'}{extra}"
+            return f"{icons.text_glyph('check', '✅') if ok else icons.text_glyph('close', '❌')} {name} {'完成' if ok else '失败'}{extra}"
         if event_type == "tool_denied":
             name = str(data.get("name") or "?")
             self._summary["denied"] += 1
             return f"⛔ {name} 已被拒绝授权"
         if event_type == "final":
             self._summary["final"] = True
-            return "🏁 已生成最终回答"
+            return f"{icons.text_glyph('flag', '🏁')} 已生成最终回答"
         if event_type == "max_steps":
             self._summary["max_steps"] = True
             limit = data.get("max_steps", "")
-            return f"⚠️ 达到步数上限（{limit} 轮）仍未收敛，已提前收尾"
+            return f"{icons.text_glyph('warning', '⚠️')} 达到步数上限（{limit} 轮）仍未收敛，已提前收尾"
         # v1.2(C3): managed 任务步骤事件（「女仆的工作进度」最小版）
         if event_type == "task_plan":
             n = data.get("steps", 0)
             goal = self._brief(data.get("goal"), 60)
-            return f"🗂 任务规划完成 · 共 {n} 步：{goal}"
+            return f"{icons.text_glyph('task', '🗂')} 任务规划完成 · 共 {n} 步：{goal}"
         if event_type == "step_start":
             idx = data.get("idx", "")
             total = data.get("total", "")
@@ -255,11 +257,11 @@ class ToolTracePanel(QWidget):
         if event_type == "step_pass":
             idx = data.get("idx", "")
             note = self._brief(data.get("note"), 80)
-            return f"✅ 第 {idx} 步通过{(' · ' + note) if note else ''}"
+            return f"{icons.text_glyph('check', '✅')} 第 {idx} 步通过{(' · ' + note) if note else ''}"
         if event_type == "step_fail":
             idx = data.get("idx", "")
             err = self._brief(data.get("error_summary"), 100)
-            return f"❌ 第 {idx} 步失败：{err}"
+            return f"{icons.text_glyph('close', '❌')} 第 {idx} 步失败：{err}"
         if event_type == "heal_try":
             idx = data.get("idx", "")
             attempt = data.get("attempt", "?")
@@ -268,7 +270,7 @@ class ToolTracePanel(QWidget):
         if event_type == "stop_heal":
             idx = data.get("idx", "")
             reason = data.get("reason", "")
-            return f"⏹ 第 {idx} 步自愈已停止{('：' + reason) if reason else ''}"
+            return f"{icons.text_glyph('stop', '⏹')} 第 {idx} 步自愈已停止{('：' + reason) if reason else ''}"
         if event_type == "task_paused":
             idx = data.get("idx", "")
             reason = data.get("reason", "")
@@ -278,10 +280,10 @@ class ToolTracePanel(QWidget):
             summary = data.get("summary") or {}
             if ok:
                 self._summary["final"] = True
-                return "🏁 任务全部完成，来向主人汇报啦"
+                return f"{icons.text_glyph('flag', '🏁')} 任务全部完成，来向主人汇报啦"
             blocker = self._brief(summary.get("current_blocker"), 80)
             self._summary["final"] = True
-            return f"⚠️ 任务未完成（有步骤失败），卡点: {blocker or '未知'}"
+            return f"{icons.text_glyph('warning', '⚠️')} 任务未完成（有步骤失败），卡点: {blocker or '未知'}"
         # 未知事件类型：原样保留，便于后续扩展不丢信息
         return f"· {event_type}: {self._brief(data, 60)}"
 
@@ -323,7 +325,7 @@ class ToolTracePanel(QWidget):
         if self._summary["tools"]:
             parts.append(f"{self._summary['tools']} 次工具")
         parts.append(
-            f"✅{self._summary['ok']} ❌{self._summary['fail']} ⛔{self._summary['denied']}"
+            f"{icons.text_glyph('check', '✅')}{self._summary['ok']} {icons.text_glyph('close', '❌')}{self._summary['fail']} ⛔{self._summary['denied']}"
         )
         return " · ".join(parts)
 

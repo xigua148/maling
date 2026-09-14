@@ -21,6 +21,7 @@ from gui.qt_compat import (
     Qt, QMessageBox,
 )
 from gui.utils import theme_color
+from gui import icons
 
 logger = logging.getLogger("maid_coder.gui")
 
@@ -39,7 +40,7 @@ class CameraCaptureDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("📷 拍照发给码铃")
+        self.setWindowTitle(f"{icons.text_glyph('camera', '📷')} 拍照发给码铃")
         self.setModal(True)
         self._captured_path: Optional[str] = None
         self._camera = None
@@ -67,7 +68,7 @@ class CameraCaptureDialog(QDialog):
         self.hint = QLabel("")
         self.hint.setStyleSheet(f"color: {theme_color(None, 'text_hint', '#999999')};")
         btn_row.addWidget(self.hint, 1)
-        self.shoot_btn = QPushButton("📷 拍摄")
+        self.shoot_btn = QPushButton(f"{icons.text_glyph('camera', '📷')} 拍摄")
         self.shoot_btn.setCursor(Qt.PointingHandCursor)
         self.shoot_btn.setEnabled(False)
         self.shoot_btn.clicked.connect(self._on_shoot)
@@ -155,7 +156,7 @@ def capture_photo(parent=None) -> Optional[str]:
                 QMessageBox.information(
                     parent, "拍照不可用",
                     "当前环境缺少摄像头组件（QtMultimedia 未随应用加载）。\n"
-                    "可改用「📎 附件」直接选一张已有图片发送。",
+                    f"可改用「{icons.text_glyph('attach', '📎')} 附件」直接选一张已有图片发送。",
                 )
             except Exception:
                 pass

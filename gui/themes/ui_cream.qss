@@ -10,7 +10,7 @@
 QWidget {
     background-color: ${bg};
     color: ${text};
-    font-family: "${font_family}";
+    font-family: ${font_family};
     font-size: 14px;
 }
 
@@ -232,7 +232,7 @@ QTextEdit#codeEditor {
     color: ${code_text};
     border: none;
     border-radius: ${radius_sm};
-    font-family: "Consolas, JetBrains Mono, monospace";
+    font-family: "Consolas", "JetBrains Mono", monospace;
     font-size: 12px;
 }
 
@@ -438,7 +438,7 @@ QPlainTextEdit#codeEditorArea {
     background-color: ${code_bg};
     color: ${code_text};
     border: none;
-    font-family: "JetBrains Mono, Consolas, monospace";
+    font-family: "JetBrains Mono", "Consolas", monospace;
     font-size: 12px;
     padding: 8px;
     selection-background-color: ${primary_dark};
@@ -454,13 +454,14 @@ QWidget#editorStatusBar {
 QLabel#editorStatusLabel {
     color: ${text_secondary};
     font-size: 11px;
-    font-family: "JetBrains Mono, Consolas, monospace";
+    font-family: "JetBrains Mono", "Consolas", monospace;
 }
 QWidget#editorEmptyState {
     background-color: ${bg};
 }
 QLabel#editorEmptyIcon {
     color: ${primary};
+    font-size: 48px;
 }
 QLabel#editorEmptyDesc {
     color: ${text_secondary};
@@ -546,4 +547,70 @@ QLabel#sidebarStatusDot {
     min-height: 8px;
     max-height: 8px;
     border-radius: 4px;
+}
+
+/* ============================================================
+   v2.1 S 组（V21-14）二次精修增量
+   ------------------------------------------------------------
+   纪律：只引用已注册的 token 占位符，无裸色；不含过渡样式声明（Qt 样式表不支持，见 §6.1）。
+   仅追加规则，不改动上方既有规则的语义；此处只补「本文件已定义选择器」的
+   缺失状态与细节（其余五态 / 通用控件见 base.qss 公共块）。
+   ============================================================ */
+
+/* ---------- 下拉框：箭头区分隔 + 弹层列表项五态（含下拉列表与箭头，S-3②） ---------- */
+QComboBox::drop-down {
+    width: 26px;
+    border: none;
+    border-left: 1px solid ${divider};
+}
+QComboBox QAbstractItemView::item {
+    padding: 5px 8px;
+    border-radius: ${radius_sm};
+    color: ${text};
+}
+QComboBox QAbstractItemView::item:hover {
+    background-color: ${surface_muted};
+    color: ${primary_dark};
+}
+QComboBox QAbstractItemView::item:selected {
+    background-color: ${primary};
+    color: ${text_on_accent};
+}
+
+/* ---------- 次级 / 幽灵按钮：按下 + 禁用 + 焦点补全（悬停已在上方） ---------- */
+QPushButton#quickBtn:pressed,
+QPushButton#expandChatBtn:pressed,
+QPushButton#quickReplyBtn:pressed,
+QPushButton#quickActionBtn:pressed,
+QPushButton#copyBtn:pressed,
+QPushButton#copyCodeBtn:pressed,
+QPushButton#sidebarBottomBtn:pressed {
+    background-color: ${bg_light};
+}
+QPushButton#quickBtn:disabled,
+QPushButton#expandChatBtn:disabled,
+QPushButton#quickReplyBtn:disabled,
+QPushButton#quickActionBtn:disabled,
+QPushButton#copyBtn:disabled,
+QPushButton#copyCodeBtn:disabled,
+QPushButton#sidebarBottomBtn:disabled {
+    background-color: ${disabled_bg};
+    color: ${disabled_text};
+    border-color: ${divider};
+}
+
+/* ---------- 标签页禁用态（S-2 五态；selected / hover 已在上方） ---------- */
+QTabBar::tab:disabled {
+    color: ${disabled_text};
+}
+
+/* ---------- 代码块边界（S-5 / D-2②：代码块与气泡边界清晰，深色靠描边） ---------- */
+QWidget#codeBlock {
+    border: 1px solid ${divider};
+}
+QPlainTextEdit#codeEditorArea {
+    border: 1px solid ${divider};
+}
+QPlainTextEdit#codeEditorArea:focus {
+    border: 1px solid ${focus_accent};
 }

@@ -778,7 +778,7 @@ class ApiWorker(QThread):
                 import json as _json
                 self.agent_tool_event.emit(ev, _json.dumps(data, ensure_ascii=False))
             except Exception:
-                pass
+                logger.debug("静默降级：on_event 中忽略异常", exc_info=True)
     
         # v1.4.7: 流式 content delta 回调 —— 最终回答阶段逐块推送给 GUI
         _stream_started = [False]
@@ -790,7 +790,7 @@ class ApiWorker(QThread):
                     _stream_started[0] = True
                 self.message_chunk_received.emit(chunk)
             except Exception:
-                pass
+                logger.debug("静默降级：on_content_chunk 中忽略异常", exc_info=True)
     
         # system prompt：优先取 task_config 传入的 agent_system（主线程快照），
         # 避免后台线程直接读 session 对象造成跨线程访问。
@@ -862,7 +862,7 @@ class ApiWorker(QThread):
                 import json as _json
                 self.agent_tool_event.emit(ev, _json.dumps(data, ensure_ascii=False))
             except Exception:
-                pass
+                logger.debug("静默降级：on_event 中忽略异常", exc_info=True)
 
         _stream_started = [False]
 
@@ -873,7 +873,7 @@ class ApiWorker(QThread):
                     _stream_started[0] = True
                 self.message_chunk_received.emit(chunk)
             except Exception:
-                pass
+                logger.debug("静默降级：on_chunk 中忽略异常", exc_info=True)
 
         session = None
         self._stop_current = False
@@ -940,13 +940,13 @@ class ApiWorker(QThread):
                 import json as _json
                 self.agent_tool_event.emit(ev, _json.dumps(data, ensure_ascii=False))
             except Exception:
-                pass
+                logger.debug("静默降级：on_event 中忽略异常", exc_info=True)
 
         def on_content_chunk(chunk):
             try:
                 self.message_chunk_received.emit(chunk)
             except Exception:
-                pass
+                logger.debug("静默降级：on_content_chunk 中忽略异常", exc_info=True)
 
         engine = AgentEngine(
             self._api, cfg, logger, tools=tools,
@@ -1033,7 +1033,7 @@ class ApiWorker(QThread):
                     try:
                         self.web_search_done.emit(len(good))
                     except Exception:
-                        pass
+                        logger.debug("静默降级：_run_stream 中忽略异常", exc_info=True)
             except Exception:
                 logger.debug("GUI 联网检索失败（忽略，继续直答）", exc_info=True)
         try:
@@ -1201,7 +1201,7 @@ class ChatService(QObject):
             try:
                 self.agent_authorization_requested.emit(action_desc, tool_name)
             except Exception:
-                pass
+                logger.debug("静默降级：_confirm 中忽略异常", exc_info=True)
             # 等待主线程回答；每 200ms 轮询一次停止请求
             waited = 0.0
             while not ev.wait(0.2):
@@ -1359,7 +1359,7 @@ class ChatService(QObject):
                         and not self._scene_is_sleep():
                     request_injections.append(NIGHT_CARE_INJECTION)
             except Exception:
-                pass
+                logger.debug("静默降级：send_message 中忽略异常", exc_info=True)
         if not suppress_echo:
             self.user_message_added.emit(user_text)
         self._enqueue_request({"kind": "send", "text": user_text, "task_type": task_type,
@@ -1430,7 +1430,7 @@ class ChatService(QObject):
         try:
             demo = _is_demo_mode(self._app_ctx)
         except Exception:
-            pass
+            logger.debug("静默降级：_handle_remind_request 中忽略异常", exc_info=True)
         api = getattr(self._app_ctx, "api", None)
         if demo or api is None:
             self._echo_user_message(user_text, suppress_echo)
@@ -1676,7 +1676,7 @@ class ChatService(QObject):
             if _is_demo_mode(self._app_ctx):
                 return False
         except Exception:
-            pass
+            logger.debug("静默降级：proactive_ask 中忽略异常", exc_info=True)
         session = getattr(self._app_ctx, "session", None)
         if session is None or not hasattr(session, "add_message"):
             return False
@@ -1688,14 +1688,14 @@ class ChatService(QObject):
         try:
             self.proactive_message.emit(text, scene)
         except Exception:
-            pass
+            logger.debug("静默降级：proactive_ask 中忽略异常", exc_info=True)
         # v1.6(P0-3): 反馈三键内容源透传（在 proactive_message 之后，保证
         # 订阅方先渲染气泡再挂动作行；subject 为空不发，纯模板无需反馈）
         if subject:
             try:
                 self.proactive_feedback_ready.emit(subject, scene)
             except Exception:
-                pass
+                logger.debug("静默降级：proactive_ask 中忽略异常", exc_info=True)
         return True
 
     # ----- v1.4(B1b): 屏幕类消息（看屏提示 / 操作反馈 / peek 结论）独立入口 -----
@@ -1724,7 +1724,7 @@ class ChatService(QObject):
         try:
             self.screen_bubble_ready.emit(text, scene)
         except Exception:
-            pass
+            logger.debug("静默降级：screen_bubble 中忽略异常", exc_info=True)
         return True
 
     def is_busy(self) -> bool:
@@ -1901,7 +1901,7 @@ class ChatService(QObject):
             try:
                 self._group_sched_timer.stop()
             except RuntimeError:
-                pass
+                logger.debug("静默降级：_launch_group_scheduler 中忽略异常", exc_info=True)
         self._group_sched_timer = timer
 
     def _on_group_scheduled(self, req_id: str, content: str, usage: dict) -> None:
@@ -1953,7 +1953,7 @@ class ChatService(QObject):
             try:
                 timer.stop()
             except RuntimeError:
-                pass
+                logger.debug("静默降级：_stop_sched_timer 中忽略异常", exc_info=True)
             self._group_sched_timer = None
 
     def _fallback_rotate(self, session, member_roles: dict) -> None:
@@ -2115,7 +2115,7 @@ class ChatService(QObject):
             try:
                 self._worker.stop_current()
             except Exception:
-                pass
+                logger.debug("静默降级：shutdown 中忽略异常", exc_info=True)
             try:
                 # v10.15: 用 5s 替代原 hardcoded 1000ms，避免大请求被截断
                 # （QThread 无 stop(wait_ms=) 方法，先请求取消再 wait(5000) 等待退出）
@@ -2193,6 +2193,16 @@ class ChatService(QObject):
         app_ctx = self._app_ctx
         cfg = app_ctx.config
         session = getattr(app_ctx, "session", None)
+        # v2.1(UI-Fix-0912-2): session 为 None(所有对话窗口都删了)→ 自动建一个新 session,
+        # 避免"再对话不会自动新建记录到新会话中"
+        if session is None:
+            try:
+                sm = getattr(app_ctx, "session_manager", None) or getattr(app_ctx, "gui_session", None)
+                if sm is not None and hasattr(sm, "create_session"):
+                    session = sm.create_session("新会话")
+                    app_ctx.session = session
+            except Exception as e:
+                logger.debug("自动建 session 失败: %s", e)
         collab = getattr(app_ctx, "collaborator", None)
 
         # 组装 messages
@@ -2256,7 +2266,7 @@ class ChatService(QObject):
                     try:
                         sess_inner.context_trimmed = False
                     except Exception:
-                        pass
+                        logger.debug("静默降级：_launch_worker 中忽略异常", exc_info=True)
         except Exception:
             logger.debug("反套话注入判定失败（按无注入处理）", exc_info=True)
         if _injections:
@@ -2344,7 +2354,7 @@ class ChatService(QObject):
         try:
             self.web_search_notice.emit(f"🌐 已检索网络（{int(count)} 条结果）")
         except Exception:
-            pass
+            logger.debug("静默降级：_on_web_search_done 中忽略异常", exc_info=True)
 
     # ----- signal handlers -----
 
@@ -2361,7 +2371,7 @@ class ChatService(QObject):
             if bridge is not None and hasattr(bridge, "mood_changed"):
                 bridge.mood_changed.emit(str(expr), "ai-markup")
         except Exception:
-            pass
+            logger.debug("静默降级：_on_expression_picked 中忽略异常", exc_info=True)
 
     def _on_stream_finished(self, full_text: str, usage: dict):
         # v10.15: 演示模式跳过语气 / 亲密度；否则注入女仆语气并写会话
@@ -2386,7 +2396,7 @@ class ChatService(QObject):
                 if _bridge is not None and hasattr(_bridge, "mood_changed"):
                     _bridge.mood_changed.emit(str(_ai_expr), "ai-markup")
         except Exception:
-            pass
+            logger.debug("静默降级：_on_stream_finished 中忽略异常", exc_info=True)
         if _is_demo_mode(app_ctx):
             final = full_text
             try:
@@ -2513,7 +2523,7 @@ class ChatService(QObject):
                 "ts": time.time(),
             }
         except Exception:
-            pass
+            logger.debug("静默降级：_on_api_error 中忽略异常", exc_info=True)
         try:
             self._fail_streak += 1
         except Exception:

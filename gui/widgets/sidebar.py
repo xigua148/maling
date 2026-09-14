@@ -12,9 +12,51 @@ from typing import Optional
 from gui.qt_compat import (
     QWidget, QVBoxLayout, QListWidget, QListWidgetItem,
     Qt, Signal, QIcon, QPushButton, QHBoxLayout, QLabel, QSize,
+    QEvent, QTimer, QCursor,
 )
 from gui.utils import theme_color
 from core import api_status_summary
+
+# v2.1(可观测性)：静默 except 收敛用 —— 本文件此前多处 `except ...: pass` 无任何
+#   记录，异常被完全吞掉，问题只能靠肉眼发现。改走 logger.debug 后可在日志里定位
+#   （仅记录、不重抛，行为零变化）。
+import logging
+logger = logging.getLogger("maid_coder.gui.sidebar")
+
+# v2.1(V21-09/D-V21-06): 矢量图标内核（只调用不改）。导入失败静默回退 emoji（R-Q⑤）。
+try:
+    from gui import icons as _icons
+except Exception:  # pragma: no cover - 内核剥离兜底
+    _icons = None
+
+def _nav_glyph(name: str, fallback: str) -> str:
+    """文本内嵌图标字形；图标内核缺失 / 字体不可用时原样返回 emoji（R-Q⑤）。"""
+    try:
+        if _icons is None:
+            return fallback
+        return _icons.text_glyph(name, fallback)
+    except Exception:
+        return fallback
+
+
+# 图标渲染尺寸（单一取值；高 DPI 由 icons.icon 内部 setDevicePixelRatio 适配）
+_NAV_ICON_SIZE = 18
+
+# 导航项附加数据角色（Qt.UserRole = key，沿用既有信号语义，零变更）
+_ROLE_ICON_NAME = Qt.UserRole + 1   # [2] icon_name（None = 走 QIcon.fromTheme）
+_ROLE_LABEL = Qt.UserRole + 2       # [1] 展示文案
+_ROLE_FALLBACK = Qt.UserRole + 3    # [3] 图标不可用时的 emoji/unicode 回退
+
+# 取色兜底值（仅当活动色板取不到时使用；正常路径一律经 theme_color，禁硬编码颜色）
+_NAV_FB_TEXT = "#5D4037"
+_NAV_FB_ACCENT = "#FF6B9D"
+_NAV_FB_DISABLED = "#9E9E9E"
+
+# v2.1(阶段 C-1): 侧栏导航滚动条 hover 门控（WorkBuddy 风格 —— 鼠标进入侧栏才显示）
+# 属性名须与 base.qss 中 QScrollBar[sidebarHover="true"] 选择器严格一致。
+_SCROLLBAR_HOVER_PROP = "sidebarHover"
+_SCROLLBAR_SCROLL_HOLD_MS = 700   # 滚动停止后 handle 保持可见的时长（ms）
+_SCROLLBAR_HOVER_EVENTS = (QEvent.Enter, QEvent.Leave, QEvent.HoverEnter, QEvent.HoverLeave)
 
 # v1.2(A-11): 防御式引入 MaidAssets（缩略/圆裁）与心情 tooltip 拼装（maid_pet 纯函数）。
 # 资产不可用时入口退化为「🔔 + 文本」，UI 永不空白/崩溃。
@@ -60,17 +102,21 @@ class SidebarWidget(QWidget):
     model_clicked = Signal()    # v1.2(B9): 「模型状态」直达按钮
     maid_clicked = Signal()     # v1.2(A-11): 码铃形象入口点击（回首页）
 
+    # v2.1(V21-09/D-V21-06 + §4.5): 3 元组 → 4 元组
+    # (key, label, icon_name, fallback_text)。[0]key/[1]label 语义零变更（R-D）；
+    # [2] 图标名（已登记语义名；project 为 None → 走 QIcon.fromTheme("folder")）；
+    # [3] = 原第三元（emoji/unicode），图标字体不可用时回退，绝不空白。
     NAV_ITEMS = [
-        ("chat", "聊天", "\U0001F4AC"),   # 聊天主屏（默认首页位，v1.2 UI 大气化）
-        ("home", "首页", "\u2302"),
-        ("memories", "回忆", "\u2728"),   # v1.3(P2-3): 高光回忆册
-        ("memory_book", "记忆中心", "\U0001F4D4"),  # v1.6(P0-1): 透明记忆中心
-        ("project", "项目", None),   # 占位，在 _init_ui 中初始化
-        ("file", "文件", "\u270E"),
-        ("plan", "计划", "\u2630"),
-        ("agent", "角色", "\u263A"),
-        ("tools", "工具", "\u2699"),
-        ("settings", "设置", "\u2691"),
+        ("chat",        "聊天",     "chat",         "\U0001F4AC"),  # 💬
+        ("home",        "首页",     "home",         "\u2302"),      # ⌂
+        ("memories",    "回忆",     "auto_awesome", "\u2728"),      # ✨  v1.3(P2-3)
+        ("memory_book", "记忆中心", "menu_book",    "\U0001F4D4"),  # 📔  v1.6(P0-1)
+        ("project",     "项目",     None,           "\U0001F4C1"),  # 📁  沿用文件夹降级链
+        ("file",        "文件",     "edit",         "\u270E"),      # ✎
+        ("plan",        "计划",     "list",         "\u2630"),      # ☰
+        ("agent",       "角色",     "person",       "\u263A"),      # ☺
+        ("tools",       "工具",     "settings",     "\u2699"),      # ⚙
+        ("settings",    "设置",     "tune",         "\u2691"),      # ⚑
     ]
 
     def __init__(self, app_context, parent: Optional[QWidget] = None):
@@ -93,30 +139,28 @@ class SidebarWidget(QWidget):
         layout.setSpacing(4)
 
         self.list_widget = QListWidget()
+        self.list_widget.setObjectName("sidebarNavList")  # v2.1(C-1): QSS 作用域
         self.list_widget.setFrameShape(QListWidget.NoFrame)
         self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # v2.1(C-1): 竖向滚动条恒占位（AlwaysOn）—— 空闲时 handle 透明（见 base.qss）。
+        # 实测 AsNeeded 会因出现/消失使 viewport 宽 156↔168 跳变；AlwaysOn 恒 156 无跳版。
+        self.list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.list_widget.setFocusPolicy(Qt.NoFocus)
         self.list_widget.setCursor(Qt.PointingHandCursor)
+        self.list_widget.setIconSize(QSize(_NAV_ICON_SIZE, _NAV_ICON_SIZE))
 
-        # 延迟初始化 folder 图标（避免模块导入时未初始化 QApplication 导致崩溃）
-        folder_icon = QIcon.fromTheme("folder")
-        if folder_icon.isNull():
-            folder_icon = "\U0001F4C1"
-
-        for key, label, icon in self.NAV_ITEMS:
-            if icon is None:
-                icon = folder_icon
-            if isinstance(icon, str):
-                item = QListWidgetItem(f"{icon}  {label}")
-            else:
-                item = QListWidgetItem(icon, label)
+        # v2.1(V21-09): 矢量图标优先，字体不可用 → [3] emoji 回退（不空白、不崩）
+        for key, label, icon_name, fallback_text in self.NAV_ITEMS:
+            item = QListWidgetItem()
             item.setData(Qt.UserRole, key)
+            item.setData(_ROLE_ICON_NAME, icon_name)
+            item.setData(_ROLE_LABEL, label)
+            item.setData(_ROLE_FALLBACK, fallback_text)
+            self._apply_nav_item_icon(item, selected=False, enabled=True)
             self.list_widget.addItem(item)
 
         self.list_widget.currentRowChanged.connect(self._on_row_changed)
-        layout.addWidget(self.list_widget)
-        layout.addStretch()
+        layout.addWidget(self.list_widget, 1)
 
         # v1.2(B9): 「模型状态」直达行 —— 状态点 + 直达按钮（脱敏展示）
         model_row = QHBoxLayout()
@@ -169,14 +213,14 @@ class SidebarWidget(QWidget):
         bottom_layout = QHBoxLayout()
         bottom_layout.setSpacing(6)
 
-        self.help_btn = QPushButton("\u2753 帮助")
+        self.help_btn = QPushButton(f"{_nav_glyph('help', '\u2753')} 帮助")
         self.help_btn.setObjectName("sidebarBottomBtn")
         self.help_btn.setCursor(Qt.PointingHandCursor)
         self.help_btn.setFixedHeight(32)
         self.help_btn.clicked.connect(self._on_help_clicked)
         bottom_layout.addWidget(self.help_btn, 1)
 
-        self.about_btn = QPushButton("\u2139 关于")
+        self.about_btn = QPushButton(f"{_nav_glyph('info', '\u2139')} 关于")
         self.about_btn.setObjectName("sidebarBottomBtn")
         self.about_btn.setCursor(Qt.PointingHandCursor)
         self.about_btn.setFixedHeight(32)
@@ -191,13 +235,174 @@ class SidebarWidget(QWidget):
         # v1.2(B9): 初始化即刷新模型状态展示
         self.update_model_status()
 
+        # v2.1(阶段 C-1): 安装滚动条 hover 门控（须在全部子控件建好后）
+        self._init_scrollbar_hover()
+
+    # ==================================================================
+    # v2.1(阶段 C-1): 侧栏滚动条 —— 默认隐藏，鼠标进入侧栏 / 滚动中才显示
+    # ==================================================================
+    def _init_scrollbar_hover(self) -> None:
+        """安装滚动条 hover 门控（WorkBuddy 风格）。
+
+        机制：监听侧栏自身 + 全部子控件的鼠标进出事件，按**光标是否落在侧栏
+        矩形内**（QCursor 全局坐标 → 本地）判定，把结果写入滚动条动态属性
+        ``sidebarHover``；base.qss 依该属性切换 handle 颜色（默认透明）。
+        另订阅 ``valueChanged``：滚动中短暂保持可见（停止 ``_SCROLLBAR_SCROLL_HOLD_MS``
+        后收束）。门控失效时静默降级（滚动条退化为 base.qss 的常显弱化色，不崩）。
+        """
+        try:
+            self._scrollbar_hover = False
+            self._scrollbar_scrolling = False
+            self._scrollbar_idle_timer = QTimer(self)
+            self._scrollbar_idle_timer.setSingleShot(True)
+            self._scrollbar_idle_timer.timeout.connect(self._on_scrollbar_idle)
+            sb = self.list_widget.verticalScrollBar()
+            sb.setProperty(_SCROLLBAR_HOVER_PROP, False)
+            sb.valueChanged.connect(self._on_scrollbar_scrolled)
+            self.installEventFilter(self)
+            for w in self.findChildren(QWidget):
+                w.installEventFilter(self)
+        except Exception:
+            self._scrollbar_idle_timer = None
+
+    def eventFilter(self, obj, event):  # noqa: N802 (Qt 命名)
+        """进出事件 → 重算滚动条 hover 态（只读，不消费事件）。"""
+        try:
+            if event.type() in _SCROLLBAR_HOVER_EVENTS:
+                self._update_scrollbar_hover()
+        except Exception:
+            logger.debug("静默降级：eventFilter 中忽略异常", exc_info=True)
+        return super().eventFilter(obj, event)
+
+    def _update_scrollbar_hover(self) -> None:
+        """按光标是否在侧栏矩形内刷新 hover 态（幂等，仅在变化时重刷样式）。"""
+        try:
+            inside = self.rect().contains(self.mapFromGlobal(QCursor.pos()))
+            if inside != getattr(self, "_scrollbar_hover", False):
+                self._scrollbar_hover = inside
+                self._apply_scrollbar_visibility()
+        except Exception:
+            logger.debug("静默降级：_update_scrollbar_hover 中忽略异常", exc_info=True)
+
+    def _on_scrollbar_scrolled(self, _value: int = 0) -> None:
+        """滚动中保持 handle 可见；停止后延时收束（若光标已不在侧栏）。"""
+        try:
+            self._scrollbar_scrolling = True
+            self._apply_scrollbar_visibility()
+            if self._scrollbar_idle_timer is not None:
+                self._scrollbar_idle_timer.start(_SCROLLBAR_SCROLL_HOLD_MS)
+        except Exception:
+            logger.debug("静默降级：_on_scrollbar_scrolled 中忽略异常", exc_info=True)
+
+    def _on_scrollbar_idle(self) -> None:
+        """滚动停止保持期结束 → 收束滚动态。"""
+        try:
+            self._scrollbar_scrolling = False
+            self._apply_scrollbar_visibility()
+        except Exception:
+            logger.debug("静默降级：_on_scrollbar_idle 中忽略异常", exc_info=True)
+
+    def _apply_scrollbar_visibility(self) -> None:
+        """把 hover/滚动态落到滚动条动态属性并重刷样式（幂等）。"""
+        try:
+            sb = self.list_widget.verticalScrollBar()
+            visible = bool(getattr(self, "_scrollbar_hover", False)
+                           or getattr(self, "_scrollbar_scrolling", False))
+            if sb.property(_SCROLLBAR_HOVER_PROP) == visible:
+                return
+            sb.setProperty(_SCROLLBAR_HOVER_PROP, visible)
+            style = sb.style()
+            style.unpolish(sb)
+            style.polish(sb)
+            sb.update()
+        except Exception:
+            logger.debug("静默降级：_apply_scrollbar_visibility 中忽略异常", exc_info=True)
+
+    def hideEvent(self, event):  # noqa: N802 (Qt 命名)
+        """侧栏隐藏 → 复位门控态（避免残留属性导致下次显示即常显）。"""
+        try:
+            self._scrollbar_hover = False
+            self._scrollbar_scrolling = False
+            if self._scrollbar_idle_timer is not None:
+                self._scrollbar_idle_timer.stop()
+            self._apply_scrollbar_visibility()
+        except Exception:
+            logger.debug("静默降级：hideEvent 中忽略异常", exc_info=True)
+        super().hideEvent(event)
+
     def _on_row_changed(self, row: int) -> None:
+        self._refresh_nav_icons()
         item = self.list_widget.item(row)
         if item is None:
             return
         key = item.data(Qt.UserRole)
         if key:
             self.item_clicked.emit(key)
+
+    # ==================================================================
+    # v2.1(V21-09/D-V21-06): 导航图标渲染（矢量优先 / emoji 回退 / 四态着色）
+    # ==================================================================
+    def _nav_icon(self, icon_name, *, selected: bool, enabled: bool):
+        """按态取色并渲染 ``QIcon``；不可用返回 ``None``（调用方回退文本）。
+
+        取色唯一入口 ``theme_color``（禁硬编码颜色）：选中 = ``accent``、
+        悬停/普通 = ``text``、禁用 = ``disabled_text``。
+        """
+        if _icons is None:
+            return None
+        try:
+            if icon_name is None:
+                # project 项：按 design §4.5 走 QIcon.fromTheme → emoji 降级链
+                theme_icon = QIcon.fromTheme("folder")
+                return theme_icon if not theme_icon.isNull() else None
+            if not _icons.available():
+                return None
+            if enabled:
+                key = "accent" if selected else "text"
+                fallback = _NAV_FB_ACCENT if selected else _NAV_FB_TEXT
+            else:
+                key, fallback = "disabled_text", _NAV_FB_DISABLED
+            color = theme_color(self.app_ctx, key, fallback)
+            return _icons.icon(icon_name, _NAV_ICON_SIZE, color)
+        except Exception:
+            return None
+
+    def _apply_nav_item_icon(self, item, *, selected: bool, enabled: bool) -> None:
+        """把图标（或 emoji 回退文本）落到列表项上；两种情况都绝不空白。"""
+        label = item.data(_ROLE_LABEL) or ""
+        fallback = item.data(_ROLE_FALLBACK) or ""
+        icon = self._nav_icon(item.data(_ROLE_ICON_NAME), selected=selected, enabled=enabled)
+        if icon is not None and not icon.isNull():
+            item.setIcon(icon)
+            item.setText(label)
+        else:
+            item.setIcon(QIcon())
+            item.setText(f"{fallback}  {label}" if fallback else label)
+
+    def _refresh_nav_icons(self) -> None:
+        """按当前选中行刷新全部导航项图标着色（选中 accent / 其余 text）。"""
+        if _icons is None or not _icons.available():
+            return
+        try:
+            current = self.list_widget.currentRow()
+            for i in range(self.list_widget.count()):
+                item = self.list_widget.item(i)
+                if item is None:
+                    continue
+                enabled = bool(item.flags() & Qt.ItemIsEnabled)
+                self._apply_nav_item_icon(item, selected=(i == current), enabled=enabled)
+        except Exception:
+            logger.debug("静默降级：_refresh_nav_icons 中忽略异常", exc_info=True)
+
+    def _on_sidebar_theme_changed(self, _theme_name: str = "") -> None:
+        """换肤 / 深浅切换 → 清图标缓存并按新色重渲染导航图标（V21-09）。"""
+        try:
+            if _icons is not None:
+                _icons.clear_cache()
+        except Exception:
+            logger.debug("静默降级：_on_sidebar_theme_changed 中忽略异常", exc_info=True)
+        self._apply_maid_chip_style()
+        self._refresh_nav_icons()
 
     def set_active_page(self, key: str) -> None:
         """外部导航后同步导航高亮（首页入口/宠物/独立窗等一切 navigate 入口）。
@@ -220,6 +425,8 @@ class SidebarWidget(QWidget):
             finally:
                 if not was_blocked:
                     self.list_widget.blockSignals(False)
+            # 程序化高亮不走 currentRowChanged（已 blockSignals）→ 手动刷新图标着色
+            self._refresh_nav_icons()
         except Exception:
             # 高亮同步失败不影响导航本身，静默容错
             pass
@@ -246,14 +453,14 @@ class SidebarWidget(QWidget):
                     and hasattr(bridge.mood_changed, "connect"):
                 bridge.mood_changed.connect(self._on_maid_mood_changed)
         except Exception:
-            pass
+            logger.debug("静默降级：_connect_maid_companion 中忽略异常", exc_info=True)
         try:
             engine = getattr(self.app_ctx, "theme_engine", None)
             if engine is not None and hasattr(engine, "theme_changed") \
                     and hasattr(engine.theme_changed, "connect"):
-                engine.theme_changed.connect(lambda _n: self._apply_maid_chip_style())
+                engine.theme_changed.connect(self._on_sidebar_theme_changed)
         except Exception:
-            pass
+            logger.debug("静默降级：_connect_maid_companion 中忽略异常", exc_info=True)
         self._maid_connected = True
 
     def _on_maid_mood_changed(self, mood: str, reason: str) -> None:
@@ -277,7 +484,7 @@ class SidebarWidget(QWidget):
                         self._last_ai_expr or self._role_base_expr
                     )
             except Exception:
-                pass
+                logger.debug("静默降级：_on_maid_mood_changed 中忽略异常", exc_info=True)
 
     def _connect_role_bridge(self) -> None:
         """v1.4.2: 订阅角色生效广播（大形象切角色专属资产集 + 基线表情）。"""
@@ -286,7 +493,7 @@ class SidebarWidget(QWidget):
             if rb is not None and hasattr(rb, "role_changed"):
                 rb.role_changed.connect(self._on_role_changed)
         except Exception:
-            pass
+            logger.debug("静默降级：_connect_role_bridge 中忽略异常", exc_info=True)
 
     def _on_role_changed(self, role_id: str, avatar_path: str, base_expr: str) -> None:
         try:
@@ -301,7 +508,7 @@ class SidebarWidget(QWidget):
                 self.maid_big_avatar.set_assets(assets)
             self.maid_big_avatar.set_maid_expression(self._role_base_expr)
         except Exception:
-            pass
+            logger.debug("静默降级：_on_role_changed 中忽略异常", exc_info=True)
 
     def _on_maid_clicked(self) -> None:
         self.maid_clicked.emit()
@@ -311,7 +518,7 @@ class SidebarWidget(QWidget):
             try:
                 page_manager.navigate("home")
             except Exception:
-                pass
+                logger.debug("静默降级：_on_maid_clicked 中忽略异常", exc_info=True)
 
     def _current_maid_state(self) -> str:
         """当前应展示态：bridge 活动态优先，否则 companion.mood，再回落 normal。"""
@@ -320,13 +527,13 @@ class SidebarWidget(QWidget):
             if bridge is not None and hasattr(bridge, "current_display"):
                 return bridge.current_display() or "normal"
         except Exception:
-            pass
+            logger.debug("静默降级：_current_maid_state 中忽略异常", exc_info=True)
         companion = getattr(self.app_ctx, "companion", None)
         if companion is not None:
             try:
                 return companion.mood or "normal"
             except Exception:
-                pass
+                logger.debug("静默降级：_current_maid_state 中忽略异常", exc_info=True)
         return "normal"
 
     def update_maid_chip(self) -> None:
@@ -355,7 +562,7 @@ class SidebarWidget(QWidget):
                         if not btn_text.startswith(" "):
                             btn_text = " " + btn_text
             except Exception:
-                pass
+                logger.debug("静默降级：update_maid_chip 中忽略异常", exc_info=True)
         if icon.isNull():
             # 资产缺失：退化为铃铛字符头像（不空白、不崩）
             self.maid_chip.setIcon(QIcon())
@@ -437,5 +644,6 @@ class SidebarWidget(QWidget):
                 if item and item.data(Qt.UserRole) == key:
                     self.list_widget.setCurrentRow(i)
                     break
+            self._refresh_nav_icons()
         finally:
             self.list_widget.currentRowChanged.connect(self._on_row_changed)

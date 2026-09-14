@@ -1,31 +1,32 @@
 {
-  "version": "2.0.0",
+  "version": "2.1.0",
   "_comment": "占位已消解；本包为正式发布构建（owner=xigua148）。注意：该 owner 会被编译进 exe（gui/update_checker.py GITHUB_OWNER），改动仓库地址后需重打本包；assets.*.sha256/size 为本次发版打包的真实值",
   "released_at": "2026-09-11",
   "min_compatible": "1.0.0",
   "min_updatable": "2.0.0",
-  "release_url": "https://github.com/xigua148/maling/releases/tag/v2.0.0",
+  "release_url": "https://github.com/xigua148/maling/releases/tag/v2.1.0",
   "downloads": {
-    "github": "https://github.com/xigua148/maling/releases/download/v2.0.0/MaLing_v2.0.0_win_onedir.zip",
+    "github": "https://github.com/xigua148/maling/releases/download/v2.1.0/MaLing_v2.1.0_win_onedir.zip",
     "mirror": ""
   },
   "assets": {
     "onedir": {
-      "url": "https://github.com/xigua148/maling/releases/download/v2.0.0/MaLing_v2.0.0_win_onedir.zip",
+      "url": "https://github.com/xigua148/maling/releases/download/v2.1.0/MaLing_v2.1.0_win_onedir.zip",
       "mirror": "",
-      "sha256": "ef25f6a0f2a487ce316553c04b4b875e4a7f9c4d996f869e900970aa39a893ee",
-      "size": 267642627,
-      "filename": "MaLing_v2.0.0_win_onedir.zip"
+      "sha256": "49bef5c4050db8aa922bdf3ab55637a7bc7e8bed6d59378e859a1f97eee7c028",
+      "size": 292821846,
+      "filename": "MaLing_v2.1.0_win_onedir.zip"
     },
     "single": {
-      "url": "https://github.com/xigua148/maling/releases/download/v2.0.0/MaLing_v2.0.0_win_single.exe",
+      "url": "https://github.com/xigua148/maling/releases/download/v2.1.0/MaLing_v2.1.0_win_single.exe",
       "mirror": "",
-      "sha256": "a09b9d76410128d23d975e627c9ef0cf4937e1f042126c5ad1fd42f9e52116e0",
-      "size": 197620448,
-      "filename": "MaLing_v2.0.0_win_single.exe"
+      "sha256": "3edd239572710cb2f4a74a0c46b36f957229f9f9c67bf146e6b8c962a85bc9b7",
+      "size": 222888478,
+      "filename": "MaLing_v2.1.0_win_single.exe"
     }
   },
   "notes": [
+    "v2.1.0 视觉一致性收口：图标字形体系 · 字体族链修复 · 字号单一收口；三处循环动效回退（ripple/bars/typing→pulse/文字节奏）；侧栏滚动条 hover 才显示；KB 检索/建索引异步化（QThread）；核心层 L0→L1 反向依赖修（path_guard.py）；命令白名单收敛为 ALLOWED_COMMANDS 子集（+子集守卫）；气泡姓名走 given_name（人设≠人名）。",
     "v2.0.0 自动更新与分发：启动/手动检查 + stable/beta 频道 + 后台下载（断点续传/失败降级/强制 SHA-256 校验）+ 退出时自动换包（onedir 整目录 swap / onefile 改名换法）+ 备份与失败回滚；用户数据不受影响",
     "v1.9.0 视觉重塑：四套界面风格（现代极简/温暖奶油/深色夜间/鲸鱼娘深海，切换即时生效）+ 字体系统（内置资源圆体正文+粉圆标题点缀+系统字体可选）+ 人设命名规则（名字与人设标签分离，7 预设自称小铃/小鲸/小咪/铃奈/我/我/我）",
     "v1.8.1：模型清单更新至最新——DeepSeek 新旗舰 deepseek-flash（V4.1-Flash 原生多模态）设为默认；OpenAI gpt-6-astra / Gemini 3.8-flash / Grok 4.6 / 智谱 GLM-5.3-Flash / 豆包 doubao-seed-evolving / 混元 hy4-preview 等 11 家同步更新；视觉识别白名单同步扩充",

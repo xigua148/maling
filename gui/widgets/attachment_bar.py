@@ -14,6 +14,7 @@ from gui.qt_compat import (
     Qt, QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton, QSizePolicy, Signal,
 )
 from gui.utils import theme_color
+from gui import icons
 
 logger = logging.getLogger("maid_coder.gui")
 
@@ -68,18 +69,18 @@ def attachment_icon(name: str, ext: str) -> str:
     archive_ext = {".zip", ".tar", ".gz", ".7z", ".rar", ".bz2", ".xz"}
     doc_ext = {".md", ".txt", ".pdf", ".doc", ".docx", ".rtf"}
     if ext in code_ext:
-        return "💻"
+        return icons.text_glyph("code", "💻")
     if ext in image_ext:
-        return "🖼"
+        return icons.text_glyph("image", "🖼")
     if ext in audio_ext:
-        return "🎵"
+        return icons.text_glyph("music", "🎵")
     if ext in video_ext:
-        return "🎬"
+        return icons.text_glyph("video", "🎬")
     if ext in archive_ext:
         return "📦"
     if ext in doc_ext:
-        return "📝"
-    return "📄"
+        return icons.text_glyph("article", "📝")
+    return icons.text_glyph("file", "📄")
 
 
 def human_size(size: int) -> str:

@@ -7,6 +7,7 @@ from gui.qt_compat import (
     Qt, QWidget, QHBoxLayout, QPushButton, QTabBar, QSizePolicy, Signal,
 )
 from gui.utils import theme_color
+from gui import icons
 
 
 class SessionTabsBar(QWidget):
@@ -76,7 +77,7 @@ class SessionTabsBar(QWidget):
                 title = self._format_tab_title(name)
                 # v1.7(F10b) 遗留收口：群聊会话 Tab 带 👥 角标（与左侧列表一致）
                 if sid in self._group_ids:
-                    title = "👥 " + title
+                    title = f"{icons.text_glyph('people', '👥')} " + title
                 self.tab_bar.addTab(title)
                 if sid == current_id:
                     current_index = idx

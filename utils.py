@@ -31,6 +31,9 @@ def _atomic_write_json(path: str, data: dict) -> None:
     os.replace(tmp, path)
 
 from core import AppConfig, STYLES, _fmt, G, R, Y, C, B, GR, M, W, _HAS_YAML
+# 路径守卫真值源已下沉至 L0（core/path_guard.py）；此处转发以保持
+# utils._validate_file_path / utils._backup_path 对外入口不变（L1 多个模块与测试依赖）。
+from core.path_guard import _backup_path, _validate_file_path
 
 # Help
 # ---------------------------------------------------------------------------
@@ -694,10 +697,8 @@ def _check_recovery(session: ChatSession) -> bool:
 # 新功能辅助函数（P1/P2）
 # ---------------------------------------------------------------------------
 
-def _backup_path(filepath: str) -> str:
-    """生成带时间戳的备份路径，避免覆盖历史备份。"""
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"{filepath}.bak.{ts}"
+# `_backup_path` 实现已下沉至 L0（core/path_guard.py），此处由文件头
+# `from core.path_guard import _backup_path` 转发，保持 utils 对外入口不变。
 
 
 def _find_latest_backup(filepath: str) -> Optional[str]:
@@ -907,22 +908,8 @@ def _generate_template(template_type: str, target_dir: str) -> str:
 _SKIP_DIRS = {".git", ".github", ".svn", "node_modules", "venv", "__pycache__", "dist", "build", ".pytest_cache", ".mypy_cache", ".tox"}
 
 
-def _validate_file_path(filepath: str, workspace: str = ".") -> Tuple[bool, str]:
-    """验证文件路径是否在工作空间内，防止路径遍历。"""
-    try:
-        target = (Path(workspace) / filepath).resolve()
-        base = Path(workspace).resolve()
-        # 检查路径是否以 base 开头
-        try:
-            target.relative_to(base)
-        except ValueError:
-            return False, f"路径越界: {filepath} 不在工作目录 {workspace} 内"
-        # 拒绝包含 .. 的原始路径
-        if ".." in filepath.replace("\\", "/"):
-            return False, "路径包含非法的父目录引用 .."
-        return True, str(target)
-    except Exception as e:
-        return False, f"路径验证失败: {e}"
+# `_validate_file_path` 实现已下沉至 L0（core/path_guard.py），此处由文件头
+# `from core.path_guard import _validate_file_path` 转发，保持 utils 对外入口不变。
 
 
 def _batch_replace_preview(pattern: str, replacement: str, glob_expr: str, workspace: str = ".") -> Tuple[List[str], int, Dict[str, str]]:

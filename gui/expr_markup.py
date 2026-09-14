@@ -13,8 +13,63 @@ from __future__ import annotations
 import re
 from typing import List, Optional, Tuple
 
-# [[表情:xxx]] / [[表情：xxx]]（中英冒号均容错）
-_MARKUP_RE = re.compile(r"\[\[表情[:：]\s*([A-Za-z_][A-Za-z0-9_]*)\s*\]\]")
+# v2.1(UI-Fix-0912-3): 放宽标记识别 —— 原正则只认 `[[表情:ascii_id]]`，
+# 但指南里给模型的是「happy=开心微笑」这类「id=中文描述」，模型很自然会输出
+# `[[表情:开心]]`（中文名）、`[表情:happy]`（单方括号）或 `[[表情:]]`（空值），
+# 这些都漏进了正文（用户看到 `[[表情:开心]]` 这种协议文本 = 「不知道是什么」）。
+# 现支持：1~2 个方括号 + 中英冒号 + 英文 id / 中文名 / 空值。
+_MARKUP_RE = re.compile(
+    r"\[{1,2}\s*(?:表情|表情包|emotion|expression|emo)\s*[:：]\s*"
+    r"([A-Za-z_][A-Za-z0-9_]*|[\u4e00-\u9fff]{1,8})?\s*\]{1,2}",
+    re.IGNORECASE,
+)
+
+# 标记关键字（长在前，便于前缀匹配）
+_MARKUP_KEYS = ("表情包", "表情", "emotion", "expression", "emo")
+
+
+def _is_open_prefix(s: str) -> bool:
+    """``s`` 以 ``[`` 开头时，判断它**是否可能**是标记的开头（含"还没读全"的情况）。
+
+    流式过滤必须跨 chunk 缓冲：收到 ``[`` / ``[[`` / ``[[表`` / ``[[表情:`` 时都不能急着
+    放行，否则标记会被拆散漏进正文（这正是原实现用 ``startswith("[[")`` 在守的边界）。
+    只有确定「不可能成为标记」才立即按普通文本放行（如 ``[0]`` / ``[链接]``）。
+    """
+    if not s.startswith("["):
+        return False
+    body = s.lstrip("[")
+    if len(s) - len(body) > 2:          # 超过两个左方括号 → 不是标记
+        return False
+    if not body:                         # "[", "[[" → 继续等
+        return True
+    body = body.lstrip()                 # 允许关键字前有空白
+    if not body:
+        return True
+    if body[0] in ":：":                 # 已出现冒号 → 是标记
+        return True
+    low = body.lower()
+    return any(k.startswith(low) or low.startswith(k) for k in _MARKUP_KEYS)
+
+
+def resolve_expression_token(raw: str) -> Optional[str]:
+    """把标记里的原始值解析成表情 id；解析不出返回 None（但标记本身仍会被剥离）。
+
+    - 英文 id：原样小写返回（由下游 resolve_expression 做合法性兜底）
+    - 中文名：先精确匹配指南描述，再按「前缀/包含」匹配
+      （指南写 `happy=开心微笑`，模型可能只取「开心」）
+    """
+    t = (raw or "").strip().lower()
+    if not t:
+        return None
+    if re.fullmatch(r"[a-z_][a-z0-9_]*", t):
+        return t
+    for eid, desc in _EXPRESSION_GUIDE_ITEMS:
+        if t == desc:
+            return eid
+    for eid, desc in _EXPRESSION_GUIDE_ITEMS:
+        if desc.startswith(t) or (len(t) >= 2 and t in desc):
+            return eid
+    return None
 
 # 36 标准表情中文速查（供 AI 选择参考；角色专属扩展表情由指南动态补充提示）
 _EXPRESSION_GUIDE_ITEMS: List[Tuple[str, str]] = [
@@ -66,7 +121,12 @@ def extract_expressions(text: str) -> Tuple[str, List[str]]:
     """
     if not text:
         return text, []
-    ids: List[str] = [m.group(1).strip().lower() for m in _MARKUP_RE.finditer(text)]
+    ids: List[str] = []
+    for m in _MARKUP_RE.finditer(text):
+        eid = resolve_expression_token(m.group(1) or "")
+        if eid:
+            ids.append(eid)
+    # 无论能否解析出 id，标记本身一律剥离（协议文本绝不能让用户看到）
     clean = _MARKUP_RE.sub("", text)
     # 清理剥离后遗留的空行堆积（标记通常独占一行）
     clean = re.sub(r"\n{3,}", "\n\n", clean).rstrip()
@@ -136,34 +196,64 @@ class MarkupStreamFilter:
             if i > 0:
                 out.append(self._buf[:i])
                 self._buf = self._buf[i:]
-            if not self._buf.startswith("[["):
-                # 单个 "[" 可能是跨 chunk "[[" 的前半 → 留 1 字符等待下一段
+            # 此刻 _buf 以 "[" 开头。只有「可能成为标记开头」才值得缓冲等待闭合；
+            # 确定不可能的（如 "[0]" / "[链接]"）立即按普通文本放行，避免吞正文。
+            if not _is_open_prefix(self._buf):
                 out.append(self._buf[0])
                 self._buf = self._buf[1:]
                 continue
-            j = self._buf.find("]]")
+            # 找最近的闭合 "]"（单/双方括号都收）
+            j = self._buf.find("]")
             if j == -1:
                 if len(self._buf) > self._MAX_PENDING:
                     out.append(self._buf[:1])
                     self._buf = self._buf[1:]
                     continue
                 break  # 等待更多 chunk
-            token = self._buf[:j + 2]
+            end = j + 1
+            if end < len(self._buf) and self._buf[end] == "]":
+                end += 1  # 吃成对的双右括号
+            elif end == len(self._buf) and self._buf.startswith("[["):
+                # 只收到第一个 ']' 且它是缓冲末尾 —— 下一个字符可能还是 ']'（即 "]]"）。
+                # 若此刻就按单右括号收掉，会漏出一个多余的 ']' 进正文 → 再等一个字符。
+                break
+            token = self._buf[:end]
             m = _MARKUP_RE.fullmatch(token)
             if m:
-                eid = m.group(1).strip().lower()
-                self.captured.append(eid)
-                if self._on_expression is not None and len(self.captured) == 1:
-                    try:
-                        self._on_expression(eid)
-                    except Exception:
-                        pass
+                eid = resolve_expression_token(m.group(1) or "")
+                if eid:
+                    self.captured.append(eid)
+                    if self._on_expression is not None and len(self.captured) == 1:
+                        try:
+                            self._on_expression(eid)
+                        except Exception:
+                            pass
+                # 解析不出 id 的标记同样吞掉（协议文本不能让用户看到）
             else:
                 out.append(token)  # 非协议 → 原样放行
-            self._buf = self._buf[j + 2:]
+            self._buf = self._buf[end:]
         return "".join(out)
 
     def flush(self) -> str:
-        """流结束：缓冲里未闭合的内容原样放行（模型异常截断时不吞正文）。"""
+        """流结束：把缓冲里**仍完整的标记**也剥掉，其余原样放行（模型截断时不吞正文）。"""
         rest, self._buf = self._buf, ""
-        return rest
+        if not rest:
+            return ""
+        out: List[str] = []
+        while rest:
+            i = rest.find("[")
+            if i == -1:
+                out.append(rest)
+                break
+            out.append(rest[:i])
+            rest = rest[i:]
+            m = _MARKUP_RE.match(rest)
+            if m:
+                eid = resolve_expression_token(m.group(1) or "")
+                if eid and eid not in self.captured:
+                    self.captured.append(eid)
+                rest = rest[m.end():]
+            else:
+                out.append(rest[0])
+                rest = rest[1:]
+        return "".join(out)

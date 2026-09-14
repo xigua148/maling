@@ -86,7 +86,6 @@ class UpdateProgressDialog(QDialog):
         self.title_label = QLabel(_TEXT_DOWNLOADING)
         self.title_label.setObjectName("updTitle")
         tf = self.title_label.font()
-        tf.setPointSize(12)
         tf.setBold(True)
         self.title_label.setFont(tf)
         outer.addWidget(self.title_label)

@@ -12,8 +12,9 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from gui.qt_compat import QWidget, QHBoxLayout, QLabel, QPushButton, Qt
+from gui.qt_compat import QWidget, QHBoxLayout, QLabel, QPushButton, QSize, Qt
 from gui.utils import theme_color
+from gui import icons
 
 logger = __import__("logging").getLogger("maid_coder.gui")
 
@@ -50,11 +51,24 @@ class ProactiveFeedbackBar(QWidget):
         # 收起态：小 ✨ 入口（persistent 模式不创建）
         self._spark = None
         if not persistent:
-            self._spark = QPushButton("✨")
+            self._spark = QPushButton()
             self._spark.setObjectName("feedbackSpark")
             self._spark.setCursor(Qt.PointingHandCursor)
             self._spark.setFixedSize(24, 20)
             self._spark.setToolTip("刚才这句话感觉怎么样？")
+            # v2.1(D-V21-06): 纯图标按钮 —— 图标字体可用给矢量图标，
+            # 不可用回落原 emoji 文本（不空白、不崩）。
+            spark_icon = None
+            try:
+                if icons.available():
+                    spark_icon = icons.icon("auto_awesome", 14, None)
+            except Exception:
+                spark_icon = None
+            if spark_icon is not None and not spark_icon.isNull():
+                self._spark.setIcon(spark_icon)
+                self._spark.setIconSize(QSize(14, 14))
+            else:
+                self._spark.setText("✨")
             self._spark.clicked.connect(self.expand)
             lay.addWidget(self._spark)
 

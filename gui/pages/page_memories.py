@@ -12,6 +12,7 @@ import logging
 from datetime import datetime
 from typing import Any, List, Optional
 
+from gui import icons
 from gui.qt_compat import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QFrame, Qt, QMessageBox, QSizePolicy,
@@ -19,6 +20,23 @@ from gui.qt_compat import (
 from gui.utils import theme_color
 
 logger = logging.getLogger("maid_coder.gui")
+
+# v2.1(V21-12/D-V21-06): 回忆册图标统一 —— 只记「图标名 + 尺寸 + theme_color 取色」，
+# 字体不可用时回落原 emoji。
+_MEM_ICON_SIZE = 14
+
+
+def _vector_icon(app_ctx, name: str, size: int, color):
+    """取矢量 ``QIcon``；字体/名字不可用或渲染失败 → ``None``（调用方回落 emoji）。"""
+    try:
+        if not name or not icons.available() or not icons.has(name):
+            return None
+        ic = icons.icon(name, size, color)
+        if ic is None or ic.isNull():
+            return None
+        return ic
+    except Exception:
+        return None
 
 
 def get_highlights_manager(app_ctx):
@@ -125,6 +143,7 @@ class _MemoryCard(QFrame):
         lay.setSpacing(6)
 
         head = QHBoxLayout()
+        head.setSpacing(6)
         role = "主人" if item.get("role") == "user" else "码铃"
         mood = item.get("mood") or "normal"
         mood_char = _MOOD_CHARS.get(mood, "😌")
@@ -135,7 +154,18 @@ class _MemoryCard(QFrame):
             date_txt = dt.strftime("%Y-%m-%d %H:%M")
         except (TypeError, ValueError):
             date_txt = str(item.get("date") or "")
-        role_lab = QLabel(f"{role} · {date_txt} · {mood_char} {mood_label}")
+        mic = _vector_icon(app_ctx, "emotion", _MEM_ICON_SIZE,
+                           theme_color(app_ctx, "text_secondary", "#8A8A8A"))
+        if mic is not None:
+            mood_icon = QLabel()
+            mood_icon.setObjectName("memoryCardMood")
+            mood_icon.setFixedSize(_MEM_ICON_SIZE, _MEM_ICON_SIZE)
+            mood_icon.setPixmap(mic.pixmap(_MEM_ICON_SIZE, _MEM_ICON_SIZE))
+            head.addWidget(mood_icon)
+            role_text = f"{role} · {date_txt} · {mood_label}"
+        else:
+            role_text = f"{role} · {date_txt} · {mood_char} {mood_label}"
+        role_lab = QLabel(role_text)
         role_lab.setObjectName("memoryCardHead")
         head.addWidget(role_lab)
         head.addStretch()
@@ -207,8 +237,8 @@ class PageMemories(QWidget):
 
         head_row = QHBoxLayout()
         title = QLabel("高光回忆")
+        title.setObjectName("pageTitle")
         f = title.font()
-        f.setPointSize(16)
         f.setBold(True)
         title.setFont(f)
         head_row.addWidget(title)
@@ -219,10 +249,17 @@ class PageMemories(QWidget):
         self.clear_btn.setCursor(Qt.PointingHandCursor)
         self.clear_btn.setToolTip("清空所有收藏的高光回忆（不可恢复）")
         self.clear_btn.clicked.connect(self._on_clear)
+        cic = _vector_icon(self.app_ctx, "delete", _MEM_ICON_SIZE,
+                           theme_color(self.app_ctx, "text_secondary", "#8A8A8A"))
+        if cic is not None:
+            self.clear_btn.setIcon(cic)
+            self.clear_btn.setText("清空回忆")
         head_row.addWidget(self.clear_btn)
         outer.addLayout(head_row)
 
-        sub = QLabel("聊天气泡上点右键 → 「✨ 收藏为高光回忆」，重要时刻就能在这里回味~")
+        sub = QLabel(
+            f"聊天气泡上点右键 → 「{icons.text_glyph('auto_awesome', '✨')} 收藏为高光回忆」，"
+            "重要时刻就能在这里回味~")
         sub.setObjectName("memorySubHint")
         sub.setWordWrap(True)
         outer.addWidget(sub)
@@ -270,7 +307,9 @@ class PageMemories(QWidget):
                 logger.warning("读取高光回忆失败: %s", exc)
                 items = []
         if not items:
-            empty = QLabel("还没有收藏过回忆。\n在聊天消息气泡上点右键 → 「✨ 收藏为高光回忆」即可收藏~")
+            empty = QLabel(
+                f"还没有收藏过回忆。\n在聊天消息气泡上点右键 → "
+                f"「{icons.text_glyph('auto_awesome', '✨')} 收藏为高光回忆」即可收藏~")
             empty.setObjectName("memoryEmpty")
             empty.setAlignment(Qt.AlignCenter)
             empty.setWordWrap(True)

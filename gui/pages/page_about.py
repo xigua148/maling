@@ -22,6 +22,9 @@ _THIRD_PARTY_ITEMS = [
     "　　仓库：https://github.com/CyanoHao/Resource-Han-Rounded　用途：正文 / 界面默认字体",
     "jf open 粉圆 Open Huninn —— justfont/open-huninn-font（OFL 1.1）",
     "　　仓库：https://github.com/justfont/open-huninn-font　用途：标题 / 点缀（子集）",
+    # v2.1 域3/R-R②: 图标字体（Apache-2.0，许可副本随包 docs/third_party_licenses/）
+    "Remix Icon 图标集 —— Remix-Design/RemixIcon（Apache-2.0）",
+    "　　仓库：https://github.com/Remix-Design/RemixIcon　用途：界面矢量图标（子集）",
 ]
 
 
@@ -41,8 +44,8 @@ class PageAbout(QWidget):
 
         # 页面标题
         title_label = QLabel("关于码铃")
+        title_label.setObjectName("pageTitle")
         title_font = QFont()
-        title_font.setPointSize(16)
         title_font.setBold(True)
         title_label.setFont(title_font)
         layout.addWidget(title_label)

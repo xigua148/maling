@@ -16,6 +16,7 @@ from gui.qt_compat import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
     QListWidget, QListWidgetItem, Qt,
 )
+from gui import icons
 
 try:
     from gui.utils import theme_color
@@ -64,10 +65,9 @@ class TodoDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
 
-        title = QLabel("📝 待办事项")
+        title = QLabel(f"{icons.text_glyph('todo', '📝')} 待办事项")
         f = title.font()
         f.setBold(True)
-        f.setPointSize(12)
         title.setFont(f)
         layout.addWidget(title)
 
@@ -77,7 +77,7 @@ class TodoDialog(QDialog):
         self.input_edit.setPlaceholderText("输入新待办，回车或点「添加」…")
         self.input_edit.returnPressed.connect(self._on_add)
         add_row.addWidget(self.input_edit, 1)
-        self.add_btn = QPushButton("➕ 添加")
+        self.add_btn = QPushButton(f"{icons.text_glyph('add', '➕')} 添加")
         self.add_btn.clicked.connect(self._on_add)
         add_row.addWidget(self.add_btn)
         layout.addLayout(add_row)
@@ -89,7 +89,7 @@ class TodoDialog(QDialog):
 
         # -- 操作行 --
         op_row = QHBoxLayout()
-        del_btn = QPushButton("🗑 删除选中")
+        del_btn = QPushButton(f"{icons.text_glyph('delete', '🗑')} 删除选中")
         del_btn.clicked.connect(self._on_delete)
         op_row.addWidget(del_btn)
         op_row.addStretch()

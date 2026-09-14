@@ -9,6 +9,8 @@ from gui.qt_compat import (
     QScrollArea, QPoint, QToolButton, QColor,
     Qt, QFont, QMessageBox,
 )
+# v2.1(UI-P2): 投影层次试点（主题 shadow 变量 → QGraphicsDropShadowEffect）
+from gui import elevation
 
 # v1.2(B9): 「模型与接口」专区由独立可复用组件 ModelConfigPanel 承载（原 API 配置分节替换）
 from gui.widgets.model_config_panel import ModelConfigPanel
@@ -27,6 +29,14 @@ from gui.theme_engine import _is_valid_accent_hex  # noqa: F401
 from gui.theme_engine import ThemeEngine, apply_night_lock
 # v1.1(B3): 说明小字取主题次级文字色，避免硬编码
 from gui.utils import theme_color
+# v2.1(D-V21-06): 界面文案图标位走矢量字形（字体不可用时回落原 emoji）
+from gui import icons
+
+# v2.1(可观测性)：静默 except 收敛用 —— 本文件此前多处 `except ...: pass` 无任何
+#   记录，异常被完全吞掉，问题只能靠肉眼发现。改走 logger.debug 后可在日志里定位
+#   （仅记录、不重抛，行为零变化）。
+import logging
+logger = logging.getLogger("maid_coder.gui.page_settings")
 
 # v1.3(P1-3): 全局热键改键用 QKeySequenceEdit（按下捕获）；极旧 PySide6 缺失则降级只读
 try:
@@ -70,7 +80,7 @@ class PageSettings(QWidget):
             try:
                 tts.availability_changed.connect(lambda _ok: self._refresh_tts_hint())
             except Exception:
-                pass
+                logger.debug("静默降级：__init__ 中忽略异常", exc_info=True)
         self._refresh_tts_hint()
 
     def _init_ui(self) -> None:
@@ -95,15 +105,17 @@ class PageSettings(QWidget):
 
         # 页面标题
         title_label = QLabel("设置")
+        title_label.setObjectName("pageTitle")
         title_font = QFont()
-        title_font.setPointSize(16)
         title_font.setBold(True)
         title_label.setFont(title_font)
         layout.addWidget(title_label)
 
-        # 主题设置
-        theme_frame = self._create_section("外观主题")
+        # 外观与效果（v2.1 D-V21-10：原「外观主题」扩为「外观与效果」）
+        theme_frame = self._create_section("外观与效果")
         theme_layout = theme_frame.layout()
+        # 注：本分区（及本页其余 11 个分区）的投影已在 _create_section() 内统一挂载，
+        #   此处无需再挂 —— 重复调用虽幂等，但会掩盖"挂载点唯一"这一事实。
 
         theme_row = QHBoxLayout()
         theme_row.addWidget(QLabel("界面风格:"))
@@ -198,6 +210,73 @@ class PageSettings(QWidget):
         accent_label = QLabel("主题强调色:")
         theme_layout.addWidget(accent_label)
         self._build_accent_palette(theme_layout)
+
+        # ============================================================
+        # v2.1(D-V21-10/C-1/M-6/G-2/G-3/C-2): 效果项
+        #   动效强度 / 毛玻璃 / 浮层毛玻璃 / 省电模式
+        # 即时生效路径：写 cfg + save → 调即时生效回调（motion.configure /
+        # 主窗 _apply_glass_state）；R-A：文案中性、无数值化与催促语义。
+        # ============================================================
+        # ---- 动效强度（M-6，三档）----
+        anim_row = QHBoxLayout()
+        anim_row.addWidget(QLabel("动效强度:"))
+        self.animation_combo = QComboBox()
+        self.animation_combo.addItem("关闭动效", "off")
+        self.animation_combo.addItem("柔和", "soft")
+        self.animation_combo.addItem("标准（默认）", "standard")
+        self.animation_combo.setToolTip("控制切页、气泡与浮层的过渡效果。")
+        self.animation_combo.currentIndexChanged.connect(self._on_animation_level_changed)
+        anim_row.addWidget(self.animation_combo)
+        anim_row.addStretch()
+        theme_layout.addLayout(anim_row)
+
+        self._animation_hint = QLabel(
+            "控制切页、气泡与浮层的过渡；选择「关闭动效」后界面即时切换、不做过渡。")
+        self._animation_hint.setWordWrap(True)
+        self._animation_hint.setStyleSheet(
+            f"QLabel {{ color: {self._hint_color()}; font-size: 11px; }}"
+        )
+        theme_layout.addWidget(self._animation_hint)
+
+        # ---- 毛玻璃（G-3）+ 浮层毛玻璃（G-2）----
+        glass_row = QHBoxLayout()
+        self.glass_check = QCheckBox("毛玻璃")
+        self.glass_check.setToolTip("让窗口背景呈现系统材质。")
+        self.glass_check.stateChanged.connect(self._on_glass_changed)
+        glass_row.addWidget(self.glass_check)
+        glass_row.addStretch()
+        theme_layout.addLayout(glass_row)
+
+        self.glass_popups_check = QCheckBox("浮层毛玻璃")
+        self.glass_popups_check.setToolTip("让弹出浮层使用系统材质。")
+        self.glass_popups_check.stateChanged.connect(self._on_glass_popups_changed)
+        theme_layout.addWidget(self.glass_popups_check)
+
+        self._glass_hint = QLabel(
+            "毛玻璃仅 Windows 11 生效；Windows 10 及远程桌面会自动降级为纯色，文字始终清晰可读。")
+        self._glass_hint.setWordWrap(True)
+        self._glass_hint.setStyleSheet(
+            f"QLabel {{ color: {self._hint_color()}; font-size: 11px; }}"
+        )
+        theme_layout.addWidget(self._glass_hint)
+
+        # ---- 省电模式（C-2：一键关动效 + 关毛玻璃，可恢复）----
+        power_row = QHBoxLayout()
+        self.power_save_check = QCheckBox("省电模式")
+        self.power_save_check.setToolTip("一次性关闭动效与毛玻璃。")
+        self.power_save_check.stateChanged.connect(self._on_power_save_changed)
+        power_row.addWidget(self.power_save_check)
+        power_row.addStretch()
+        theme_layout.addLayout(power_row)
+
+        self._power_save_hint = QLabel(
+            "一次性关闭动效与毛玻璃；取消勾选后恢复进入省电模式前的选择。")
+        self._power_save_hint.setWordWrap(True)
+        self._power_save_hint.setStyleSheet(
+            f"QLabel {{ color: {self._hint_color()}; font-size: 11px; }}"
+        )
+        theme_layout.addWidget(self._power_save_hint)
+
         layout.addWidget(theme_frame)
 
         # v1.2(B9): 「模型与接口」专区 —— 替代原「API 配置」分节（设计 D8）：
@@ -359,9 +438,10 @@ class PageSettings(QWidget):
         agent_layout = agent_frame.layout()
 
         agent_enabled_row = QHBoxLayout()
-        self.agent_enabled_check = QCheckBox("启用 Agent 模式（启动后 🤖 按钮默认开启）")
+        self.agent_enabled_check = QCheckBox(
+            f"启用 Agent 模式（启动后 {icons.text_glyph('agent', '🤖')} 按钮默认开启）")
         self.agent_enabled_check.setToolTip(
-            "仅影响启动时聊天面板「🤖 Agent」按钮的默认状态；\n"
+            f"仅影响启动时聊天面板「{icons.text_glyph('agent', '🤖')} Agent」按钮的默认状态；\n"
             "运行中仍可随时在聊天面板手动开关（按钮显式操作优先）。"
         )
         agent_enabled_row.addWidget(self.agent_enabled_check)
@@ -389,7 +469,7 @@ class PageSettings(QWidget):
         self.coding_engine_combo.addItem("内置 Agent（稳定）", "agent")
         self.coding_engine_combo.addItem("Pi 试点（RPC · 实验特性）", "pi")
         self.coding_engine_combo.setToolTip(
-            "Agent 模式（🤖 开启后）执行编程任务的引擎：\n"
+            f"Agent 模式（{icons.text_glyph('agent', '🤖')} 开启后）执行编程任务的引擎：\n"
             "· 内置 Agent：现有 AgentEngine，行为不变；\n"
             "· Pi 试点：earendil-works/pi 0.85.1 子进程（RPC），流式与授权弹窗均已桥接。\n"
             "注意：①任务模式（managed 任务/自愈/断点）本期仍走内置引擎；\n"
@@ -426,7 +506,8 @@ class PageSettings(QWidget):
         tts_layout.addWidget(self.tts_hint_label)
 
         tts_enabled_row = QHBoxLayout()
-        self.tts_enabled_check = QCheckBox("朗读回复（气泡「🔊 朗读本条」总开关）")
+        self.tts_enabled_check = QCheckBox(
+            f"朗读回复（气泡「{icons.text_glyph('volume', '🔊')} 朗读本条」总开关）")
         self.tts_enabled_check.setToolTip(
             "关闭后女仆回复不再朗读；自动朗读也一并失效。\n"
             "朗读只读 AI 回复文本，绝不朗读你的原文（隐私）。"
@@ -477,6 +558,16 @@ class PageSettings(QWidget):
         self.opacity_label = QLabel("100%")
         opacity_row.addWidget(self.opacity_label)
         win_layout.addLayout(opacity_row)
+
+        # v2.1(D-V21-05/Q-V8): 毛玻璃开启且环境支持时，窗口透明度固定 100%（互斥）
+        self._opacity_glass_hint = QLabel(
+            "毛玻璃开启时窗口透明度固定为 100%（两者互斥），关闭毛玻璃后可再次调整。")
+        self._opacity_glass_hint.setWordWrap(True)
+        self._opacity_glass_hint.setStyleSheet(
+            f"QLabel {{ color: {self._hint_color()}; font-size: 11px; }}"
+        )
+        self._opacity_glass_hint.setVisible(False)
+        win_layout.addWidget(self._opacity_glass_hint)
 
         sidebar_row = QHBoxLayout()
         self.sidebar_check = QCheckBox("显示侧边栏")
@@ -627,7 +718,7 @@ class PageSettings(QWidget):
         close_quit_row = QHBoxLayout()
         self.close_quits_check = QCheckBox("关闭窗口时直接退出")
         self.close_quits_check.setToolTip(
-            "不勾选：点 X 最小化到系统托盘，应用继续驻留（默认，托盘「❌ 退出」真退出）。\n"
+            f"不勾选：点 X 最小化到系统托盘，应用继续驻留（默认，托盘「{icons.text_glyph('close', '❌')} 退出」真退出）。\n"
             "勾选：点 X 即退出（回到旧版行为）。"
         )
         self.close_quits_check.stateChanged.connect(self._on_close_quits_changed)
@@ -700,10 +791,14 @@ class PageSettings(QWidget):
         layout.setSpacing(12)
         title_label = QLabel(title)
         title_font = QFont()
-        title_font.setPointSize(12)
         title_font.setBold(True)
         title_label.setFont(title_font)
         layout.addWidget(title_label)
+        # v2.1(UI-P2 铺开)：分区投影**统一在此挂载**，一处覆盖本页全部 12 个分区，
+        #   消除此前「只有首个分区有阴影」的视觉割裂。
+        #   换肤由 elevation.bind_theme_engine 订阅的 theme_changed → refresh_all 统一刷新，
+        #   无需各分区各自处理；主题无 shadow / 总开关关闭时静默跳过，零副作用。
+        elevation.apply_card_shadow(frame, level=1, app_ctx=self.app_ctx)
         return frame
 
     # ==================================================================
@@ -835,7 +930,7 @@ class PageSettings(QWidget):
             try:
                 config.save()
             except Exception:
-                pass
+                logger.debug("静默降级：_on_update_channel_changed 中忽略异常", exc_info=True)
         self._refresh_update_source()
 
     def _on_check_update_clicked(self) -> None:
@@ -894,7 +989,7 @@ class PageSettings(QWidget):
                         child.unlink()
                     removed = True
                 except Exception:
-                    pass
+                    logger.debug("静默降级：_on_clear_update_cache 中忽略异常", exc_info=True)
         QMessageBox.information(
             self, "清理更新缓存",
             "更新缓存已清理。" if removed else "没有需要清理的缓存。",
@@ -936,7 +1031,7 @@ class PageSettings(QWidget):
         try:
             config.save()
         except Exception:
-            pass
+            logger.debug("静默降级：_on_tts_enabled_changed 中忽略异常", exc_info=True)
         self._refresh_tts_hint()
         # 关闭总开关时若有朗读进行，直接停（全局单例）
         if not config.tts_enabled:
@@ -945,7 +1040,7 @@ class PageSettings(QWidget):
                 try:
                     tts.stop()
                 except Exception:
-                    pass
+                    logger.debug("静默降级：_on_tts_enabled_changed 中忽略异常", exc_info=True)
 
     def _on_tts_auto_read_changed(self, state: int) -> None:
         config = getattr(self.app_ctx, "config", None)
@@ -955,7 +1050,7 @@ class PageSettings(QWidget):
         try:
             config.save()
         except Exception:
-            pass
+            logger.debug("静默降级：_on_tts_auto_read_changed 中忽略异常", exc_info=True)
 
     def _on_tts_speed_changed(self, value: int) -> None:
         self.tts_speed_label.setText(str(value))
@@ -968,11 +1063,11 @@ class PageSettings(QWidget):
             try:
                 tts.set_speed(value)
             except Exception:
-                pass
+                logger.debug("静默降级：_on_tts_speed_changed 中忽略异常", exc_info=True)
         try:
             config.save()
         except Exception:
-            pass
+            logger.debug("静默降级：_on_tts_speed_changed 中忽略异常", exc_info=True)
 
     # ==================================================================
     # v1.3(P1-3): 通用区 —— 全局热键改键 / 关闭窗口行为
@@ -1015,20 +1110,20 @@ class PageSettings(QWidget):
                 self.hotkey_toggle_edit.setKeySequence(QKeySequence(_old)) if which == "toggle" else \
                     self.hotkey_screenshot_edit.setKeySequence(QKeySequence(_old))
             except Exception:
-                pass
+                logger.debug("静默降级：_apply_hotkey 中忽略异常", exc_info=True)
             return
         if config is not None:
             setattr(config, f"hotkey_{which}", combo)
             try:
                 config.save()
             except Exception:
-                pass
+                logger.debug("静默降级：_apply_hotkey 中忽略异常", exc_info=True)
         hk = getattr(self.app_ctx, "hotkeys", None)
         if hk is not None and hasattr(hk, "change_combo"):
             try:
                 hk.change_combo(which, combo)
             except Exception:
-                pass
+                logger.debug("静默降级：_apply_hotkey 中忽略异常", exc_info=True)
 
     def _on_hotkey_toggle_finished(self) -> None:
         self._apply_hotkey("toggle")
@@ -1044,7 +1139,7 @@ class PageSettings(QWidget):
         try:
             config.save()
         except Exception:
-            pass
+            logger.debug("静默降级：_on_close_quits_changed 中忽略异常", exc_info=True)
 
     # -- v1.8(V18-13/D-V18-07): 场景设置 --
     def _on_scene_auto_changed(self, state: int) -> None:
@@ -1057,9 +1152,9 @@ class PageSettings(QWidget):
             try:
                 config.save()
             except Exception:
-                pass
+                logger.debug("静默降级：_on_scene_auto_changed 中忽略异常", exc_info=True)
         except Exception:
-            pass
+            logger.debug("静默降级：_on_scene_auto_changed 中忽略异常", exc_info=True)
 
     def _on_scene_cap_changed(self, value: int) -> None:
         """工作模式主动消息上限（Q-D6 降档值；0 = 工作时段不打扰）。"""
@@ -1071,9 +1166,9 @@ class PageSettings(QWidget):
             try:
                 config.save()
             except Exception:
-                pass
+                logger.debug("静默降级：_on_scene_cap_changed 中忽略异常", exc_info=True)
         except Exception:
-            pass
+            logger.debug("静默降级：_on_scene_cap_changed 中忽略异常", exc_info=True)
 
         # D-V13-11：随 close_quits 联动 quitOnLastWindowClosed（关闭=退出时恢复 True）
         try:
@@ -1085,7 +1180,7 @@ class PageSettings(QWidget):
                     and bool(tray.is_available())
                 app.setQuitOnLastWindowClosed(config.close_quits or not tray_ok)
         except Exception:
-            pass
+            logger.debug("静默降级：_on_scene_cap_changed 中忽略异常", exc_info=True)
 
     # ==================================================================
     # v1.3(P2-7): 外观模式三选（浅色/深色/跟随系统）即时生效
@@ -1103,13 +1198,13 @@ class PageSettings(QWidget):
             try:
                 config.save()
             except Exception:
-                pass
+                logger.debug("静默降级：_on_appearance_changed 中忽略异常", exc_info=True)
         engine = getattr(self.app_ctx, "theme_engine", None)
         if engine is not None and hasattr(engine, "set_theme_mode"):
             try:
                 engine.set_theme_mode(mode)
             except Exception:
-                pass
+                logger.debug("静默降级：_on_appearance_changed 中忽略异常", exc_info=True)
 
     # ==================================================================
     # v1.4.3「主题强调色色盘」：一排精选色板 + 自定义 + 恢复默认（即时生效）
@@ -1173,14 +1268,14 @@ class PageSettings(QWidget):
             try:
                 config.save()
             except Exception:
-                pass
+                logger.debug("静默降级：_apply_custom_accent 中忽略异常", exc_info=True)
         engine = getattr(self.app_ctx, "theme_engine", None)
         if engine is not None and hasattr(engine, "set_custom_accent"):
             try:
                 engine.set_custom_accent(hex_value)
                 engine.load_theme(engine.current_theme_name())
             except Exception:
-                pass
+                logger.debug("静默降级：_apply_custom_accent 中忽略异常", exc_info=True)
 
     def _on_accent_swatch_clicked(self, hex_value: str) -> None:
         self._apply_custom_accent(hex_value)
@@ -1198,7 +1293,7 @@ class PageSettings(QWidget):
             try:
                 start = QColor(engine.get_color("accent", "#42A5F5"))
             except Exception:
-                pass
+                logger.debug("静默降级：_on_accent_custom 中忽略异常", exc_info=True)
         chosen = _QColorDialog.getColor(start, self, "选择主题强调色")
         # 取色取消或非法 -> 不改配置
         if not chosen.isValid():
@@ -1260,7 +1355,7 @@ class PageSettings(QWidget):
                 try:
                     config.save()
                 except Exception:
-                    pass
+                    logger.debug("静默降级：_on_autostart_toggled 中忽略异常", exc_info=True)
             if not ok and config is not None and getattr(config, "close_quits", False):
                 pass  # 静默：移除失败不打扰；系统设置里也可关
             return
@@ -1293,7 +1388,7 @@ class PageSettings(QWidget):
             try:
                 config.save()
             except Exception:
-                pass
+                logger.debug("静默降级：_on_autostart_toggled 中忽略异常", exc_info=True)
         if not ok:
             QMessageBox.warning(self, "开机自启", f"{msg}\n\n可改用打包版 MaLing.exe 后重试。")
             check.blockSignals(True)
@@ -1322,7 +1417,7 @@ class PageSettings(QWidget):
         try:
             companion.set_anniversary(kind, mmdd)
         except Exception:
-            pass
+            logger.debug("静默降级：_on_anniversary_date_changed 中忽略异常", exc_info=True)
 
     def _clear_anniversary(self, kind: str) -> None:
         edit = (getattr(self, "anniversary_edits", None) or {}).get(kind)
@@ -1338,7 +1433,7 @@ class PageSettings(QWidget):
             try:
                 companion.set_anniversary(kind, None)
             except Exception:
-                pass
+                logger.debug("静默降级：_clear_anniversary 中忽略异常", exc_info=True)
 
     def _on_agent_steps_changed(self, value: int) -> None:
         """步数滑条数值即时显示。"""
@@ -1352,7 +1447,7 @@ class PageSettings(QWidget):
             from gui.screen_watch import write_sw
             write_sw(getattr(self.app_ctx, "config", None), name, value)
         except Exception:
-            pass
+            logger.debug("静默降级：_sw_write 中忽略异常", exc_info=True)
 
     def _sw_read(self, name: str, default):
         try:
@@ -1371,7 +1466,7 @@ class PageSettings(QWidget):
             try:
                 svc.refresh_config()
             except Exception:
-                pass
+                logger.debug("静默降级：_sw_service 中忽略异常", exc_info=True)
         return svc
 
     def _refresh_sw_hint(self) -> None:
@@ -1387,7 +1482,7 @@ class PageSettings(QWidget):
         except Exception:
             hint = None
         if hint:
-            text += "\n⚠️ " + hint
+            text += "\n" + icons.text_glyph("warning", "⚠️") + " " + hint
             color = theme_color(self.app_ctx, "state_warn", "#E5A02E")
         self.sw_hint_label.setStyleSheet(f"QLabel {{ color: {color}; font-size: 11px; }}")
         self.sw_hint_label.setText(text)
@@ -1409,7 +1504,7 @@ class PageSettings(QWidget):
         except Exception:
             hint = None
         if hint:
-            lines.append("\n⚠️ " + hint)
+            lines.append("\n" + icons.text_glyph("warning", "⚠️") + " " + hint)
         box.setInformativeText("\n".join(lines))
         ok_btn = box.addButton("继续开启", QMessageBox.AcceptRole)
         box.addButton("取消", QMessageBox.RejectRole)
@@ -1440,7 +1535,7 @@ class PageSettings(QWidget):
                 else:
                     svc.stop()
             except Exception:
-                pass
+                logger.debug("静默降级：_on_sw_enabled_changed 中忽略异常", exc_info=True)
 
     def _on_sw_interval_changed(self, index: int) -> None:
         combo = getattr(self, "sw_interval_combo", None)
@@ -1504,6 +1599,33 @@ class PageSettings(QWidget):
         val = int(config.window_opacity * 100)
         self.opacity_slider.setValue(val)
         self.opacity_label.setText(f"{val}%")
+        # v2.1(D-V21-10): 「外观与效果」区回显（阻塞信号，回显不触发保存/即时生效）
+        if hasattr(self, "animation_combo"):
+            _lvl = getattr(config, "animation_level", "standard")
+            if _lvl not in ("off", "soft", "standard"):
+                _lvl = "standard"
+            _aidx = self.animation_combo.findData(_lvl)
+            if _aidx < 0:
+                _aidx = self.animation_combo.findData("standard")
+            self.animation_combo.blockSignals(True)
+            try:
+                self.animation_combo.setCurrentIndex(_aidx)
+            finally:
+                self.animation_combo.blockSignals(False)
+        for _attr, _key, _default in (
+            ("glass_check", "glass_enabled", True),
+            ("glass_popups_check", "glass_popups_enabled", True),
+            ("power_save_check", "power_save_mode", False),
+        ):
+            _chk = getattr(self, _attr, None)
+            if _chk is not None:
+                _chk.blockSignals(True)
+                try:
+                    _chk.setChecked(bool(getattr(config, _key, _default)))
+                finally:
+                    _chk.blockSignals(False)
+        # v2.1(D-V21-05/Q-V8): 透明度滑杆与毛玻璃互斥联动初始化
+        self._sync_opacity_linkage()
         # 侧边栏/聊天
         self.sidebar_check.setChecked(config.sidebar_visible)
         self.chat_check.setChecked(config.chat_panel_visible)
@@ -1550,7 +1672,7 @@ class PageSettings(QWidget):
                 elif hasattr(self.hotkey_toggle_edit, "setKeySequence"):
                     self.hotkey_toggle_edit.setKeySequence(QKeySequence(hk_toggle))
             except Exception:
-                pass
+                logger.debug("静默降级：_load_settings 中忽略异常", exc_info=True)
         if hasattr(self, "hotkey_screenshot_edit"):
             try:
                 if isinstance(self.hotkey_screenshot_edit, QLineEdit):
@@ -1558,7 +1680,7 @@ class PageSettings(QWidget):
                 elif hasattr(self.hotkey_screenshot_edit, "setKeySequence"):
                     self.hotkey_screenshot_edit.setKeySequence(QKeySequence(hk_screenshot))
             except Exception:
-                pass
+                logger.debug("静默降级：_load_settings 中忽略异常", exc_info=True)
         if hasattr(self, "close_quits_check"):
             self.close_quits_check.setChecked(bool(getattr(config, "close_quits", False)))
         # ---- v1.3(P2-7): 外观模式初始化 ----
@@ -1695,13 +1817,13 @@ class PageSettings(QWidget):
             try:
                 engine.load_theme(theme_name)
             except Exception:
-                pass
+                logger.debug("静默降级：_switch_theme 中忽略异常", exc_info=True)
         if config is not None:
             config.theme_name = theme_name
             try:
                 config.save()
             except Exception:
-                pass
+                logger.debug("静默降级：_switch_theme 中忽略异常", exc_info=True)
         self._apply_night_lock_ui(locked)
         self._sync_style_controls(theme_name)
 
@@ -1712,13 +1834,13 @@ class PageSettings(QWidget):
             try:
                 combo.setEnabled(not locked)
             except Exception:
-                pass
+                logger.debug("静默降级：_apply_night_lock_ui 中忽略异常", exc_info=True)
         hint = getattr(self, "_night_hint", None)
         if hint is not None:
             try:
                 hint.setVisible(bool(locked))
             except Exception:
-                pass
+                logger.debug("静默降级：_apply_night_lock_ui 中忽略异常", exc_info=True)
 
     def _sync_style_controls(self, theme_name: str) -> None:
         """把下拉 / 色块高亮同步到当前风格（不触发切换）。"""
@@ -1743,7 +1865,7 @@ class PageSettings(QWidget):
                         f" {accent}; border-radius: 9px; }}"
                         f"QToolButton:hover {{ background: {accent}; }}")
             except Exception:
-                pass
+                logger.debug("静默降级：_sync_style_controls 中忽略异常", exc_info=True)
 
     def _on_font_changed(self, index: int) -> None:
         """v1.9 B/D-V19-05：界面字体即时生效 —— 写 cfg + save → 复用既有
@@ -1757,14 +1879,14 @@ class PageSettings(QWidget):
             try:
                 config.save()
             except Exception:
-                pass
+                logger.debug("静默降级：_on_font_changed 中忽略异常", exc_info=True)
         # 即时重载当前主题（重读 font_family → 重设 QSS + app.setFont）
         theme_engine = getattr(self.app_ctx, "theme_engine", None)
         if theme_engine is not None:
             try:
                 theme_engine.load_theme(theme_engine.current_theme_name())
             except Exception:
-                pass
+                logger.debug("静默降级：_on_font_changed 中忽略异常", exc_info=True)
         # 提示条：粉圆提示「已作用于标题位」
         if hasattr(self, "_font_hint"):
             try:
@@ -1775,7 +1897,7 @@ class PageSettings(QWidget):
                 else:
                     self._font_hint.setText("已作用于正文 / 界面；标题位同链。")
             except Exception:
-                pass
+                logger.debug("静默降级：_on_font_changed 中忽略异常", exc_info=True)
 
     def _on_opacity_changed(self, value: int) -> None:
         self.opacity_label.setText(f"{value}%")
@@ -1786,6 +1908,168 @@ class PageSettings(QWidget):
         config = getattr(self.app_ctx, "config", None)
         if config is not None:
             config.window_opacity = opacity
+
+    # ==================================================================
+    # v2.1(D-V21-10): 「外观与效果」即时生效（动效档 / 毛玻璃 / 省电模式）
+    #   写 cfg + save → 调即时生效回调；所有失败路径静默（不崩、不改行为）。
+    # ==================================================================
+    def _apply_motion_level(self, level: str) -> None:
+        """动效档即时生效：``motion.configure``；切 ``off`` 时收束进行中动画。"""
+        try:
+            from gui import motion
+            motion.configure(level)
+            if level == "off":
+                motion.stop_all(final=True)
+        except Exception:
+            logger.debug("静默降级：_apply_motion_level 中忽略异常", exc_info=True)
+
+    def _on_animation_level_changed(self, index: int) -> None:
+        level = self.animation_combo.itemData(index) if index >= 0 else None
+        if not level:
+            return
+        config = getattr(self.app_ctx, "config", None)
+        if config is not None:
+            config.animation_level = level
+            # 手动改档视为脱离省电模式（否则档位与省电语义冲突）
+            if getattr(config, "power_save_mode", False) and level != "off":
+                config.power_save_mode = False
+                if hasattr(self, "power_save_check"):
+                    self.power_save_check.blockSignals(True)
+                    try:
+                        self.power_save_check.setChecked(False)
+                    finally:
+                        self.power_save_check.blockSignals(False)
+            try:
+                config.save()
+            except Exception:
+                logger.debug("静默降级：_on_animation_level_changed 中忽略异常", exc_info=True)
+        self._apply_motion_level(level)
+
+    def _on_glass_changed(self, state: int) -> None:
+        config = getattr(self.app_ctx, "config", None)
+        if config is None:
+            return
+        config.glass_enabled = self.glass_check.isChecked()
+        try:
+            config.save()
+        except Exception:
+            logger.debug("静默降级：_on_glass_changed 中忽略异常", exc_info=True)
+        self._notify_glass_state()
+
+    def _on_glass_popups_changed(self, state: int) -> None:
+        config = getattr(self.app_ctx, "config", None)
+        if config is None:
+            return
+        config.glass_popups_enabled = self.glass_popups_check.isChecked()
+        try:
+            config.save()
+        except Exception:
+            logger.debug("静默降级：_on_glass_popups_changed 中忽略异常", exc_info=True)
+        self._notify_glass_state()
+
+    def _glass_supported(self) -> bool:
+        """环境是否支持毛玻璃（探测失败 → False，不锁滑杆）。"""
+        try:
+            from gui import glass
+            return bool(glass.is_supported())
+        except Exception:
+            return False
+
+    def _notify_glass_state(self) -> None:
+        """通知主窗重新应用毛玻璃（DWM + 根属性 + 透明度互斥）；无主窗则仅联动本地 UI。"""
+        main_window = self.window()
+        if main_window is not None and hasattr(main_window, "_apply_glass_state"):
+            try:
+                main_window._apply_glass_state()
+            except Exception:
+                logger.debug("静默降级：_notify_glass_state 中忽略异常", exc_info=True)
+        self._sync_opacity_linkage()
+
+    def _sync_opacity_linkage(self) -> None:
+        """Q-V8 / D-V21-05：毛玻璃开 + 环境支持 → 透明度滑杆禁用并锁定 100%；
+        否则恢复 ``cfg.window_opacity``（行为与改动前一致）。"""
+        if not hasattr(self, "opacity_slider"):
+            return
+        config = getattr(self.app_ctx, "config", None)
+        glass_on = bool(getattr(config, "glass_enabled", True)) if config is not None else False
+        locked = glass_on and self._glass_supported()
+        try:
+            self.opacity_slider.setEnabled(not locked)
+        except Exception:
+            logger.debug("静默降级：_sync_opacity_linkage 中忽略异常", exc_info=True)
+        hint = getattr(self, "_opacity_glass_hint", None)
+        if hint is not None:
+            try:
+                hint.setVisible(locked)
+            except Exception:
+                logger.debug("静默降级：_sync_opacity_linkage 中忽略异常", exc_info=True)
+        main_window = self.window()
+        if main_window is None:
+            return
+        try:
+            if locked:
+                main_window.setWindowOpacity(1.0)
+            elif config is not None:
+                main_window.setWindowOpacity(float(getattr(config, "window_opacity", 1.0)))
+        except Exception:
+            logger.debug("静默降级：_sync_opacity_linkage 中忽略异常", exc_info=True)
+
+    def _on_power_save_changed(self, state: int) -> None:
+        """C-2：开启 → 快照两键 + 置 animation_level=off + glass_enabled=False；
+        关闭 → 从快照恢复。两项均即时生效。"""
+        config = getattr(self.app_ctx, "config", None)
+        if config is None:
+            return
+        enabled = self.power_save_check.isChecked()
+        config.power_save_mode = enabled
+        if enabled:
+            config.animation_level_pre_power_save = getattr(
+                config, "animation_level", "standard")
+            config.glass_enabled_pre_power_save = bool(
+                getattr(config, "glass_enabled", True))
+            config.animation_level = "off"
+            config.glass_enabled = False
+        else:
+            snap_anim = getattr(config, "animation_level_pre_power_save", "standard")
+            if snap_anim not in ("off", "soft", "standard"):
+                snap_anim = "standard"
+            config.animation_level = snap_anim
+            config.glass_enabled = bool(
+                getattr(config, "glass_enabled_pre_power_save", True))
+        try:
+            config.save()
+        except Exception:
+            logger.debug("静默降级：_on_power_save_changed 中忽略异常", exc_info=True)
+        # 回显两键对应控件（阻塞信号，避免二次写回/递归）
+        self._reflect_effect_controls(config)
+        self._apply_motion_level(config.animation_level)
+        self._notify_glass_state()
+
+    def _reflect_effect_controls(self, config) -> None:
+        """把配置值回显到效果控件（阻塞信号，不触发保存/即时生效）。"""
+        if hasattr(self, "animation_combo"):
+            lvl = getattr(config, "animation_level", "standard")
+            if lvl not in ("off", "soft", "standard"):
+                lvl = "standard"
+            idx = self.animation_combo.findData(lvl)
+            if idx < 0:
+                idx = self.animation_combo.findData("standard")
+            self.animation_combo.blockSignals(True)
+            try:
+                self.animation_combo.setCurrentIndex(idx)
+            finally:
+                self.animation_combo.blockSignals(False)
+        for attr, key, default in (
+            ("glass_check", "glass_enabled", True),
+            ("glass_popups_check", "glass_popups_enabled", True),
+        ):
+            chk = getattr(self, attr, None)
+            if chk is not None:
+                chk.blockSignals(True)
+                try:
+                    chk.setChecked(bool(getattr(config, key, default)))
+                finally:
+                    chk.blockSignals(False)
 
     def _on_maid_mode_changed(self, state: int) -> None:
         config = getattr(self.app_ctx, "config", None)
@@ -1802,13 +2086,13 @@ class PageSettings(QWidget):
         try:
             config.save()
         except Exception:
-            pass
+            logger.debug("静默降级：_on_pet_enabled_changed 中忽略异常", exc_info=True)
         main_window = self.window()
         if main_window is not None and hasattr(main_window, "set_pet_enabled"):
             try:
                 main_window.set_pet_enabled(config.pet_enabled)
             except Exception:
-                pass
+                logger.debug("静默降级：_on_pet_enabled_changed 中忽略异常", exc_info=True)
 
     # ==================================================================
     # v1.2(B9): 「模型与接口」直达支持
@@ -1827,7 +2111,7 @@ class PageSettings(QWidget):
                 elif hasattr(panel, "reload_current"):
                     panel.reload_current()
             except Exception:
-                pass
+                logger.debug("静默降级：on_enter 中忽略异常", exc_info=True)
         self._refresh_sw_hint()  # v1.4(B0): 切到设置页时同步视觉模型前提提示
 
     def scroll_to_model(self) -> None:
@@ -1850,7 +2134,7 @@ class PageSettings(QWidget):
                 target = self.model_section.mapTo(self._content, QPoint(0, 0)).y()
                 sb.setValue(max(0, min(target - 8, sb.maximum())))
             except Exception:
-                pass
+                logger.debug("静默降级：_apply 中忽略异常", exc_info=True)
 
         sb = self._scroll.verticalScrollBar()
         if sb.maximum() > 0:
@@ -1889,7 +2173,7 @@ class PageSettings(QWidget):
                         if (companion.get_anniversaries() or {}).get(kind) != mmdd:
                             companion.set_anniversary(kind, mmdd)
                     except Exception:
-                        pass
+                        logger.debug("静默降级：_on_save_all 中忽略异常", exc_info=True)
             # 保存透明度
             config.window_opacity = self.opacity_slider.value() / 100.0
             # 保存面板可见性
@@ -1931,6 +2215,17 @@ class PageSettings(QWidget):
                 config.use_mirror = self.use_mirror_check.isChecked()
             if hasattr(self, "mirror_url_edit"):
                 config.mirror_url = self.mirror_url_edit.text().strip()
+            # v2.1(D-V21-10): 外观与效果（动效档 / 毛玻璃 / 浮层毛玻璃 / 省电模式）
+            if hasattr(self, "animation_combo"):
+                _lvl = self.animation_combo.currentData()
+                if _lvl in ("off", "soft", "standard"):
+                    config.animation_level = _lvl
+            if hasattr(self, "glass_check"):
+                config.glass_enabled = self.glass_check.isChecked()
+            if hasattr(self, "glass_popups_check"):
+                config.glass_popups_enabled = self.glass_popups_check.isChecked()
+            if hasattr(self, "power_save_check"):
+                config.power_save_mode = self.power_save_check.isChecked()
             config.save()
             # v1.3(P1-3): 保存后即时重注册热键 + 联动 quitOnLastWindowClosed
             hk = getattr(self.app_ctx, "hotkeys", None)
@@ -1938,11 +2233,11 @@ class PageSettings(QWidget):
                 try:
                     hk.change_combo("toggle", config.hotkey_toggle)
                 except Exception:
-                    pass
+                    logger.debug("静默降级：_on_save_all 中忽略异常", exc_info=True)
                 try:
                     hk.change_combo("screenshot", config.hotkey_screenshot)
                 except Exception:
-                    pass
+                    logger.debug("静默降级：_on_save_all 中忽略异常", exc_info=True)
             try:
                 from gui.qt_compat import QApplication
                 _app = QApplication.instance()
@@ -1952,7 +2247,7 @@ class PageSettings(QWidget):
                         and bool(_tray.is_available())
                     _app.setQuitOnLastWindowClosed(config.close_quits or not _tray_ok)
             except Exception:
-                pass
+                logger.debug("静默降级：_on_save_all 中忽略异常", exc_info=True)
         # v1.2(B9): Agent 设置由本页控件负责；模型/接口由 ModelConfigPanel 单独保存
         if cfg is not None:
             # v1.1(B3): Agent 设置（AppConfig 字段；agent_enabled 默认 False）
@@ -1967,7 +2262,7 @@ class PageSettings(QWidget):
                 if callable(getattr(model_panel, "is_dirty", None)) and model_panel.is_dirty():
                     model_panel.commit(interactive=False)
             except Exception:
-                pass
+                logger.debug("静默降级：_on_save_all 中忽略异常", exc_info=True)
         # 立即刷新 UI
         main_window = self.window()
         if main_window is not None:
@@ -1985,14 +2280,14 @@ class PageSettings(QWidget):
                 try:
                     theme_engine.load_theme(saved_theme)
                 except Exception:
-                    pass
+                    logger.debug("静默降级：_on_save_all 中忽略异常", exc_info=True)
             # v1.3(P2-7): 保存后按外观模式即时生效（夜间锁定时不覆盖深色）
             if theme_engine is not None and hasattr(theme_engine, "set_theme_mode") \
                     and not ThemeEngine.is_dark_locked(saved_theme):
                 try:
                     theme_engine.set_theme_mode(getattr(config, "theme_mode", "light"))
                 except Exception:
-                    pass
+                    logger.debug("静默降级：_on_save_all 中忽略异常", exc_info=True)
             if hasattr(self, "_apply_night_lock_ui"):
                 self._apply_night_lock_ui(ThemeEngine.is_dark_locked(saved_theme))
             if hasattr(self, "_sync_style_controls"):
@@ -2005,5 +2300,9 @@ class PageSettings(QWidget):
                 try:
                     maid_pet.set_pet_style(pet_style)
                 except Exception:
-                    pass
+                    logger.debug("静默降级：_on_save_all 中忽略异常", exc_info=True)
+        # v2.1(D-V21-10): 保存后即时生效 + 透明度互斥联动重刷（毛玻璃开启时重新锁定）
+        if config is not None:
+            self._apply_motion_level(getattr(config, "animation_level", "standard"))
+        self._sync_opacity_linkage()
         QMessageBox.information(self, "成功", "设置已保存")

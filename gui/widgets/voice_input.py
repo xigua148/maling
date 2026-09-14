@@ -21,6 +21,7 @@ from gui.qt_compat import (
     QTextEdit, QThread, Signal, QSizePolicy,
 )
 from gui.utils import theme_color
+from gui import icons
 
 
 _SR_MODULE = None
@@ -119,7 +120,7 @@ class VoiceInputDialog(QDialog):
         layout.addWidget(self.text_edit, 1)
 
         btn_row = QHBoxLayout()
-        self.start_btn = QPushButton("🎙 开始录音")
+        self.start_btn = QPushButton(f"{icons.text_glyph('voice', '🎙')} 开始录音")
         self.start_btn.setObjectName("voiceStartBtn")
         self.start_btn.setCursor(Qt.PointingHandCursor)
         self.start_btn.setFixedHeight(36)
@@ -152,9 +153,13 @@ class VoiceInputDialog(QDialog):
         backend_ok, device_ok, desc = diagnose_voice_input()
         if not backend_ok or not device_ok:
             self.start_btn.setEnabled(False)
-            self.status_label.setText(f"⚠ {desc}\n请安装 SpeechRecognition / PyAudio 并连接麦克风后重试。")
+            self.status_label.setText(
+                f"{icons.text_glyph('warning', '⚠')} {desc}\n请安装 SpeechRecognition / PyAudio 并连接麦克风后重试。"
+            )
         else:
-            self.status_label.setText(f"✓ {desc}，点击「开始录音」开始（最长 8 秒）。")
+            self.status_label.setText(
+                f"{icons.text_glyph('check', '✓')} {desc}，点击「开始录音」开始（最长 8 秒）。"
+            )
 
     # ------------------------------------------------------------------
     def _apply_theme(self) -> None:
@@ -207,7 +212,9 @@ class VoiceInputDialog(QDialog):
     # ----- R3: 录音/识别移入 QThread，信号回传，按钮状态随信号切换 -----
     def _on_start_clicked(self) -> None:
         if _SR_MODULE is None:
-            self.status_label.setText("⚠ SpeechRecognition 未安装，无法录音。")
+            self.status_label.setText(
+                f"{icons.text_glyph('warning', '⚠')} SpeechRecognition 未安装，无法录音。"
+            )
             return
         if self._worker is not None and self._worker.isRunning():
             return
@@ -226,14 +233,16 @@ class VoiceInputDialog(QDialog):
         self.start_btn.setEnabled(True)
         self.cancel_btn.setText("取消")
         self.text_edit.setPlainText(text)
-        self.status_label.setText("✓ 识别完成，可编辑后点击「使用此文字」")
+        self.status_label.setText(
+            f"{icons.text_glyph('check', '✓')} 识别完成，可编辑后点击「使用此文字」"
+        )
 
     def _on_recognition_failed(self, err: str) -> None:
         self._worker = None
         self.start_btn.setEnabled(True)
         self.cancel_btn.setText("取消")
         self.status_label.setText(
-            f"⚠ 识别失败：{err}\n"
+            f"{icons.text_glyph('warning', '⚠')} 识别失败：{err}\n"
             f"可手动在下方编辑文字后确认。"
         )
 

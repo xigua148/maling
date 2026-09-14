@@ -245,19 +245,29 @@ class TestBreathingAnimation:
         return _Ctx()
 
     def test_listening_starts_breathing(self, qapp):
+        from gui.qt_compat import Qt
+        from gui import motion
         from gui.widgets.handsfree_bar import HandsfreeBar
+        motion.configure("standard")
         bar = HandsfreeBar(self._bare_ctx())
+        bar.setAttribute(Qt.WA_DontShowOnScreen, True)
+        bar.show()                       # v2.x：隐藏即停，故须可见才跑
         bar.set_state("listening")
-        assert bar._breath_timer is not None and bar._breath_timer.isActive()
-        bar._on_breath_tick()   # 一拍不崩
+        assert bar._indicator.is_running() is True
+        bar._indicator._on_tick(0.4)     # 一拍不崩（相位推进）
         bar.set_state("idle")
-        assert not bar._breath_timer.isActive(), "离开 listening 应停表（防常驻耗电）"
+        assert bar._indicator.is_running() is False, "离开 listening 应停表（防常驻耗电）"
+        bar.hide()
 
     def test_other_states_no_breathing(self, qapp):
+        from gui.qt_compat import Qt
         from gui.widgets.handsfree_bar import HandsfreeBar
         bar = HandsfreeBar(self._bare_ctx())
+        bar.setAttribute(Qt.WA_DontShowOnScreen, True)
+        bar.show()
         bar.set_state("speaking")
-        assert not (bar._breath_timer is not None and bar._breath_timer.isActive())
+        assert bar._indicator.is_running() is False
+        bar.hide()
 
 
 # ---------------------------------------------------------------------------

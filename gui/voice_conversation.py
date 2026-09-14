@@ -33,6 +33,7 @@ import time
 from typing import Optional
 
 from gui.qt_compat import QObject, QTimer, Signal
+from gui import icons
 from gui.system_idle import last_input_age_ms
 from gui.widgets import voice_input as _voice_input_mod
 
@@ -252,7 +253,7 @@ class VoiceConversationController(QObject):
             self._begin_listening()
             return
         if _hit_exit_keyword(raw):
-            self.stop(notice="好～免提先暂停啦。想继续就再点一下「🎙 免提」~")
+            self.stop(notice=f"好～免提先暂停啦。想继续就再点一下「{icons.text_glyph('voice', '🎙')} 免提」~")
             return
         # 硬错误计数清零（成功听懂一句）
         self._hard_failures = 0
@@ -282,7 +283,7 @@ class VoiceConversationController(QObject):
         logger.info("免提识别硬错误(%d/%d): %s",
                     self._hard_failures, _MAX_HARD_FAILURES, err)
         if self._hard_failures >= _MAX_HARD_FAILURES:
-            self.stop(notice=f"连续几次都没听清（{err}），免提已自动暂停，点「🎙 免提」可重新开始~")
+            self.stop(notice=f"连续几次都没听清（{err}），免提已自动暂停，点「{icons.text_glyph('voice', '🎙')} 免提」可重新开始~")
             return
         self._begin_listening()
 
@@ -320,7 +321,7 @@ class VoiceConversationController(QObject):
             return
         # 检测到最近 ~450ms 内存在新输入 -> 视为想打字，自动停听
         if age < _INTERRUPT_AGE_MS:
-            self.stop(notice="检测到你在敲键盘/动鼠标，码铃先不抢麦啦～想继续免提随时点「🎙 免提」~")
+            self.stop(notice=f"检测到你在敲键盘/动鼠标，码铃先不抢麦啦～想继续免提随时点「{icons.text_glyph('voice', '🎙')} 免提」~")
 
     # ------------------------------------------------------------------
     # 内部：回复朗读（speaking）
@@ -422,7 +423,7 @@ class VoiceConversationController(QObject):
         # 打断瞬间反馈（D-V16-11：「我在听~」）
         self.notice.emit("我在听~")
         if _hit_exit_keyword(raw):
-            self.stop(notice="好～免提先暂停啦。想继续就再点一下「🎙 免提」~")
+            self.stop(notice=f"好～免提先暂停啦。想继续就再点一下「{icons.text_glyph('voice', '🎙')} 免提」~")
             return
         self._hard_failures = 0
         self._soft_failures = 0

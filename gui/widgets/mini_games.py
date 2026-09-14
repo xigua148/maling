@@ -117,7 +117,6 @@ class MiniGamesDialog(QDialog):
         self.title_label = QLabel("码铃荷官台 · 和小女仆玩一小局吧")
         self.title_label.setObjectName("miniGamesTitle")
         f = self.title_label.font()
-        f.setPointSize(14)
         f.setBold(True)
         self.title_label.setFont(f)
         outer.addWidget(self.title_label)

@@ -86,3 +86,22 @@
 - **构建可复现**：`tools/build_fonts.py`（字表生成 + pyftsubset 子集 + 许可副本落盘）；fonttools / brotli / py7zr **仅构建期**，不进运行时、不进 exe。✅
 - **未内置确认**：B/C/D 级可爱圆体（MiSans / HarmonyOS Sans / OPPO Sans 4.0 / 阿里妈妈方圆体 / 乐米系列 / 阿里健康体 2.0 / 站酷非开源版）**均未纳入**。✅
 
+## 五、图标字体（v2.1 域3 / 红线 R-R②，扩 R-K/R-L 精神）
+
+> R-R② 口径：第三方图标集须**四处登记**（本表 + 源树许可全文 + 随包许可副本 + About 页），
+> 且许可须为 OFL / Apache-2.0 / MIT / CC0 且允许随包商用；GPL 系一律排除（D-V21-14）。
+
+| 图标集 | 仓库 | 复核版本 | 许可（实际 LICENSE 文件核验） | 原版权行 | 入库文件 | 改动摘要 | 复核日期 | 复核人 |
+|---|---|---|---|---|---|---|---|---|
+| Remix Icon（`remix_icon`） | https://github.com/Remix-Design/RemixIcon | remixicon-2.5.0（经 qtawesome 1.4.2 前缀 `ri` 内置字体取出） | **Apache License 2.0** | `Copyright (c) 2018-2021 Remix Design` | `gui/assets/icons/maling_icons.ttf`（子集）、`gui/assets/icons/icons_manifest.json`、`gui/assets/icons/LICENSE`、`docs/third_party_licenses/remix_icon.txt` | 以 `pyftsubset` 按 manifest 登记的语义名做**字形子集化**（Apache-2.0 允许的修改/派生）；未改任何字形轮廓；产物沿用原 family name（Apache-2.0 无 Reserved Font Name 条款）；运行时零新增第三方依赖（R-F） | 2026-09-11 | 工程师（寇豆码，域3 V21-04） |
+
+### 核验与合规记录（R-R②）
+
+- **① 许可白名单**：remixicon `2.5.0` 发布时仓库 `License` 文件为 **Apache License 2.0**（原文核验：`https://raw.githubusercontent.com/Remix-Design/RemixIcon/v2.5.0/License`，2026-09-11 读取），允许商用、修改、随更大作品再分发，仅需保留版权/许可声明并标注修改 → 白名单通过。✅
+- **② 上游改版口径（诚实标注）**：上游仓库自 **2026-01** 起把 `License` 文件改为自定义「Remix Icon License v1.0」（仍允许商用/修改/随包分发；禁止单独售卖图标集、用作 logo/商标、制成竞品图标库）。按新许可 §11「可选择接收时所依据的许可版本」，本子集按接收版本 `2.5.0` 沿 **Apache-2.0**；两种口径下码铃将图标作为桌面应用 UI 元件随包分发均属许可范围。本项不回避、如实登记。✅
+- **③ 四处登记齐**：本表条目（此处）+ 源树许可全文 `docs/third_party_licenses/remix_icon.txt` + 随包副本 `gui/assets/icons/LICENSE` + About 页「内置开源组件」条目。✅
+- **④ 使用范围声明**：图标仅作码铃界面的功能性 UI 元件（单色、按活动色板着色），**不作为码铃 logo / 商标 / 品牌标识**，不单独售卖、不构成竞品图标库。✅
+- **⑤ 构建可复现**：`tools/build_icons.py`（本地 wheel 取字体 → `pyftsubset` 子集 → manifest → 许可副本；qtawesome / fonttools **仅构建期**，不进运行时、不进 exe、不写入 `requirements*.txt`）。新增图标名只需在脚本 `ICON_MAP` 补一行后重跑。✅
+- **⑥ 覆盖范围**：子集含 **151 个语义名 / 145 个唯一字形**（含侧栏 10 项、顶栏与输入区工具、状态栏 3 项、设置分区、记忆中心 8 Tab 及通用控件），TTF 体积 25,232 字节（约 24.6 KB）。✅
+
+

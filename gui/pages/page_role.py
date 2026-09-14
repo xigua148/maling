@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from gui import icons
 from gui.qt_compat import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QTextEdit, QSlider, QListWidget, QFrame,
@@ -19,8 +20,37 @@ from gui.qt_compat import (
     # v1.7 F8: 开场白/示例对话编辑器
     QPlainTextEdit, QCheckBox, QScrollArea,
 )
+from gui.utils import theme_color
 
 logger = logging.getLogger("maid_coder.gui")
+
+# v2.1(V21-12/D-V21-06): 角色页按钮图标统一 —— 只记「图标名 + 尺寸 + theme_color 取色」，
+# 字体不可用时回落原 emoji 文案（不空白、不崩）。
+_ROLE_BTN_ICON_SIZE = 14
+
+
+def _vector_icon(app_ctx, name: str, size: int, color):
+    """取矢量 ``QIcon``；字体/名字不可用或渲染失败 → ``None``（调用方回落 emoji）。"""
+    try:
+        if not name or not icons.available() or not icons.has(name):
+            return None
+        ic = icons.icon(name, size, color)
+        if ic is None or ic.isNull():
+            return None
+        return ic
+    except Exception:
+        return None
+
+
+def _decorate_button(btn: QPushButton, app_ctx, name: str, clean_text: str,
+                     fallback_text: str, size: int = _ROLE_BTN_ICON_SIZE) -> None:
+    """按钮挂矢量图标（取色 accent）并去掉文案 emoji；不可用回落原 emoji 文案。"""
+    ic = _vector_icon(app_ctx, name, size, theme_color(app_ctx, "accent", "#FF6B9D"))
+    if ic is not None:
+        btn.setIcon(ic)
+        btn.setText(clean_text)
+    else:
+        btn.setText(fallback_text)
 
 DEFAULT_ROLES_DIR = Path.home() / ".maid_coder" / "roles"
 DEFAULT_ROLE_FILE = "default_role.json"
@@ -576,6 +606,29 @@ class Role:
         # v1.9(C/D-V19-01): 名字 ≠ 人设标签；空串 = 无名字（自称回落"我"）
         self.given_name = (given_name or "").strip()
 
+    def effective_avatar(self) -> str:
+        """有效头像绝对路径：优先自定义 avatar，否则回落包内预设资源 <role_id>/normal.png。
+
+        v2.1(UI-Fix-0913)：预设角色（如 preset_whale）的立绘资源**其实存在**于
+        ``gui/assets/roles/<role_id>/normal.png``，但角色 JSON 的 ``avatar`` 字段为 null
+        → 气泡头像一律回落到女仆主形象（用户报「聊天 AI 头像和当前角色不匹配 /
+        所有角色都显示女仆」）。本方法补上这层回落；无预设资源的角色仍返回 ""，
+        继续回落主形象（行为不变）。
+        """
+        try:
+            if self.avatar and Path(str(self.avatar)).is_file():
+                return str(self.avatar)
+        except Exception:
+            pass
+        try:
+            from gui.utils import get_resource_path
+            _cand = get_resource_path(f"assets/roles/{self.id}/normal.png")
+            if _cand is not None and Path(str(_cand)).is_file():
+                return str(_cand)
+        except Exception:
+            pass
+        return ""
+
     @classmethod
     def from_dict(cls, data: dict) -> "Role":
         return cls(
@@ -949,8 +1002,8 @@ class PageRole(QWidget):
         # 顶部工具栏
         header = QHBoxLayout()
         title = QLabel("角色面板")
+        title.setObjectName("sidebarTitle")
         title_font = QFont()
-        title_font.setPointSize(14)
         title_font.setBold(True)
         title.setFont(title_font)
         header.addWidget(title)
@@ -964,6 +1017,7 @@ class PageRole(QWidget):
         self.new_btn.setCursor(Qt.PointingHandCursor)
         self.new_btn.setToolTip("新建一个空白角色，自己写名字与人设")
         self.new_btn.clicked.connect(self._on_new_role)
+        _decorate_button(self.new_btn, self.app_ctx, "add", "新建角色", "➕ 新建角色")
         left_layout.addWidget(self.new_btn)
 
         self.preset_new_btn = QPushButton("🌸 用预设新建")
@@ -975,6 +1029,8 @@ class PageRole(QWidget):
             "（温柔女仆 / 编程老手 / 温柔姐姐 / 猫娘 / 毒舌博士 / 雌小鬼）"
         )
         self.preset_new_btn.clicked.connect(self._on_new_role_from_preset)
+        _decorate_button(self.preset_new_btn, self.app_ctx, "auto_awesome",
+                         "用预设新建", "🌸 用预设新建")
         left_layout.addWidget(self.preset_new_btn)
 
         # v1.7 F8: 角色卡导出/导入入口（D-V17-09）
@@ -984,6 +1040,8 @@ class PageRole(QWidget):
         self.export_card_btn.setCursor(Qt.PointingHandCursor)
         self.export_card_btn.setToolTip("把当前选中角色的人设导出为 .malingcard.json 角色卡文件\n（只含人设字段，不含记忆/亲密度/对话历史）")
         self.export_card_btn.clicked.connect(self._on_export_role_card)
+        _decorate_button(self.export_card_btn, self.app_ctx, "export",
+                         "导出角色卡", "📤 导出角色卡")
         left_layout.addWidget(self.export_card_btn)
 
         self.import_card_btn = QPushButton("📥 导入角色卡")
@@ -992,20 +1050,29 @@ class PageRole(QWidget):
         self.import_card_btn.setCursor(Qt.PointingHandCursor)
         self.import_card_btn.setToolTip("从 .malingcard.json 角色卡文件导入为新角色\n（重名自动改名「XX（导入）」，导入前可预览确认）")
         self.import_card_btn.clicked.connect(self._on_import_role_card)
+        _decorate_button(self.import_card_btn, self.app_ctx, "inbox",
+                         "导入角色卡", "📥 导入角色卡")
         left_layout.addWidget(self.import_card_btn)
 
         # 角色列表
         self.role_list = QListWidget()
         self.role_list.setObjectName("roleList")
+        self.role_list.setIconSize(QSize(_ROLE_BTN_ICON_SIZE, _ROLE_BTN_ICON_SIZE))
         self.role_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.role_list.customContextMenuRequested.connect(self._show_role_menu)
         self.role_list.itemClicked.connect(self._on_role_selected)
         left_layout.addWidget(self.role_list, 1)
 
         # 空状态提示
+        # v2.1 全量布局体检实测：本 label 位于固定 220 宽左栏（内容可用宽仅 196），
+        # 文案需 225px → QLabel 默认 wordWrap=False 且无省略号，尾部「吧~」被硬裁
+        # 29px（浅/深 × 图标两态 × 460~1016 五档宽度，20 组读数全部截断）。
+        # 开 wordWrap 让文案折成两行（信息可达 > 版式不变），并补 tooltip 兜底。
         self.empty_label = QLabel("还没有自定义角色，点上面的按钮新建吧~")
         self.empty_label.setObjectName("roleEmptyState")
         self.empty_label.setAlignment(Qt.AlignCenter)
+        self.empty_label.setWordWrap(True)
+        self.empty_label.setToolTip("还没有自定义角色，点上面的按钮新建吧~")
         left_layout.addWidget(self.empty_label)
 
         main_layout.addWidget(self.left_sidebar)
@@ -1101,6 +1168,8 @@ class PageRole(QWidget):
         self.prompt_entry_btn.setCursor(Qt.PointingHandCursor)
         self.prompt_entry_btn.setToolTip("点击打开大编辑框，填写/修改系统提示词\n（决定 AI 的角色背景、性格与说话方式）")
         self.prompt_entry_btn.clicked.connect(self._on_edit_prompt)
+        _decorate_button(self.prompt_entry_btn, self.app_ctx, "edit",
+                         "编辑系统提示词…", "✏️ 编辑系统提示词…")
         self.prompt_count_label = QLabel("0 字")
         self.prompt_count_label.setObjectName("roleHint")
         prompt_entry_row.addWidget(self.prompt_entry_btn, 1)
@@ -1127,6 +1196,8 @@ class PageRole(QWidget):
             "最多 3 套，多套之间用单独一行 --- 分隔，注入时随机选一套"
         )
         self.opening_entry_btn.clicked.connect(self._on_edit_opening_lines)
+        _decorate_button(self.opening_entry_btn, self.app_ctx, "film",
+                         "开场白（未填写）", "🎬 开场白（未填写）")
         opening_row.addWidget(self.opening_entry_btn, 1)
         workshop_layout.addLayout(opening_row)
 
@@ -1139,6 +1210,8 @@ class PageRole(QWidget):
             "最多 5 组，可勾选启用/停用；注入 system 尾部，不进对话历史"
         )
         self.dialogue_entry_btn.clicked.connect(self._on_edit_example_dialogues)
+        _decorate_button(self.dialogue_entry_btn, self.app_ctx, "chat",
+                         "示例对话（未填写）", "💬 示例对话（未填写）")
         dialogue_row.addWidget(self.dialogue_entry_btn, 1)
         workshop_layout.addLayout(dialogue_row)
 
@@ -1233,7 +1306,6 @@ class PageRole(QWidget):
         layout.setSpacing(12)
         title_label = QLabel(title)
         title_font = QFont()
-        title_font.setPointSize(12)
         title_font.setBold(True)
         title_label.setFont(title_font)
         layout.addWidget(title_label)
@@ -1249,10 +1321,21 @@ class PageRole(QWidget):
         roles = self.role_manager.all_roles()
         self.empty_label.setVisible(len(roles) == 0)
 
+        # v2.1(V21-12): 默认角色标记改用矢量星标图标；字体不可用回落原 ★/○ 前缀
+        star_ic = _vector_icon(self.app_ctx, "star", _ROLE_BTN_ICON_SIZE,
+                               theme_color(self.app_ctx, "accent", "#FF6B9D"))
         for role in roles:
             item = QListWidgetItem()
-            prefix = "★ " if role.is_default else "○ "
-            item.setText(f"{prefix}{role.name}")
+            if star_ic is not None:
+                item.setText(role.name)
+                if role.is_default:
+                    item.setIcon(star_ic)
+            else:
+                prefix = "★ " if role.is_default else "○ "
+                item.setText(f"{prefix}{role.name}")
+            # v2.1 全量布局体检：左栏可用宽 196，12 字角色名需 170（余量仅 26），
+            # 更长的名字会被 list 裁掉且无省略号 → 补 tooltip 保住完整角色名。
+            item.setToolTip(role.name)
             item.setData(Qt.UserRole, role.id)
             self.role_list.addItem(item)
             if role.is_default:
@@ -1356,7 +1439,7 @@ class PageRole(QWidget):
             _role = self.role_manager.get_role(role_id)
             if _rb is not None and _role is not None:
                 _rb.notify_role_changed(
-                    _role.id, getattr(_role, "avatar", "") or "",
+                    _role.id, _role.effective_avatar(),
                     getattr(_role, "current_expression", "normal") or "normal",
                 )
         except Exception:
@@ -1432,8 +1515,16 @@ class PageRole(QWidget):
                 self.avatar_btn.setIcon(QIcon(pix))
                 self.avatar_btn.setText("")
             else:
-                self.avatar_btn.setIcon(QIcon())
-                self.avatar_btn.setText("✨")
+                # v2.1(V21-12): 无头像图 → 矢量 ✨ 图标；字体不可用回落 ✨ 文本
+                self.avatar_btn.setText("")
+                fallback = _vector_icon(self.app_ctx, "auto_awesome", 40,
+                                        theme_color(self.app_ctx, "text_secondary", "#C48A9C"))
+                if fallback is not None:
+                    self.avatar_btn.setIconSize(QSize(40, 40))
+                    self.avatar_btn.setIcon(fallback)
+                else:
+                    self.avatar_btn.setIcon(QIcon())
+                    self.avatar_btn.setText("✨")
         except Exception as e:
             logger.warning("角色头像渲染失败: %s", e)
             try:
@@ -1552,7 +1643,19 @@ class PageRole(QWidget):
         if len(first) > 16:
             first = first[:16] + "…"
         summary = f"（当前：{first}）" if first else "（未填写）"
-        self.prompt_entry_btn.setText(f"✏️ 编辑系统提示词  {summary}")
+        _decorate_button(self.prompt_entry_btn, self.app_ctx, "edit",
+                         f"编辑系统提示词  {summary}",
+                         f"✏️ 编辑系统提示词  {summary}")
+        # v2.1 角色页布局：当前动态文案挂到 tooltip，避免「未填写 / 已填 N 条 /
+        # 首行摘要… 等动态变长文案」在某宽度下被硬裁后用户看不到完整状态。
+        # 原始 tooltip（功能说明）保留，把当前 button.text() 追加到第二段。
+        try:
+            _base = self._PROMPT_ENTRY_TIP
+        except AttributeError:
+            _base = self.prompt_entry_btn.toolTip()
+            self._PROMPT_ENTRY_TIP = _base
+        _cur = self.prompt_entry_btn.text()
+        self.prompt_entry_btn.setToolTip(f"{_base}\n\n当前：{_cur}")
 
     def _on_edit_prompt(self) -> None:
         """点击入口 → 弹 560×360 大编辑框；保存回写 prompt_edit 并走原保存链落盘。"""
@@ -1612,12 +1715,27 @@ class PageRole(QWidget):
         n_dialog = len(normalize_example_dialogues(
             getattr(role, "example_dialogues", None)
         ))
-        self.opening_entry_btn.setText(
-            f"🎬 开场白（已配 {n_open} 套）" if n_open else "🎬 开场白（未填写）"
+        _decorate_button(
+            self.opening_entry_btn, self.app_ctx, "film",
+            f"开场白（已配 {n_open} 套）" if n_open else "开场白（未填写）",
+            f"🎬 开场白（已配 {n_open} 套）" if n_open else "🎬 开场白（未填写）",
         )
-        self.dialogue_entry_btn.setText(
-            f"💬 示例对话（已配 {n_dialog} 组）" if n_dialog else "💬 示例对话（未填写）"
+        _decorate_button(
+            self.dialogue_entry_btn, self.app_ctx, "chat",
+            f"示例对话（已配 {n_dialog} 组）" if n_dialog else "示例对话（未填写）",
+            f"💬 示例对话（已配 {n_dialog} 组）" if n_dialog else "💬 示例对话（未填写）",
         )
+        # v2.1 角色页布局：当前动态文案挂到 tooltip（详见 _refresh_prompt_entry 注释）
+        for btn, attr in (
+            (self.opening_entry_btn, "_OPENING_ENTRY_TIP"),
+            (self.dialogue_entry_btn, "_DIALOGUE_ENTRY_TIP"),
+        ):
+            try:
+                _base = getattr(self, attr)
+            except AttributeError:
+                _base = btn.toolTip()
+                setattr(self, attr, _base)
+            btn.setToolTip(f"{_base}\n\n当前：{btn.text()}")
 
     def _on_edit_opening_lines(self) -> None:
         """开场白编辑弹窗：单框多套存储、`---` 分行解析（D-V17-07 裁决，UI 最简）。"""
@@ -1983,6 +2101,10 @@ class PageRole(QWidget):
             QWidget#rolePage {{
                 background: {bg};
             }}
+            /* v2.1(UI-Fix-0912): 显式兜住本页 QLabel 颜色 —— 页面自有 setStyleSheet
+               会遮蔽应用级 QSS 的继承,若主题加载失败/明暗错配则本页文字失去颜色。
+               更具体的 ID 规则(如 QLabel#roleHint)按特异性胜出,不受影响。 */
+            QLabel {{ color: {text}; }}
             QWidget#roleSidebar {{
                 background: {card_bg};
                 border-right: 1px solid {border};

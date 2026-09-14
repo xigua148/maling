@@ -12,7 +12,9 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from gui import fonts
-from gui.qt_compat import QObject, Signal, QApplication, QFont, QTimer
+from gui.qt_compat import (
+    QObject, Signal, QApplication, QFont, QTimer, QAbstractNativeEventFilter,
+)
 from gui.utils import get_resource_path
 
 
@@ -34,6 +36,61 @@ def _read_system_light_theme() -> Optional[bool]:
             return bool(int(value))
     except Exception:
         return None
+
+
+# ======================================================================
+# v2.1(D-V21-11): 系统深浅实时性 —— 原生事件监听（去抖后转调既有轮询）
+# ----------------------------------------------------------------------
+# 只做「监听 + 去抖 + 转调既有 _poll_system_mode」，不改其实现、不改任何
+# 既有契约签名（R-D）。安装失败时静默回落 30s 轮询（见 _start_system_poll）。
+# ======================================================================
+WM_SETTINGCHANGE = 0x001A                     # 系统设置变化（含主题/个性化）
+WM_THEMECHANGED = 0x031A                      # 主题切换
+WM_DWMCOLORIZATIONCOLORCHANGED = 0x0320       # DWM 颜色变化
+_WATCHED_THEME_MSGS = frozenset((
+    WM_SETTINGCHANGE, WM_THEMECHANGED, WM_DWMCOLORIZATIONCOLORCHANGED,
+))
+
+
+def _native_msg_id(message) -> int:
+    """从原生事件过滤器的 ``message`` 取 Windows 消息号；取不到 → 0（不抛）。
+
+    跨 PySide6 版本兼容：``message`` 可能是 void 指针包装、``int`` 或可转
+    ``int`` 的对象；按指针宽度取 ``MSG.message`` 字段（x64 偏移 8 / x86 偏移 4）。
+    """
+    try:
+        import ctypes
+        try:
+            addr = int(message)
+        except Exception:
+            voidp = ctypes.cast(message, ctypes.c_void_p)
+            addr = int(voidp.value or 0)
+        if not addr:
+            return 0
+        offset = 8 if ctypes.sizeof(ctypes.c_void_p) == 8 else 4
+        return int(ctypes.c_uint.from_address(addr + offset).value)
+    except Exception:
+        return 0
+
+
+class _SystemThemeEventFilter(QAbstractNativeEventFilter):
+    """拦截 Windows 主题相关消息 → 通知引擎去抖转调既有 ``_poll_system_mode``。
+
+    本类**只加订阅者**：返回 ``False``（不消费消息，交还 Qt/系统继续处理），
+    不改 ``theme_changed`` / ``set_theme_mode`` 等任何契约。
+    """
+
+    def __init__(self, engine: "ThemeEngine"):
+        super().__init__()
+        self._engine = engine
+
+    def nativeEventFilter(self, eventType, message):  # noqa: N802 (Qt 命名)
+        try:
+            if _native_msg_id(message) in _WATCHED_THEME_MSGS:
+                self._engine._on_system_theme_message()
+        except Exception:
+            pass
+        return False
 
 
 
@@ -80,6 +137,8 @@ class ThemeEngine(QObject):
                 # 连接态语义色（B9 状态点/提示文字用，禁止代码裸值）
                 "state_ok": "#3FBF7F",
                 "state_warn": "#E5A02E",
+                # v2.1(D-V21-17)：危险/破坏性操作语义色（与 state_warn 同组、取值可区分）
+                "state_danger": "#C0392B",
                 # v1.2(B8/D7): layout token（QSS 用 px 字符串，随主题替换）
                 "spacing_xs": "4px",
                 "spacing_sm": "8px",
@@ -124,6 +183,8 @@ class ThemeEngine(QObject):
                 "pet_bubble_bg": "#F5F7FA",
                 "state_ok": "#3F9E6E",
                 "state_warn": "#E0A02E",
+                # v2.1(D-V21-17)：危险/破坏性操作语义色（与 state_warn 同组、取值可区分）
+                "state_danger": "#C0392B",
                 # v1.2(B8/D7): layout token（minimal 密度更高）
                 "spacing_xs": "4px",
                 "spacing_sm": "6px",
@@ -167,6 +228,8 @@ class ThemeEngine(QObject):
                 "pet_bubble_bg": "#FFF0F5",
                 "state_ok": "#3FBF7F",
                 "state_warn": "#E0A02E",
+                # v2.1(D-V21-17)：危险/破坏性操作语义色（与 state_warn 同组、取值可区分）
+                "state_danger": "#C0392B",
                 # v1.2(B8/D7): layout token
                 "spacing_xs": "4px",
                 "spacing_sm": "8px",
@@ -190,21 +253,37 @@ class ThemeEngine(QObject):
             "name": "现代极简",
             "qss_file": "themes/ui_minimal.qss",
             "colors": {
-                "primary": "#E0457B", "primary_dark": "#C0335F", "secondary": "#FCEEF4",
-                "accent": "#E0457B",
+                # v2.1(UI-P1) 第二轮软化：用户反馈「粉色太深、有点扎眼」—— 根因是饱和过高。
+                # 本轮继续降饱和并提亮：H 锁定 339°，S 48%→40%，L 55%→62%（更淡更柔）。
+                # 主色变淡后白字对比度仅 3.267，故 text_on_accent 改深色 #1C1C1E → 5.208。
+                # 硬约束实测：primary+text_on_accent=5.208、primary_dark+text_on_accent=4.609、
+                #             primary vs bg(#F7F7F8)=3.051（均达标）。
+                # 配套浅粉底同批换算（同色相 H≈339，饱和按同比例下调），保证整体协调。
+                "primary": "#C57792", "primary_dark": "#C46889", "secondary": "#F5EAEE",
+                "accent": "#C57792",
+                # v2.1(UI-P1 第三轮)：accent_text =「文字用」强调色，与「填充用」primary 分工。
+                # 小字（12px 人名等）落在浅底上需 vs bg ≥4.5，而 primary 为求「淡/柔」仅 3.05，
+                # 一色两用不可行（详见 _final_tone_report.md 第九节），故新增独立键。
+                "accent_text": "#B45073",
                 "bg": "#F7F7F8", "bg_card": "#FFFFFF", "surface_muted": "#FBFBFC",
-                "border": "#EBEBEF", "text": "#1C1C1E", "text_secondary": "#8E8E93",
-                "text_hint": "#A9A9B0", "divider": "#F0F0F3",
+                "border": "#EBEBEF", "text": "#1C1C1E", "text_secondary": "#76767D",
+                "text_hint": "#8F8F96", "divider": "#F0F0F3",
                 "shadow": "0 1px 3px rgba(0,0,0,0.05)",
-                "bg_light": "#FCEEF4", "focus_accent": "#E0457B",
-                "text_on_accent": "#FFFFFF",
-                "accent_light": "#FCEEF4",
+                "bg_light": "#F5EAEE", "focus_accent": "#C57792",
+                "text_on_accent": "#1C1C1E",
+                "accent_light": "#F5EAEE",
                 "bubble_user_bg": "#F0F0F3", "bubble_user_text": "#1C1C1E",
                 "bubble_ai_bg": "#FFFFFF", "bubble_ai_text": "#1C1C1E",
                 "chat_bg": "#F7F7F8", "chat_border": "#EBEBEF",
-                "pet_bubble_bg": "#FCEEF4",
+                "pet_bubble_bg": "#F1E4E9",
                 "disabled_bg": "#E0E0E0", "disabled_text": "#9E9E9E",
                 "state_ok": "#3F9E6E", "state_warn": "#E0A02E",
+                # v2.1(D-V21-17)：危险/破坏性操作语义色（浅色，与 state_warn 可区分）
+                "state_danger": "#C0392B",
+                # v2.1(D-V21-16)：信息 / 警示语义色（浅色，对比度 ≥3:1）
+                # 第二轮：text_secondary 加深至 4.211 后，warning 原值(4.123)反比次级文字更浅，
+                # 破坏「info/warning 不浅于 text_secondary」层次约束，故同步加深至 4.535。
+                "info": "#2F6FB5", "warning": "#A06411",
                 "radius_sm": "8px", "radius_md": "14px", "radius_lg": "20px", "radius_pill": "24px",
                 "spacing_xs": "4px", "spacing_sm": "6px", "spacing_md": "10px", "spacing_lg": "16px",
             },
@@ -221,12 +300,16 @@ class ThemeEngine(QObject):
             "colors": {
                 "primary": "#FF8FA3", "primary_dark": "#F0708A", "secondary": "#FFEEF1",
                 "accent": "#FF8FA3",
+                # accent_text（文字用强调色）：h=349 s=40% l=51%，vs bg(#FFF8F3)=4.684。
+                # 刻意降饱和（HSV 55.6%，对比被否掉的 #E6062E 的 97.4%）→ 呈莓/玫瑰色而非鲜红。
+                "accent_text": "#B45062",
                 "bg": "#FFF8F3", "bg_card": "#FFFFFF", "surface_muted": "#FFFBF8",
-                "border": "#F5E6DC", "text": "#3D2E2A", "text_secondary": "#A68B7E",
-                "text_hint": "#C0A79B", "divider": "#F1E2D8",
+                # 第二轮：小字对比度修复 —— secondary 3.019→4.234、hint 2.161→3.022。
+                "border": "#F5E6DC", "text": "#3D2E2A", "text_secondary": "#847566",
+                "text_hint": "#9D8E7F", "divider": "#F1E2D8",
                 "shadow": "0 6px 20px rgba(255,143,163,0.13)",
                 "bg_light": "#FFEEF1", "focus_accent": "#FF8FA3",
-                "text_on_accent": "#FFFFFF",
+                "text_on_accent": "#3D2E2A",
                 "accent_light": "#FFEEF1",
                 "bubble_user_bg": "#FFE8EF", "bubble_user_text": "#3D2E2A",
                 "bubble_ai_bg": "#FFFFFF", "bubble_ai_text": "#3D2E2A",
@@ -234,6 +317,10 @@ class ThemeEngine(QObject):
                 "pet_bubble_bg": "#FFEEF1",
                 "disabled_bg": "#E0E0E0", "disabled_text": "#9E9E9E",
                 "state_ok": "#3F9E6E", "state_warn": "#E0A02E",
+                # v2.1(D-V21-17)：危险/破坏性操作语义色（浅色，与 state_warn 可区分）
+                "state_danger": "#C0392B",
+                # v2.1(D-V21-16)：信息 / 警示语义色（浅色，暖调，对比度 ≥3:1）
+                "info": "#2E6E9E", "warning": "#A86412",
                 "radius_sm": "10px", "radius_md": "16px", "radius_lg": "20px", "radius_pill": "24px",
                 "spacing_xs": "4px", "spacing_sm": "8px", "spacing_md": "12px", "spacing_lg": "20px",
             },
@@ -251,12 +338,14 @@ class ThemeEngine(QObject):
             "colors": {
                 "primary": "#FF6B9D", "primary_dark": "#E0527F", "secondary": "#3A2430",
                 "accent": "#FF6B9D",
+                # accent_text（文字用强调色）：自身即深色，浅/深同值，vs bg(#131114)=7.039。
+                "accent_text": "#FB6F9E",
                 "bg": "#131114", "bg_card": "#1C1920", "surface_muted": "#211D26",
                 "border": "#2C2733", "text": "#F2EFF5", "text_secondary": "#918A9C",
                 "text_hint": "#6E6878", "divider": "#262230",
                 "shadow": "0 2px 12px rgba(0,0,0,0.35)",
                 "bg_light": "#3A2430", "focus_accent": "#FF6B9D",
-                "text_on_accent": "#FFFFFF",
+                "text_on_accent": "#1C1920",
                 "accent_light": "#3A2430",
                 "bubble_user_bg": "#2B2130", "bubble_user_text": "#F2EFF5",
                 "bubble_ai_bg": "#1F1B24", "bubble_ai_text": "#F2EFF5",
@@ -265,6 +354,10 @@ class ThemeEngine(QObject):
                 "code_bg": "#16161B", "code_text": "#F2F2F5", "code_lang": "#9A9AA2",
                 "disabled_bg": "#3A3A3A", "disabled_text": "#8A8A8A",
                 "state_ok": "#4FD18F", "state_warn": "#E8B04C",
+                # v2.1(D-V21-17)：危险/破坏性操作语义色（ui_night 自身即深色，取深色值）
+                "state_danger": "#EE7A7A",
+                # v2.1(D-V21-16)：信息 / 警示语义色（ui_night 自身即深色，取深色值，对比度 ≥3:1）
+                "info": "#6FB0E0", "warning": "#E0A84A",
                 "radius_sm": "8px", "radius_md": "14px", "radius_lg": "20px", "radius_pill": "24px",
                 "spacing_xs": "4px", "spacing_sm": "6px", "spacing_md": "10px", "spacing_lg": "16px",
             },
@@ -282,12 +375,15 @@ class ThemeEngine(QObject):
             "colors": {
                 "primary": "#2E9BB5", "primary_dark": "#228394", "secondary": "#E0F2F7",
                 "accent": "#2E9BB5",
+                # accent_text（文字用强调色）：vs bg(#EEF6FA)=4.511。
+                "accent_text": "#247A8F",
                 "bg": "#EEF6FA", "bg_card": "#FFFFFF", "surface_muted": "#F4FAFC",
-                "border": "#D5E8F0", "text": "#12303F", "text_secondary": "#6A8A9A",
-                "text_hint": "#8AA9B8", "divider": "#E3F0F5",
+                # 第二轮：小字对比度修复 —— secondary 3.359→4.227、hint 2.273→3.008。
+                "border": "#D5E8F0", "text": "#12303F", "text_secondary": "#63778B",
+                "text_hint": "#7C90A4", "divider": "#E3F0F5",
                 "shadow": "0 4px 16px rgba(46,155,181,0.12)",
                 "bg_light": "#E0F2F7", "focus_accent": "#2E9BB5",
-                "text_on_accent": "#FFFFFF",
+                "text_on_accent": "#05202A",
                 "accent_light": "#E0F2F7",
                 "bubble_user_bg": "#DFF0F8", "bubble_user_text": "#12303F",
                 "bubble_ai_bg": "#FFFFFF", "bubble_ai_text": "#12303F",
@@ -295,6 +391,12 @@ class ThemeEngine(QObject):
                 "pet_bubble_bg": "#E0F2F7",
                 "disabled_bg": "#E0E0E0", "disabled_text": "#9E9E9E",
                 "state_ok": "#3F9E6E", "state_warn": "#E0A02E",
+                # v2.1(D-V21-17)：危险/破坏性操作语义色（浅色，与 state_warn 可区分）
+                "state_danger": "#C0392B",
+                # v2.1(D-V21-16)：信息 / 警示语义色（浅色，海蓝 / 琥珀，对比度 ≥3:1）
+                # 第二轮：text_secondary 加深至 4.227 后，warning 原值(3.764)反比次级文字更浅，
+                # 破坏「info/warning 不浅于 text_secondary」层次约束，故同步加深至 4.610。
+                "info": "#1E7C96", "warning": "#96650D",
                 "radius_sm": "10px", "radius_md": "18px", "radius_lg": "22px", "radius_pill": "26px",
                 "spacing_xs": "4px", "spacing_sm": "8px", "spacing_md": "12px", "spacing_lg": "20px",
             },
@@ -327,6 +429,10 @@ class ThemeEngine(QObject):
         self._mode: str = "light"
         self._dark: bool = False
         self._system_poll: Optional[QTimer] = None
+        # v2.1(D-V21-11): 原生事件监听器 + 主题变更去抖定时器（仅 system 模式下装卸）
+        self._native_filter: Optional[_SystemThemeEventFilter] = None
+        self._theme_debounce: Optional[QTimer] = None
+        self._theme_debounce_ms: int = 300
         self._last_theme_name: str = ""
         # v1.4.3「主题强调色色盘」：运行时自定义强调色（#RRGGBB，空=用主题默认）。
         # 不写入 THEME_DEFINITIONS，仅 _active_palette 组装时覆盖强调色系键。
@@ -385,11 +491,13 @@ class ThemeEngine(QObject):
 
         # 替换字体变量（v1.9 B/D-V19-05：单一收口 fonts.font_family_chain）
         # ${font_family} 作用正文位；${font_title} 作用标题位（粉圆仅标题 —— Q-E4）
+        # 注意：QSS 里必须用「QSS 出口」qss_font_family（逐族引号 + 通用族裸写）——
+        # 模板若写成 font-family: "${font_family}"; 会把整条链当成单个族名（既有缺陷）。
         font_choice = self._font_choice()
         body_chain = fonts.font_family_chain(font_choice, "body")
         title_chain = fonts.font_family_chain(font_choice, "title")
-        qss = qss.replace("${font_family}", body_chain)
-        qss = qss.replace("${font_title}", title_chain)
+        qss = qss.replace("${font_family}", fonts.qss_font_family(font_choice, "body"))
+        qss = qss.replace("${font_title}", fonts.qss_font_family(font_choice, "title"))
 
         # 应用 QSS
         app = QApplication.instance()
@@ -461,17 +569,22 @@ class ThemeEngine(QObject):
     def set_theme_mode(self, mode: str) -> bool:
         """设置外观模式：light / dark / system。
 
-        - mode 非法值回落 light；system 时启动 5min 低频轮询 winreg
-          AppsUseLightTheme（0=深），感知变化即热切换（内部重入 load_theme
-          current_theme，复用 theme_changed 单参信号，**不改信号签名**）。
+        - mode 非法值回落 light；system 时安装原生事件监听（即时感知主题变更）
+          并以 30s 低频轮询 winreg AppsUseLightTheme 兜底（v2.1 D-V21-11），
+          感知变化即热切换（内部重入 load_theme current_theme，复用 theme_changed
+          单参信号，**不改信号签名**）。
         - 保存由调用方（设置页）负责；本方法只负责引擎侧即时生效。
         """
         if mode not in ("light", "dark", "system"):
             mode = "light"
         self._mode = mode
         if mode == "system":
+            # v2.1(D-V21-11): 事件监听优先（即时）+ 30s 低频轮询兜底
+            self._install_system_listener()
             self._start_system_poll()
         else:
+            self._uninstall_system_listener()
+            self._stop_theme_debounce()
             self._stop_system_poll()
         self._sync_dark_effective()
         self._last_theme_name = self._current_theme
@@ -543,12 +656,72 @@ class ThemeEngine(QObject):
             return
         try:
             timer = QTimer(self)
-            timer.setInterval(5 * 60 * 1000)  # 低频轮询 5min
+            # v2.1(D-V21-11/D-3 回落): 事件监听为主，轮询由 5min 收紧至 30s 兜底
+            timer.setInterval(30 * 1000)
             timer.timeout.connect(self._poll_system_mode)
             timer.start()
             self._system_poll = timer
         except Exception:
             self._system_poll = None
+
+    # ------------------------------------------------------------------
+    # v2.1(D-V21-11): 原生事件监听安装/卸载 + 去抖（仅 system 模式）
+    # ------------------------------------------------------------------
+    def _install_system_listener(self) -> None:
+        """安装 Windows 主题变更原生事件监听；失败静默（回落 30s 轮询）。"""
+        if self._native_filter is not None:
+            return
+        try:
+            app = QApplication.instance()
+            if app is None:
+                return
+            flt = _SystemThemeEventFilter(self)
+            app.installNativeEventFilter(flt)
+            self._native_filter = flt
+        except Exception:
+            self._native_filter = None
+
+    def _uninstall_system_listener(self) -> None:
+        """卸载原生事件监听（无监听/失败均静默，不抛）。"""
+        flt, self._native_filter = self._native_filter, None
+        if flt is None:
+            return
+        try:
+            app = QApplication.instance()
+            if app is not None:
+                app.removeNativeEventFilter(flt)
+        except Exception:
+            pass
+
+    def _on_system_theme_message(self) -> None:
+        """原生消息命中后的回调（去抖后转调既有 ``_poll_system_mode``）。"""
+        self._schedule_theme_poll()
+
+    def _schedule_theme_poll(self) -> None:
+        """去抖调度：300ms 内的多次消息合并为一次 ``_poll_system_mode``。"""
+        try:
+            timer = self._theme_debounce
+            if timer is None:
+                timer = QTimer(self)
+                timer.setSingleShot(True)
+                timer.setInterval(int(getattr(self, "_theme_debounce_ms", 300)))
+                timer.timeout.connect(self._poll_system_mode)
+                self._theme_debounce = timer
+            timer.start()
+        except Exception:
+            # 定时器不可用 → 直接轮询一次（不崩，行为仍正确）
+            try:
+                self._poll_system_mode()
+            except Exception:
+                pass
+
+    def _stop_theme_debounce(self) -> None:
+        timer = self._theme_debounce
+        if timer is not None:
+            try:
+                timer.stop()
+            except Exception:
+                pass
 
     def _stop_system_poll(self) -> None:
         timer, self._system_poll = self._system_poll, None
@@ -605,6 +778,25 @@ class ThemeEngine(QObject):
         return self._current_theme
 
     @staticmethod
+    def _default_qss_font_family(theme_def: Dict) -> str:
+        """``_build_default_qss`` 用的 font-family 值（**QSS 形态**）。
+
+        形态与 ``fonts.qss_font_family`` 一致：逐族加双引号、通用族（``sans-serif``）
+        裸写。首族沿用原语义（``theme_def["font"]["family"]`` 的首族，缺省 ``Segoe UI``），
+        其后接 ``fonts`` 家族链（含图标回退族 ``remixicon``，位于 generic 之前），去重保序。
+
+        纯静态：只读入参 + 模块级 ``fonts``，不依赖实例状态。
+        """
+        chain = fonts.qss_font_family(fonts.default_font_choice(), "body")
+        tokens = [t.strip() for t in chain.split(",") if t.strip()]
+        raw = str((theme_def.get("font") or {}).get("family") or "").strip()
+        head = raw.split(",")[0].strip() if raw else "Segoe UI"
+        head_token = f'"{head}"' if head else ""
+        if head_token and head_token not in tokens:
+            tokens.insert(0, head_token)
+        return ", ".join(tokens)
+
+    @staticmethod
     def _build_default_qss(theme_def: Dict) -> str:
         """当 QSS 文件缺失时，构建极简默认样式。"""
         c = theme_def.get("colors", {})
@@ -612,7 +804,7 @@ class ThemeEngine(QObject):
 QWidget {{
     background-color: {c.get('bg', '#FFFFFF')};
     color: {c.get('text', '#000000')};
-    font-family: "{theme_def.get('font', {}).get('family', 'Segoe UI').split(',')[0].strip()}";
+    font-family: {ThemeEngine._default_qss_font_family(theme_def)};
 }}
 QPushButton {{
     background-color: {c.get('primary', '#2196F3')};
@@ -760,7 +952,9 @@ def derive_accent_palette(accent_hex: str, theme_name: str = "cute", mode: str =
         bg_light = _hsl_to_hex(h, min(0.40, s * 0.6), 0.96)
         chat_border = _hsl_to_hex(h, min(0.50, s * 0.6), 0.85)
     # 主色上文字：相对亮度 >= 0.5 用黑字，否则白字（保证对比度）
-    text_on = "#000000" if _relative_luminance(accent) >= 0.5 else "#FFFFFF"
+    # 阈值 0.1791 = WCAG 黑白对比度交叉点（(L+0.05)^2 = 1.05*0.05）；旧值 0.5 过松，
+    # 会让中等亮度主色（如 #FF6B9D 亮度 0.28）误选白字，对比度仅 ~2.7。
+    text_on = "#000000" if _relative_luminance(accent) >= 0.1791 else "#FFFFFF"
     return {
         "accent": accent,
         "focus_accent": focus,
@@ -798,6 +992,8 @@ _DARK_OVERRIDES: Dict[str, Dict[str, str]] = {
         "divider": "#45323F", "focus_accent": "#FF9EB5",
         "pet_bubble_bg": "#2E222A",
         "state_ok": "#4FD18F", "state_warn": "#E8B04C",
+        # v2.1(D-V21-17)：危险/破坏性操作语义色（深色变体，提亮红，与 state_warn 可区分）
+        "state_danger": "#EE7A7A",
     },
     "minimal": {
         "primary": "#3E8FE0", "primary_dark": "#2E7AC8",
@@ -812,6 +1008,8 @@ _DARK_OVERRIDES: Dict[str, Dict[str, str]] = {
         "divider": "#363B46", "focus_accent": "#6CA8FA",
         "pet_bubble_bg": "#272A31",
         "state_ok": "#4FCE8F", "state_warn": "#E8B04C",
+        # v2.1(D-V21-17)：危险/破坏性操作语义色（深色变体，提亮红，与 state_warn 可区分）
+        "state_danger": "#EE7A7A",
     },
     "maid": {
         "primary": "#F0679A", "primary_dark": "#D24E80",
@@ -826,19 +1024,23 @@ _DARK_OVERRIDES: Dict[str, Dict[str, str]] = {
         "divider": "#4C3442", "focus_accent": "#FF9EB5",
         "pet_bubble_bg": "#31222B",
         "state_ok": "#4FD18F", "state_warn": "#E8B04C",
+        # v2.1(D-V21-17)：危险/破坏性操作语义色（深色变体，提亮红，与 state_warn 可区分）
+        "state_danger": "#EE7A7A",
     },
     # ---- v1.9 A 块（D-V19-15，PM 已复核定稿）：四风格深色变体 ----
     # A 极简·深：冷灰深，用户气泡「同族深底 + 同族浅字」（PM 阻塞项已修）
     "ui_minimal": {
         "primary": "#FF5E93", "primary_dark": "#E0447A", "secondary": "#2E2129",
         "accent": "#FF5E93",
+        # accent_text（深色态）：vs bg(#17171A)=5.476
+        "accent_text": "#C57792",
         "bg": "#17171A", "bg_card": "#1F1F23", "surface_muted": "#242429",
         "border": "#303036", "text": "#EDEDF0", "text_secondary": "#9A9AA2",
         "text_hint": "#7E7E88", "divider": "#2A2A30",
         "shadow": "rgba(0,0,0,0.40)",
         "bg_light": "#2E2129", "focus_accent": "#FF7AA6",
         # text_on_accent 不写死极值，交 derive_accent_palette 按主色明度自动选字（D-V19-15②）
-        "text_on_accent": "#FFFFFF",
+        "text_on_accent": "#1C1C1E",
         "accent_light": "#4A2434",
         "bubble_user_bg": "#3A2430", "bubble_user_text": "#F2DCE6",
         "bubble_ai_bg": "#1C1C21", "bubble_ai_text": "#E8E8EC",
@@ -846,11 +1048,18 @@ _DARK_OVERRIDES: Dict[str, Dict[str, str]] = {
         "pet_bubble_bg": "#242429",
         "disabled_bg": "#3A3A3A", "disabled_text": "#8A8A8A",
         "state_ok": "#4FD18F", "state_warn": "#E8B04C",
+        # v2.1(D-V21-17)：危险/破坏性操作语义色（深色变体，提亮红，与 state_warn 可区分）
+        "state_danger": "#EE7A7A",
+        # v2.1(D-V21-16)：信息 / 警示语义色（深色变体，对比度 ≥3:1）
+        "info": "#6FA8DC", "warning": "#E2A445",
     },
     # B 奶油·深：暖棕深
     "ui_cream": {
         "primary": "#FF9FB2", "primary_dark": "#EF8497", "secondary": "#38292B",
         "accent": "#FF9FB2",
+        # accent_text（深色态）：沿用本主题浅色主色（与 minimal/whale 同惯例），
+        # vs bg(#201A17)=7.949；既是主题本征粉、又天然满足「非鲜红」。
+        "accent_text": "#FF8FA3",
         "bg": "#201A17", "bg_card": "#2A2320", "surface_muted": "#312925",
         "border": "#453A33", "text": "#F3E9E3", "text_secondary": "#B9A79C",
         "text_hint": "#9A8072", "divider": "#3B322C",
@@ -864,18 +1073,24 @@ _DARK_OVERRIDES: Dict[str, Dict[str, str]] = {
         "pet_bubble_bg": "#312925",
         "disabled_bg": "#3A3A3A", "disabled_text": "#8A8A8A",
         "state_ok": "#4FD18F", "state_warn": "#E8B04C",
+        # v2.1(D-V21-17)：危险/破坏性操作语义色（深色变体，提亮红，与 state_warn 可区分）
+        "state_danger": "#EE7A7A",
+        # v2.1(D-V21-16)：信息 / 警示语义色（深色变体，暖调）
+        "info": "#7FB0D8", "warning": "#E3A94F",
     },
     # C 夜间：colors_dark == colors（自身即深色；dark_locked）—— 全键同值以免被
     # _SEMANTIC_DARK_DEFAULTS 的默认粉色语义键覆盖。
     "ui_night": {
         "primary": "#FF6B9D", "primary_dark": "#E0527F", "secondary": "#3A2430",
         "accent": "#FF6B9D",
+        # accent_text：ui_night 全键同值不变式，深色覆盖与浅色取同值
+        "accent_text": "#FB6F9E",
         "bg": "#131114", "bg_card": "#1C1920", "surface_muted": "#211D26",
         "border": "#2C2733", "text": "#F2EFF5", "text_secondary": "#918A9C",
         "text_hint": "#6E6878", "divider": "#262230",
         "shadow": "0 2px 12px rgba(0,0,0,0.35)",
         "bg_light": "#3A2430", "focus_accent": "#FF6B9D",
-        "text_on_accent": "#FFFFFF",
+        "text_on_accent": "#1C1920",
         "accent_light": "#3A2430",
         "bubble_user_bg": "#2B2130", "bubble_user_text": "#F2EFF5",
         "bubble_ai_bg": "#1F1B24", "bubble_ai_text": "#F2EFF5",
@@ -884,17 +1099,23 @@ _DARK_OVERRIDES: Dict[str, Dict[str, str]] = {
         "code_bg": "#16161B", "code_text": "#F2F2F5", "code_lang": "#9A9AA2",
         "disabled_bg": "#3A3A3A", "disabled_text": "#8A8A8A",
         "state_ok": "#4FD18F", "state_warn": "#E8B04C",
+        # v2.1(D-V21-17)：危险/破坏性操作语义色（深色变体，提亮红，与 state_warn 可区分）
+        "state_danger": "#EE7A7A",
+        # v2.1(D-V21-16)：信息 / 警示语义色（ui_night 全键同值，防被默认色覆盖）
+        "info": "#6FB0E0", "warning": "#E0A84A",
     },
     # D 深海·深：深海深蓝
     "ui_whale": {
         "primary": "#4FC0DA", "primary_dark": "#3AA6C0", "secondary": "#12333E",
         "accent": "#4FC0DA",
+        # accent_text（深色态）：沿用本主题浅色主色，vs bg(#0E1A21)=5.446
+        "accent_text": "#2E9BB5",
         "bg": "#0E1A21", "bg_card": "#14232C", "surface_muted": "#182A34",
         "border": "#24404E", "text": "#E2F1F7", "text_secondary": "#8FAEBE",
         "text_hint": "#6B8C9D", "divider": "#1D3641",
         "shadow": "rgba(0,0,0,0.38)",
         "bg_light": "#12333E", "focus_accent": "#6AD2E8",
-        "text_on_accent": "#FFFFFF",
+        "text_on_accent": "#12303F",
         "accent_light": "#16404D",
         "bubble_user_bg": "#12333E", "bubble_user_text": "#E2F1F7",
         "bubble_ai_bg": "#13242D", "bubble_ai_text": "#DCEDF5",
@@ -902,6 +1123,10 @@ _DARK_OVERRIDES: Dict[str, Dict[str, str]] = {
         "pet_bubble_bg": "#182A34",
         "disabled_bg": "#3A3A3A", "disabled_text": "#8A8A8A",
         "state_ok": "#4FD18F", "state_warn": "#E8B04C",
+        # v2.1(D-V21-17)：危险/破坏性操作语义色（深色变体，提亮红，与 state_warn 可区分）
+        "state_danger": "#EE7A7A",
+        # v2.1(D-V21-16)：信息 / 警示语义色（深色变体，海蓝深底协调）
+        "info": "#5FC0DC", "warning": "#E0A94A",
     },
 }
 
@@ -918,6 +1143,11 @@ _SEMANTIC_LIGHT_DEFAULTS: Dict[str, str] = {
     "code_bg": "#2B2B33",
     "code_text": "#F8F8F2",
     "code_lang": "#A9A9B4",
+    # v2.1(D-V21-16/域4 后续)：信息 / 警示语义色（辅助语义，背景对比度 ≥3:1）。
+    # 与 state_ok/state_warn 家族邻近但独立键：state_* 为连接/运行态状态点，
+    # info/warning 为内容/分组型语义色（记忆中心分组 Tab 等着色）。
+    "info": "#2F6FB5",
+    "warning": "#A96A12",
 }
 
 # 语义键深色注册默认值
@@ -932,6 +1162,9 @@ _SEMANTIC_DARK_DEFAULTS: Dict[str, str] = {
     "code_bg": "#16161B",
     "code_text": "#F2F2F5",
     "code_lang": "#9A9AA2",
+    # v2.1(D-V21-16/域4 后续)：信息 / 警示语义色（深色变体）
+    "info": "#6FA8DC",
+    "warning": "#E2A445",
 }
 
 # 每主题语义键个性覆盖（如 minimal 冷色）

@@ -11,7 +11,8 @@ get_emotions_history()（只读，memory 层零改动）。展示约定（R-A �
   - 固定说明文案："这只是帮你看见自己，不是给你打分。"
   - **全组件无 int→str 上屏路径**（无分数/百分比/计数/坐标轴/日期数字上屏，
     验收断言见 tests/test_v18_batch1.py）；
-  - 今日格轻呼吸动画（QTimer 交替两种淡色，v1.6 handsfree 呼吸先例）；
+  - 今日格轻呼吸动画（QTimer 交替两种淡色，v1.6 handsfree 呼吸先例），
+    **R-P（v2.x 修复）：按可见性启停 —— 隐藏即停，不再常驻空转**；
   - 点击有记录的日格发 dayClicked(date_iso) 信号（页面侧跳该日条目列表）。
 """
 from __future__ import annotations
@@ -109,7 +110,10 @@ class EmotionArcWidget(QFrame):
         self._breath_timer = QTimer(self)
         self._breath_timer.setInterval(1400)   # 轻呼吸节奏（今日格淡色交替）
         self._breath_timer.timeout.connect(self._breathe)
-        self._breath_timer.start()
+        # R-P（v2.x 修复）：**不在此启动** —— 由 showEvent 按可见性启，hideEvent 停。
+        # 旧实现 __init__ 即 start() 且从不 stop → 组件不可见（隐藏 Tab / 切页）时
+        # 仍每 1.4s 触发一次重绘，属后台空转。首帧静态态由 refresh_arc 的
+        # _breathe(force=True) 保证，无需依赖定时器。
 
     # -- UI 骨架 --
     def _build_ui(self) -> None:
@@ -217,6 +221,23 @@ class EmotionArcWidget(QFrame):
         cell.setStyleSheet(
             f"background: {self._color(('divider', '#F1E4E6'))};"
             f" border: 2px solid {ring}; border-radius: 4px;")
+
+    # -- R-P：可见性启停（隐藏即停，防后台空转）--
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        try:
+            if not self._breath_timer.isActive():
+                self._breath_timer.start()
+        except Exception:
+            pass
+
+    def hideEvent(self, event) -> None:
+        try:
+            if self._breath_timer.isActive():
+                self._breath_timer.stop()
+        except Exception:
+            pass
+        super().hideEvent(event)
 
     # -- R-A 守卫：组件上屏文本恒为零数字（供验收断言复用）--
     def screen_texts(self) -> List[str]:

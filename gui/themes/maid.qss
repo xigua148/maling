@@ -4,7 +4,7 @@
 QWidget {
     background-color: ${bg};
     color: ${text};
-    font-family: "${font_family}";
+    font-family: ${font_family};
     font-size: 14px;
     border-radius: ${radius_sm};
 }
@@ -213,7 +213,7 @@ QTextEdit#codeEditor {
     color: #F8F8F2;
     border: none;
     border-radius: ${radius_sm};
-    font-family: "Consolas, JetBrains Mono, monospace";
+    font-family: "Consolas", "JetBrains Mono", monospace;
     font-size: 12px;
 }
 
@@ -433,7 +433,7 @@ QPlainTextEdit#codeEditorArea {
     background-color: #2D2222;
     color: #F8F8F2;
     border: none;
-    font-family: "JetBrains Mono, Consolas, monospace";
+    font-family: "JetBrains Mono", "Consolas", monospace;
     font-size: 12px;
     padding: 8px;
     selection-background-color: ${primary_dark};
@@ -451,7 +451,7 @@ QWidget#editorStatusBar {
 QLabel#editorStatusLabel {
     color: ${text_secondary};
     font-size: 11px;
-    font-family: "JetBrains Mono, Consolas, monospace";
+    font-family: "JetBrains Mono", "Consolas", monospace;
 }
 
 /* 空状态 */
@@ -460,6 +460,7 @@ QWidget#editorEmptyState {
 }
 QLabel#editorEmptyIcon {
     color: ${primary_dark};
+    font-size: 48px;
 }
 QLabel#editorEmptyTitle {
     color: ${text_secondary};

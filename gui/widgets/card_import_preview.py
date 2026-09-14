@@ -24,6 +24,7 @@ from gui.role_card import (
     personality_tier_word,
 )
 from gui.utils import theme_color
+from gui import icons
 
 __all__ = ["CardImportPreviewDialog"]
 
@@ -136,7 +137,7 @@ class CardImportPreviewDialog(QDialog):
         except Exception:
             # 超限/非法封面：parse_card 已降级为空或数据损坏 → 红字 + 仍可导入
             lab.setObjectName("cardPreviewError")
-            lab.setText("⚠ 封面数据异常（超过 500KB 或已损坏），"
+            lab.setText(f"{icons.text_glyph('warning', '⚠')} 封面数据异常（超过 500KB 或已损坏），"
                         "导入后将以无封面回退默认头像。\n确认后仍可继续导入。")
         return lab
 

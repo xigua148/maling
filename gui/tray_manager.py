@@ -17,6 +17,7 @@ from gui.qt_compat import (
     QObject, QSystemTrayIcon, QMenu, QAction, QApplication, QIcon, QMessageBox,
 )
 from gui.utils import get_resource_path
+from gui import icons
 
 logger = logging.getLogger("maid_coder.gui")
 
@@ -73,19 +74,19 @@ class TrayManager(QObject):
                         logger.warning("托盘动作 %s 执行失败: %s", method_name, exc)
             return _run
 
-        camera_action = QAction("📷 拍照", menu)
+        camera_action = QAction(f"{icons.text_glyph('camera', '📷')} 拍照", menu)
         camera_action.triggered.connect(_bridge("trigger_camera"))
         camera_action.setEnabled(mw_ok)
         camera_action.setToolTip("调起摄像头拍一张发给码铃")
         menu.addAction(camera_action)
 
-        voice_action = QAction("🎤 语音输入", menu)
+        voice_action = QAction(f"{icons.text_glyph('voice', '🎤')} 语音输入", menu)
         voice_action.triggered.connect(_bridge("trigger_voice"))
         voice_action.setEnabled(mw_ok)
         voice_action.setToolTip("打开一次语音输入（识别结果填入输入框）")
         menu.addAction(voice_action)
 
-        shot_action = QAction("🖼 截图提问", menu)
+        shot_action = QAction(f"{icons.text_glyph('screenshot', '🖼')} 截图提问", menu)
         shot_action.triggered.connect(_bridge("trigger_screenshot"))
         shot_action.setEnabled(mw_ok)
         shot_action.setToolTip("划屏选区截图，作为图片问码铃")
@@ -99,19 +100,19 @@ class TrayManager(QObject):
 
         menu.addSeparator()
 
-        settings_action = QAction("⚙️ 设置", menu)
+        settings_action = QAction(f"{icons.text_glyph('settings', '⚙️')} 设置", menu)
         settings_action.triggered.connect(_bridge("navigate_settings"))
         settings_action.setEnabled(mw_ok)
         menu.addAction(settings_action)
 
-        float_action = QAction("💬 聊天浮窗", menu)
+        float_action = QAction(f"{icons.text_glyph('chat', '💬')} 聊天浮窗", menu)
         float_action.triggered.connect(_bridge("open_float_chat"))
         float_action.setEnabled(mw_ok)
         float_action.setToolTip("呼出/聚焦独立聊天浮窗")
         menu.addAction(float_action)
 
         menu.addSeparator()
-        quit_action = QAction("❌ 退出", menu)
+        quit_action = QAction(f"{icons.text_glyph('close', '❌')} 退出", menu)
         quit_action.triggered.connect(self._confirm_quit)
         menu.addAction(quit_action)
         menu.addSeparator()
@@ -186,7 +187,7 @@ class TrayManager(QObject):
                 try:
                     self.app_ctx.ritual_store = store
                 except Exception:
-                    pass
+                    logger.debug("静默降级：_maybe_goodnight_ritual 中忽略异常", exc_info=True)
             now = datetime.now()
             if not goodnight_due(now, store, enabled):
                 return
@@ -212,13 +213,13 @@ class TrayManager(QObject):
             if bridge is not None and hasattr(bridge, "mood_changed"):
                 bridge.mood_changed.connect(self._on_mood_changed)
         except Exception:
-            pass
+            logger.debug("静默降级：_connect_broadcasts 中忽略异常", exc_info=True)
         chat_service = getattr(self.app_ctx, "chat_service", None)
         if chat_service is not None:
             try:
                 chat_service.proactive_message.connect(self._on_proactive_ready)
             except Exception:
-                pass
+                logger.debug("静默降级：_connect_broadcasts 中忽略异常", exc_info=True)
 
     def _on_mood_changed(self, mood: str, reason: str) -> None:
         self._refresh_mood_tooltip()
@@ -239,7 +240,7 @@ class TrayManager(QObject):
             text = mood_tooltip_text(companion, state)
             self._icon.setToolTip(f"{text}\n点托盘呼出码铃")
         except Exception:
-            pass
+            logger.debug("静默降级：_refresh_mood_tooltip 中忽略异常", exc_info=True)
 
     def _on_proactive_ready(self, text: str, scene: str) -> None:
         """A9 / Idle 主动消息 -> 托盘静默气泡（不抢焦点；点开呼出主窗）。"""
@@ -254,7 +255,7 @@ class TrayManager(QObject):
                 QSystemTrayIcon.Information, 6000,
             )
         except Exception:
-            pass
+            logger.debug("静默降级：_on_proactive_ready 中忽略异常", exc_info=True)
 
     # ------------------------------------------------------------------
     # 主窗显示/隐藏 + 托盘交互
@@ -268,7 +269,7 @@ class TrayManager(QObject):
             mw.raise_()
             mw.activateWindow()
         except Exception:
-            pass
+            logger.debug("静默降级：show_main_window 中忽略异常", exc_info=True)
 
     def hide_main_window(self) -> None:
         mw = getattr(self.app_ctx, "main_window", None)
@@ -277,7 +278,7 @@ class TrayManager(QObject):
         try:
             mw.hide()
         except Exception:
-            pass
+            logger.debug("静默降级：hide_main_window 中忽略异常", exc_info=True)
 
     def toggle_main_window(self) -> None:
         """显示/隐藏主窗（托盘菜单 + 双击 + P1-3 全局热键共用逻辑）。"""
@@ -292,7 +293,7 @@ class TrayManager(QObject):
                 mw.raise_()
                 mw.activateWindow()
         except Exception:
-            pass
+            logger.debug("静默降级：toggle_main_window 中忽略异常", exc_info=True)
 
     def _on_activated(self, reason) -> None:
         if reason == QSystemTrayIcon.DoubleClick:
@@ -329,19 +330,19 @@ class TrayManager(QObject):
         try:
             self.app_ctx.quitting = True
         except Exception:
-            pass
+            logger.debug("静默降级：_on_quit 中忽略异常", exc_info=True)
         mw = getattr(self.app_ctx, "main_window", None)
         if mw is not None and hasattr(mw, "save_window_state"):
             try:
                 mw.save_window_state()
             except Exception:
-                pass
+                logger.debug("静默降级：_on_quit 中忽略异常", exc_info=True)
         chat_service = getattr(self.app_ctx, "chat_service", None)
         if chat_service is not None:
             try:
                 chat_service.shutdown()
             except Exception:
-                pass
+                logger.debug("静默降级：_on_quit 中忽略异常", exc_info=True)
         # v1.7(F3/D-V17-02/Q-C5): 深夜晚安托盘气泡（保存退出前、图标仍在时发；
         # 一次性、可关、错过不补、无气泡入会话）
         self._maybe_goodnight_ritual()
@@ -349,7 +350,7 @@ class TrayManager(QObject):
             try:
                 self._icon.hide()
             except Exception:
-                pass
+                logger.debug("静默降级：_on_quit 中忽略异常", exc_info=True)
         # 生命周期卫生：停低频定时器/监视器/热键（失败绝不阻断退出）
         for _attr, _meth in (("proactive_scheduler", "stop"),
                              ("reminder_scheduler", "stop"),
@@ -360,8 +361,8 @@ class TrayManager(QObject):
                 try:
                     getattr(_obj, _meth)()
                 except Exception:
-                    pass
+                    logger.debug("静默降级：_on_quit 中忽略异常", exc_info=True)
         try:
             QApplication.quit()
         except Exception:
-            pass
+            logger.debug("静默降级：_on_quit 中忽略异常", exc_info=True)

@@ -1,3 +1,6 @@
+/* v2.1(UI-Fix-0912): 3 个页面的 setStyleSheet 只覆盖容器选择器,内部 QLabel 缺省色导致全页文字看不见。加全局规则兜底,更具体的 ID 选择器按特异性胜出。*/
+QLabel { color: ${text}; }
+
 /* ============================================================
    base.qss —— 码铃「简洁 × 女仆基调」(B8/D7) 公共组件结构层
 
@@ -113,7 +116,7 @@ QLabel#providerCardDesc {
 QLabel#providerCardModel {
     color: ${text_hint};
     font-size: 11px;
-    font-family: "${font_family}";
+    font-family: ${font_family};
     background: transparent;
 }
 /* 「本地」小标签（ollama 等本地运行） */
@@ -176,6 +179,51 @@ QPushButton#modelSaveBtn {
     padding: ${spacing_sm} ${spacing_lg};
 }
 
+/* ---------- 1b. 次级 / 卡片外按钮：幽灵底（accent 图标方可见） ----------
+   v2.1 真机留档发现 A：`#secondaryBtn` 与页面层 `#memoryBookBtn` 此前**从未**被
+   任何 QSS 定义过 → 落到通用 `QPushButton` 实底；而装饰助手 `_decorate_button`
+   给图标取色 accent，accent 与 primary 在多套主题里同值（ui_night/ui_whale 两者
+   皆同色）→ 图标色 == 按钮底色，图标**完全不可见**（非豆腐块，静态扫描抓不到）。
+   本段补全局定义；base.qss 对全部主题生效，单点收口，避免逐主题漂移。
+   注意：卡片内 #memoryBookBtn 由 page_memory_book 的**控件级内联样式表**覆盖，
+   其优先级高于全局规则，不受本段影响（改前改后外观应逐字节一致）。
+   本段**刻意不设** padding / font-size / font-weight —— 避免改变按钮尺寸引发版式位移。 */
+QPushButton#secondaryBtn,
+QPushButton#memoryBookBtn {
+    background: transparent;
+    color: ${accent};
+    border: 1px solid ${divider};
+    border-radius: ${radius_md};
+}
+QPushButton#secondaryBtn:hover,
+QPushButton#memoryBookBtn:hover {
+    background-color: ${surface_muted};
+    border-color: ${accent};
+}
+QPushButton#secondaryBtn:pressed,
+QPushButton#memoryBookBtn:pressed {
+    background-color: ${bg_light};
+}
+QPushButton#secondaryBtn:disabled,
+QPushButton#memoryBookBtn:disabled {
+    background-color: ${disabled_bg};
+    color: ${disabled_text};
+    border-color: ${divider};
+}
+
+/* ---------- 1c. 角色页侧栏按钮（220px 窄栏 + 固定 28px 高） ----------
+   v2.1 真机留档发现 B：角色页新建工具区四个按钮（新建角色 / 用预设新建 /
+   导出角色卡 / 导入角色卡）都 setFixedHeight(28)，而肤感层通用 QPushButton 的
+   padding: 8px 20px 上下吃掉 16px，只剩 12px 装 13px 的字 → 文字被上下切掉
+   （用户报「字显示不全」）。三个 #secondaryBtn 未设 padding，继承同一份值，故四个一起中招。
+   本段把 roleSidebar 作用域内按钮的垂直 padding 收到 2px、水平收到 8px，
+   兼顾 220px 窄栏与 28px 定高。
+   特异性 (1,0,2) > QPushButton#secondaryBtn (1,0,1)，能覆盖继承来的 padding；
+   #secondaryBtn:hover / :disabled 均为 (1,1,1) 但未设 padding，不受影响。 */
+QWidget#roleSidebar QPushButton {
+    padding: 2px 8px;
+}
+
 /* ---------- 2. 首页「模型设置」快捷入口（U-4 最小入口） ---------- */
 
 QPushButton#homeModelEntry {
@@ -206,8 +254,11 @@ QLabel#homeModelEntryDesc {
 
 /* 放置于帮助/关于之上的一整行状态入口；肤感上比导航项更轻 */
 QPushButton#sidebarModelBtn {
-    background-color: ${bg_light};
-    border: 1px solid ${divider};
+    /* v2.1(UI): 状态入口而非主操作 —— 去掉永久底色 + 边框，与侧栏 nav 项保持平面统一。
+       视觉减负：仅在 hover/pressed 给出微弱背景提示「可点」；focus 矩形保留（键盘可达性）。
+       此前该按钮是侧栏里唯一带 ${bg_light} 填充 + ${divider} 边框的控件，粉色「框框」即由此而来。 */
+    background-color: transparent;
+    border: none;
     border-radius: ${radius_md};
     color: ${text};
     font-size: 12px;
@@ -217,7 +268,6 @@ QPushButton#sidebarModelBtn {
 }
 QPushButton#sidebarModelBtn:hover {
     background-color: ${surface_muted};
-    border-color: ${focus_accent};
     color: ${text};
 }
 QPushButton#sidebarModelBtn:pressed {
@@ -240,7 +290,296 @@ QLabel#toggleCardTitle,
 QLabel#statusCardTitle,
 QLabel#memoryBookTitle,
 QLabel#miniGamesTitle,
-QLabel#providerCardTitle,
+QLabel#providerCardTitle {
+    font-family: ${font_title};
+}
+
+/* v2.1：空态标题字号 —— 代码侧 setPointSize(16) 会被全局 font-size:14px 覆盖，
+   故字号必须由 QSS 声明（单列一条，避免波及其余四个标题） */
 QLabel#editorEmptyTitle {
-    font-family: "${font_title}";
+    font-family: ${font_title};
+    font-size: 16px;
+}
+
+/* ============================================================
+   v2.1 S 组（V21-14）：公共控件精修 —— 毛玻璃根透明 / 五态补齐 /
+   通用控件（滚动条·下拉·复选·滑块）/ 浮层分层
+   ------------------------------------------------------------
+   纪律（design-v21 §6 / D-V21-08）：
+     · 只引用已注册的 token 占位符，本块新增规则无裸色十六进制字面量；
+     · 不含过渡 / 动画样式声明（Qt 样式表不支持，一切动效归 gui/motion.py）；
+     · 放置于 base（公共结构层）：下列选择器在四风格肤感层中均未定义，
+       故此处规则对四风格一致生效（D-V21-09 正交化，无需分叉四份）。
+   仅追加规则、不改动本文件既有规则的语义。
+   ============================================================ */
+
+/* ---------- 1. 毛玻璃根透明条件规则（D-V21-04 / §4.6 契约） ----------
+   代码侧 _apply_glass_state：玻璃开 → 置 MainWindow 动态属性 glass="on"
+   并 style().unpolish/polish 重刷；玻璃关 → 移除属性 → 恢复主题背景
+   （R-Q③：行为与改动前一致）。属性名/值必须与本规则严格一致（glass / "on"）。
+   卡片/气泡保留各自不透明底，材质只在留白/间隙透出（§6 共享知识第 8 条）。 */
+QMainWindow[glass="on"],
+QMainWindow[glass="on"] > QWidget {
+    background: transparent;
+}
+
+/* ---------- 2. 全局滚动条（竖向 + 横向，含全部子控件） ----------
+   四风格肤感层仅定义 ChatWindow 局部滚动条，主区滚动条此前走原生样式；
+   此处统一圆角/描边/悬停反馈（S-3①）。ChatWindow 局部规则特异性更高，不受影响。 */
+QScrollBar:vertical {
+    background: transparent;
+    width: 10px;
+    margin: 0;
+}
+QScrollBar::handle:vertical {
+    background: ${border};
+    border-radius: 5px;
+    min-height: 28px;
+}
+QScrollBar::handle:vertical:hover {
+    background: ${text_hint};
+}
+QScrollBar::handle:vertical:pressed {
+    background: ${primary};
+}
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0;
+    background: transparent;
+}
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
+    background: transparent;
+}
+QScrollBar:horizontal {
+    background: transparent;
+    height: 10px;
+    margin: 0;
+}
+QScrollBar::handle:horizontal {
+    background: ${border};
+    border-radius: 5px;
+    min-width: 28px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: ${text_hint};
+}
+QScrollBar::handle:horizontal:pressed {
+    background: ${primary};
+}
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    width: 0;
+    background: transparent;
+}
+QScrollBar::add-page:horizontal,
+QScrollBar::sub-page:horizontal {
+    background: transparent;
+}
+
+/* ---------- 3. 输入框五态（normal/焦点由肤感层给；此处补 hover / disabled） ---------- */
+QLineEdit:hover {
+    border-color: ${focus_accent};
+}
+QLineEdit:disabled {
+    background-color: ${disabled_bg};
+    color: ${disabled_text};
+    border-color: ${divider};
+}
+
+/* ---------- 4. 下拉框五态（补 hover / pressed(展开) / disabled；focus 由肤感层给） ---------- */
+QComboBox:hover {
+    border-color: ${focus_accent};
+}
+QComboBox:pressed,
+QComboBox:on {
+    border-color: ${primary};
+}
+QComboBox:disabled {
+    background-color: ${disabled_bg};
+    color: ${disabled_text};
+    border-color: ${divider};
+}
+
+/* ---------- 5. 按钮 focus 态：点击后默认 focus 圈（粉色 ${focus_accent}）太显眼 → 隐藏。
+   理由：现代桌面应用（Chrome / VSCode 等）对鼠标点击的 focus 圈默认隐藏，仅键盘 Tab 导航时保留。
+   Qt QSS 不支持 :focus-visible 选择器，故最简方案是全局隐藏 —— 代价是键盘 Tab 用户失去每按钮的
+   视觉指示，但按钮仍接收焦点（屏幕阅读器 / Enter 激活均正常），hover 态仍提供反馈。
+   若日后需要区分鼠标/键盘 focus，需改走 focusReason + setStyleSheet 动态分支，改动面较大。 */
+QPushButton:focus {
+    outline: none;
+}
+
+/* ---------- 6. 复选框五态（normal/checked 由肤感层给；补 hover / focus / disabled） ---------- */
+QCheckBox {
+    padding: 2px 0;
+}
+QCheckBox::indicator:hover {
+    border-color: ${focus_accent};
+}
+QCheckBox:focus,
+QCheckBox::indicator:focus {
+    border-color: ${focus_accent};
+}
+QCheckBox::indicator:disabled {
+    background-color: ${disabled_bg};
+    border-color: ${divider};
+}
+QCheckBox:disabled {
+    color: ${disabled_text};
+}
+
+/* ---------- 7. 滑块五态（normal 由肤感层给；补 hover / pressed / disabled） ---------- */
+QSlider::handle:horizontal:hover {
+    background: ${primary_dark};
+}
+QSlider::handle:horizontal:pressed {
+    background: ${focus_accent};
+}
+QSlider::handle:horizontal:disabled {
+    background: ${disabled_bg};
+}
+QSlider::sub-page:horizontal:disabled {
+    background: ${disabled_bg};
+}
+QSlider::groove:horizontal:disabled {
+    background: ${divider};
+}
+
+/* ---------- 8. 列表项五态（通用 QListWidget / QListView；具名列表特异性更高不受影响） ---------- */
+QListWidget::item:hover,
+QListView::item:hover {
+    background-color: ${surface_muted};
+}
+QListWidget::item:selected,
+QListView::item:selected {
+    background-color: ${bg_light};
+    color: ${primary_dark};
+}
+QListWidget::item:disabled,
+QListView::item:disabled {
+    color: ${disabled_text};
+}
+
+/* ---------- 9. 标签页补齐（本文件未定义；补 disabled / focus 可见） ---------- */
+QTabBar::tab:disabled {
+    color: ${disabled_text};
+}
+QTabBar::tab:selected:disabled {
+    color: ${disabled_text};
+}
+QTabBar::tab:selected:focus {
+    border-bottom: 2px solid ${focus_accent};
+}
+
+/* ============================================================
+   10. 浮层阴影分层（elevation 三档）
+   ------------------------------------------------------------
+   说明（诚实口径）：Qt QSS **不支持 box-shadow**，无法在样式表内绘制模糊投影；
+   真正的模糊投影由代码侧 QGraphicsDropShadowEffect 承担（S-4 的既有落点，
+   chat_window.py:106）。QSS 侧以「表面亮度 + 描边权重」表达三档层级，
+   深色模式下底/边随 token 自动加深，层级由 ${border}/${divider} 描边保证可辨
+   （D-2③：深色不依赖阴影，以描边补足）。
+     E1 小：工具提示 / 内联浮标
+     E2 中：菜单 / 下拉弹层
+     E3 大：顶层对话框
+   ============================================================ */
+QToolTip {
+    background-color: ${bg_card};
+    color: ${text};
+    border: 1px solid ${border};
+    border-radius: ${radius_sm};
+    padding: 4px 8px;
+    font-size: 12px;
+}
+QMenu {
+    background-color: ${bg_card};
+    color: ${text};
+    border: 1px solid ${border};
+    border-radius: ${radius_md};
+    padding: 4px;
+}
+QMenu::item {
+    padding: 6px 24px 6px 12px;
+    border-radius: ${radius_sm};
+    background: transparent;
+}
+QMenu::item:selected {
+    background-color: ${surface_muted};
+    color: ${primary_dark};
+}
+QMenu::item:disabled {
+    color: ${disabled_text};
+}
+QMenu::separator {
+    height: 1px;
+    background: ${divider};
+    margin: 4px 8px;
+}
+QDialog {
+    background-color: ${bg_card};
+    border: 1px solid ${border};
+}
+
+/* ---------- 字号恢复（v2.1 后续） ----------
+   背景：应用级 QSS 一旦声明 font-size，就会压过代码 setFont；各主题的
+   `QWidget { font-size: 14px }` 因此把所有未命中的控件的代码字号抹平成 14px。
+   id 选择器优先级高于类型选择器且与加载顺序无关，故集中放本文件单点修复。
+   纪律：只设 font-size，不设 padding / font-weight / min-width 等会改变
+   尺寸或重量的属性，避免推挤版式。
+   【字号单一收口点】下列控件的字号只在本块定义；代码侧**不得**再对同一控件
+   调用 setPointSize / setPixelSize —— 那会被这里压掉，只留下误导后人的死行。
+   若确需调整，请改本块数值。 */
+QLabel#pageTitle { font-size: 21px; }             /* 页面主标题 16pt */
+QLabel#placeholderTitle { font-size: 24px; }      /* 占位页标题 18pt */
+QLabel#onboardingSectionTitle { font-size: 21px; }/* 引导步骤内标题 16pt */
+QLabel#onboardingStepTitle { font-size: 19px; }   /* 引导顶部步骤名 14pt */
+QLabel#homeSectionTitle { font-size: 17px; }      /* 首页区块标题 13pt */
+QLabel#helpSectionTitle { font-size: 17px; }      /* 帮助页区块标题 13pt */
+QLabel#homeWelcome { font-size: 24px; }           /* 首页欢迎语 18pt */
+QLabel#homeGreeting { font-size: 17px; }          /* 首页问候语 13pt */
+QLabel#homeAvatarFallback { font-size: 61px; }    /* 头像兜底 emoji 46pt */
+QLabel#featureCardIcon { font-size: 32px; }       /* 功能卡图标 24pt */
+QLabel#authDialogTitle { font-size: 17px; }       /* 授权弹窗标题 13pt */
+QLabel#themePreviewName { font-size: 17px; }      /* 风格卡名称 13pt */
+QLabel#toolboxToolTitle { font-size: 19px; }      /* 工具箱工具名 14pt */
+QLabel#statusCardValue { font-size: 17px; }       /* 状态卡数值 13pt */
+QLabel#miniGamesTitle { font-size: 19px; }        /* 小游戏标题 14pt */
+QLabel#pomPhase { font-size: 17px; }              /* 番茄钟阶段 13pt */
+QLabel#pomTime { font-size: 59px; }               /* 番茄钟计时 44pt */
+QLabel#sidebarTitle { font-size: 19px; }          /* 侧栏标题 14pt（工具箱/角色面板/计划编辑器） */
+QLabel#statusCardIcon { font-size: 24px; }        /* 状态卡图标兜底 emoji 18pt */
+
+/* ---------- 10. 侧栏导航滚动条（v2.1 阶段 C-1：hover 门控 / WorkBuddy 风格） ----------
+   用户诉求：默认隐藏，鼠标进入侧栏模块才显示（滚动中/激活时也显示）。
+   实现：代码侧（sidebar.py）按光标是否在侧栏矩形内，把滚动条动态属性
+   sidebarHover 置 True/False 并 unpolish/polish；本块依该属性切换 handle 颜色。
+   · 恒占位：代码侧用 ScrollBarAlwaysOn，避免 AsNeeded 出现/消失导致横向跳版；
+   · 细 / 圆角 / 无箭头 / 无底槽：与 ChatWindow 滚动条同款视觉语言（8px、4px 圆角）；
+   · handle 取弱化色 ${text_hint}（悬停）/ ${primary}（直接拖拽 handle）。
+   仅追加规则、不改动本文件既有规则的语义。 */
+QListWidget#sidebarNavList QScrollBar:vertical {
+    background: transparent;   /* 无底槽 */
+    width: 8px;                /* 与 ChatWindow 滚动条同宽 */
+    margin: 0;
+}
+QListWidget#sidebarNavList QScrollBar::handle:vertical {
+    background: transparent;   /* 空闲：不可见 */
+    border-radius: 4px;
+    min-height: 30px;
+}
+QListWidget#sidebarNavList QScrollBar[sidebarHover="true"]::handle:vertical {
+    background: ${text_hint};  /* 悬停 / 滚动中：弱化色 */
+}
+QListWidget#sidebarNavList QScrollBar[sidebarHover="true"]::handle:vertical:hover {
+    background: ${primary};    /* 光标直接压住 handle：强调色 */
+}
+QListWidget#sidebarNavList QScrollBar::add-line:vertical,
+QListWidget#sidebarNavList QScrollBar::sub-line:vertical {
+    height: 0;                 /* 无箭头 */
+    background: transparent;
+}
+QListWidget#sidebarNavList QScrollBar::add-page:vertical,
+QListWidget#sidebarNavList QScrollBar::sub-page:vertical {
+    background: transparent;   /* 无底槽 */
 }

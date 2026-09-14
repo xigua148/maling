@@ -39,6 +39,7 @@ from companion import MOOD_PHRASES
 # 复用 MaidAssets 加载器/占位回退基础设施，不重复造加载器
 from gui.maid_avatar import MaidAssets, resolve_expression
 from gui.utils import get_resource_path, theme_color
+from gui import icons
 
 _logger = logging.getLogger("maid_coder.gui.maid_pet")
 
@@ -985,7 +986,7 @@ class MaidPet(_MaidPetBase):
         row = QHBoxLayout()
         row.setSpacing(6)
         row.addStretch()
-        home_btn = QPushButton("🏠 回首页")
+        home_btn = QPushButton(f"{icons.text_glyph('home', '🏠')} 回首页")
         home_btn.setObjectName("petHomeBtn")
         home_btn.setCursor(_Qt.CursorShape.PointingHandCursor)
         home_btn.clicked.connect(self._on_go_home)

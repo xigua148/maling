@@ -54,6 +54,8 @@ from core import AppConfig, DANGEROUS_COMMANDS
 # 判定表常量
 # ---------------------------------------------------------------------------
 # 允许的解释器/命令首 token（D3 定稿；不开放配置，调整需代码 review）
+# ⚠ 本集合是命令安全的**权威真值源**（AGENTS.md §2.2）。core.SAFE_COMMAND_WHITELIST
+# 仅作快速预检，必须为本集合的子集；修改本处必须同步 core/__init__.py 的预检白名单。
 ALLOWED_COMMANDS = {"python", "python3", "pytest", "node"}
 
 # 明确拒绝的首 token（即使落到 basename 判定也优先给出针对性提示）

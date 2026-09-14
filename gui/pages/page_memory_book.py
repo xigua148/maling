@@ -17,14 +17,80 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, List, Optional
 
+from gui import icons
 from gui.qt_compat import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QFrame, Qt, QMessageBox, QInputDialog, QTabWidget,
+    QScrollArea, QFrame, Qt, QMessageBox, QInputDialog, QTabWidget, QSize,
 )
 from gui.utils import theme_color
 from gui.widgets.emotion_arc import EmotionArcWidget  # v1.8(F2/D-V18-03)
 
 logger = logging.getLogger("maid_coder.gui")
+
+# --- v2.1(V21-12/D-V21-06): 矢量图标统一 -------------------------------------
+# 图标位只记「图标名 + 尺寸 + 取色（走 theme_color）」；字体不可用时回落原 emoji，
+# 绝不空白（D-V21-06 回退链）。取色一律 theme_color（共享知识 §6 第 4 条）。
+_TAB_ICON_SIZE = 16
+_BTN_ICON_SIZE = 14
+_TITLE_ICON_SIZE = 14
+
+# 8 Tab 图标名（顺序 = addTab 顺序；group 用于分组着色，D-V18-09 零改动）
+# (clean_text, fallback_text, icon_name, group)
+_TAB_DEFS = (
+    ("主人偏好", "主人偏好", "pref", "memory"),
+    ("活跃话题", "活跃话题", "topic", "memory"),
+    ("情绪记录", "情绪记录", "emotion", "memory"),
+    ("人物关系", "人物关系", "people", "memory"),
+    ("回应约定", "回应约定 📌", "response", "memory"),
+    ("共同经历", "共同经历 🌟", "auto_awesome", "story"),
+    ("往期回顾", "往期回顾", "history", "story"),
+    ("她的日记", "她的日记", "diary", "diary"),
+)
+
+# 动作按钮 emoji 前缀 → 矢量图标名（图标可用时剥掉前缀 emoji）
+_ACTION_ICONS = (
+    ("✏️", "edit"),
+    ("📌", "bookmark"),
+    ("🗑", "delete"),
+    ("➕", "add"),
+    ("▶️", "check"),
+    ("⏸", "stop"),
+    ("🙈", "eye_off"),
+    ("🖼", "image"),
+)
+
+
+def _vector_icon(app_ctx, name: str, size: int, color: Optional[str]):
+    """取矢量 ``QIcon``；字体/名字不可用或渲染失败 → ``None``（调用方回落 emoji）。"""
+    try:
+        if not name or not icons.available() or not icons.has(name):
+            return None
+        ic = icons.icon(name, size, color)
+        if ic is None or ic.isNull():
+            return None
+        return ic
+    except Exception:
+        return None
+
+
+def _decorate_button(btn: QPushButton, app_ctx, name: str, clean_text: str,
+                     fallback_text: str, size: int = _BTN_ICON_SIZE) -> None:
+    """给按钮挂矢量图标（取色 ``accent``）并去掉文案 emoji；不可用回落 ``fallback_text``。"""
+    ic = _vector_icon(app_ctx, name, size, theme_color(app_ctx, "accent", "#FF6B9D"))
+    if ic is not None:
+        btn.setIcon(ic)
+        btn.setText(clean_text)
+    else:
+        btn.setText(fallback_text)
+
+
+def _decorate_action_label(label: str):
+    """按 emoji 前缀解析动作按钮文案 → ``(icon_name_or_None, clean_text)``。"""
+    for emoji, name in _ACTION_ICONS:
+        if label.startswith(emoji):
+            rest = label[len(emoji):].lstrip()
+            return name, rest
+    return None, label
 
 # 来源角标（Q-B1）：legacy 显示「早期记忆」——绝不把机器提取误标为「你告诉我的」
 _SOURCE_LABELS = {
@@ -42,12 +108,13 @@ _ENTITY_SOURCE_LABELS = {
 # v1.8(D-V18-01): 关系类型预设（开放枚举：预设 + 自定义文本）
 _ENTITY_RELATION_PRESETS = ("同事", "朋友", "家人", "恋人", "同学", "其他")
 
-# v1.8(F3/D-V18-04): 时间线节点类型 -> 图标 + 说明
+# v1.8(F3/D-V18-04): 时间线节点类型 -> 矢量图标名 + 回落 emoji + 说明
+# v2.1(V21-12): 图标名统一走 icons.icon（字体不可用时回落 emoji）
 _TIMELINE_KIND_META = {
-    "highlight": ("✨", "收藏的高光"),
-    "topic": ("✅", "一起完成的事"),
-    "anniversary": ("🎂", "值得记着的日子"),
-    "weekly": ("📒", "那一周的小结"),
+    "highlight": ("star", "✨", "收藏的高光"),
+    "topic": ("check", "✅", "一起完成的事"),
+    "anniversary": ("cake", "🎂", "值得记着的日子"),
+    "weekly": ("bookmark", "📒", "那一周的小结"),
 }
 
 _EMOTION_LABELS = {
@@ -100,8 +167,13 @@ class _EntryCard(QFrame):
     """记忆中心单条目卡：标题 + 角标行 + 动作按钮区。"""
 
     def __init__(self, app_ctx, title: str, badge: str,
-                 actions: List[tuple], parent: Optional[QWidget] = None):
-        """actions: [(label, tooltip, callback)]。"""
+                 actions: List[tuple], icon_name: str = "", prefix: str = "",
+                 parent: Optional[QWidget] = None):
+        """actions: [(label, tooltip, callback)]。
+
+        v2.1(V21-12): ``icon_name`` 为标题矢量图标名（取色 accent）；字体不可用时
+        回落 ``prefix`` emoji 前缀（``title`` 保持纯文案，由本卡决定是否加前缀）。
+        """
         super().__init__(parent)
         self.app_ctx = app_ctx
         self.setObjectName("memoryBookCard")
@@ -110,7 +182,20 @@ class _EntryCard(QFrame):
         lay.setSpacing(6)
 
         head = QHBoxLayout()
-        title_lab = QLabel(title)
+        head.setSpacing(6)
+        ic = (_vector_icon(app_ctx, icon_name, _TITLE_ICON_SIZE,
+                           theme_color(app_ctx, "accent", "#FF6B9D"))
+              if icon_name else None)
+        if ic is not None:
+            icon_lab = QLabel()
+            icon_lab.setObjectName("memoryBookTitleIcon")
+            icon_lab.setFixedSize(_TITLE_ICON_SIZE, _TITLE_ICON_SIZE)
+            icon_lab.setPixmap(ic.pixmap(_TITLE_ICON_SIZE, _TITLE_ICON_SIZE))
+            head.addWidget(icon_lab)
+            title_text = title
+        else:
+            title_text = f"{prefix}{title}" if prefix else title
+        title_lab = QLabel(title_text)
         title_lab.setObjectName("memoryBookTitle")
         title_lab.setWordWrap(True)
         title_lab.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -120,6 +205,9 @@ class _EntryCard(QFrame):
             btn.setObjectName("memoryBookBtn")
             btn.setCursor(Qt.PointingHandCursor)
             btn.setToolTip(tooltip)
+            ic_name, clean = _decorate_action_label(label)
+            if ic_name:
+                _decorate_button(btn, app_ctx, ic_name, clean, label)
             btn.clicked.connect(lambda checked=False, f=cb: f())
             head.addWidget(btn)
         lay.addLayout(head)
@@ -166,8 +254,8 @@ class PageMemoryBook(QWidget):
 
         head_row = QHBoxLayout()
         title = QLabel("记忆中心")
+        title.setObjectName("pageTitle")
         f = title.font()
-        f.setPointSize(16)
         f.setBold(True)
         title.setFont(f)
         head_row.addWidget(title)
@@ -196,7 +284,8 @@ class PageMemoryBook(QWidget):
         self._build_diary_tab()
 
         # 底部固定隐私脚注（R-I）
-        self.privacy_label = QLabel("📔 这里的一切只存于你的电脑，删除立即生效。")
+        self.privacy_label = QLabel(
+            f"{icons.text_glyph('menu_book', '📔')} 这里的一切只存于你的电脑，删除立即生效。")
         self.privacy_label.setObjectName("memoryBookPrivacy")
         outer.addWidget(self.privacy_label)
 
@@ -227,6 +316,7 @@ class PageMemoryBook(QWidget):
         add_btn.setCursor(Qt.PointingHandCursor)
         add_btn.setToolTip("告诉码铃一件关于你的事（例如：叫我小远）")
         add_btn.clicked.connect(self._on_add_preference)
+        _decorate_button(add_btn, self.app_ctx, "add", "添加偏好", "➕ 添加偏好")
         add_row.addWidget(add_btn)
         add_row.addStretch()
         idx = max(0, tab._lay.count() - 1)  # type: ignore[attr-defined]
@@ -255,6 +345,8 @@ class PageMemoryBook(QWidget):
         add_btn.setCursor(Qt.PointingHandCursor)
         add_btn.setToolTip("告诉码铃一位你身边重要的人（同事/朋友/家人……）")
         add_btn.clicked.connect(self._on_add_entity)
+        _decorate_button(add_btn, self.app_ctx, "user_add", "记下一位重要的人",
+                         "➕ 记下一位重要的人")
         add_row.addWidget(add_btn)
         add_row.addStretch()
         idx = max(0, tab._lay.count() - 1)  # type: ignore[attr-defined]
@@ -271,6 +363,7 @@ class PageMemoryBook(QWidget):
         add_btn.setCursor(Qt.PointingHandCursor)
         add_btn.setToolTip("告诉码铃一条小约定（例如：以后我说「上线了」你要说「辛苦了」）")
         add_btn.clicked.connect(self._on_add_rule)
+        _decorate_button(add_btn, self.app_ctx, "add", "添加约定", "➕ 添加约定")
         add_row.addWidget(add_btn)
         add_row.addStretch()
         idx = max(0, tab._lay.count() - 1)  # type: ignore[attr-defined]
@@ -287,6 +380,7 @@ class PageMemoryBook(QWidget):
         expand_btn.setCursor(Qt.PointingHandCursor)
         expand_btn.setToolTip("再多看半年的共同经历")
         expand_btn.clicked.connect(self._on_expand_timeline)
+        _decorate_button(expand_btn, self.app_ctx, "history", "展开更早", "⏪ 展开更早")
         op_row.addWidget(expand_btn)
         op_row.addStretch()
         idx = max(0, tab._lay.count() - 1)  # type: ignore[attr-defined]
@@ -308,6 +402,7 @@ class PageMemoryBook(QWidget):
         export_btn.setCursor(Qt.PointingHandCursor)
         export_btn.setToolTip("把日记导出为 Markdown 文件（自选目录）")
         export_btn.clicked.connect(self._on_export_diary)
+        _decorate_button(export_btn, self.app_ctx, "export", "导出 Markdown", "📄 导出 Markdown")
         op_row.addWidget(export_btn)
         op_row.addStretch()
         idx = max(0, tab._lay.count() - 1)  # type: ignore[attr-defined]
@@ -456,7 +551,7 @@ class PageMemoryBook(QWidget):
                 for h in (sk.get("highlights") or []):
                     text = str(h.get("text", "")).strip()
                     if text:
-                        lines.append(f"✨ 「{text}」")
+                        lines.append(f"{icons.text_glyph('auto_awesome', '✨')} 「{text}」")
                 body = "\n".join(lines)
             self._insert_card(self.weekly_tab, _EntryCard(
                 self.app_ctx, self._week_label(r.get("week_start", "")),
@@ -480,7 +575,8 @@ class PageMemoryBook(QWidget):
             return
         if not visions:
             return
-        badge = QLabel("🖼 那些发过的图（码铃只记得当时的对话，图片本身没有留下）")
+        badge = QLabel(
+            f"{icons.text_glyph('image', '🖼')} 那些发过的图（码铃只记得当时的对话，图片本身没有留下）")
         badge.setObjectName("memoryBookBadge")
         badge.setWordWrap(True)
         self._insert_card(self.weekly_tab, badge)
@@ -490,9 +586,9 @@ class PageMemoryBook(QWidget):
             vid = str(v.get("id"))
             try:
                 d = datetime.fromisoformat(str(v.get("time", "")))
-                head = f"🖼 {d.month}-{d.day:02d} 的分享"
+                head = f"{d.month}-{d.day:02d} 的分享"
             except (TypeError, ValueError):
-                head = "🖼 一次分享"
+                head = "一次分享"
             bits: List[str] = []
             utext = str(v.get("user_text", "")).strip()
             if utext:
@@ -509,7 +605,8 @@ class PageMemoryBook(QWidget):
             actions = [("🗑 删除", "码铃会立刻忘掉这次分享（立即生效）",
                         lambda i=vid: self._on_delete_vision(i))]
             self._insert_card(self.weekly_tab, _EntryCard(
-                self.app_ctx, head, "\n".join(bits) or "一次小小的分享。", actions))
+                self.app_ctx, head, "\n".join(bits) or "一次小小的分享。", actions,
+                icon_name="image", prefix="🖼 "))
 
     def _on_delete_vision(self, vision_id: str) -> None:
         """删除影像记忆（删除即遗忘：物理移除 + 当轮 refresh_system_context，R-I）。"""
@@ -581,7 +678,7 @@ class PageMemoryBook(QWidget):
                 logger.warning("读取人物关系失败: %s", exc)
         if not entities:
             self._insert_card(self.entity_tab, self._empty_label(
-                "还没有记下谁。\n点上面的「➕ 记下一位重要的人」，"
+                f"还没有记下谁。\n点上面的「{icons.text_glyph('add', '➕')} 记下一位重要的人」，"
                 "或聊天时自然地提起他们~"))
             return
         for ent in entities:
@@ -608,7 +705,10 @@ class PageMemoryBook(QWidget):
                     date_label = ""
                 if ev_text:
                     badge_text += f"\n· {ev_text}{date_label}"
-            title = ("📌 " if ent.get("pinned") else "🙋 ") + name
+            pinned = bool(ent.get("pinned"))
+            title = name
+            prefix = "📌 " if pinned else "🙋 "
+            icon_name = "bookmark" if pinned else "person"
             actions = [
                 ("✏️ 修改", "修改名字 / 关系 / 备注", lambda i=eid: self._on_edit_entity(i)),
                 ("➕ 记一件事", "记一件你们之间的事",
@@ -623,7 +723,8 @@ class PageMemoryBook(QWidget):
                 actions.insert(1, ("📌 常驻", "码铃每次对话都会记得这位在场",
                                    lambda i=eid: self._on_pin_entity(i, True)))
             self._insert_card(self.entity_tab, _EntryCard(
-                self.app_ctx, title, badge_text, actions))
+                self.app_ctx, title, badge_text, actions,
+                icon_name=icon_name, prefix=prefix))
 
     def _ask_entity_fields(self, name: str = "", relation: str = "其他",
                            notes: str = "") -> Optional[tuple]:
@@ -763,7 +864,7 @@ class PageMemoryBook(QWidget):
                 logger.warning("读取回应约定失败: %s", exc)
         if not rules:
             self._insert_card(self.rules_tab, self._empty_label(
-                "还没有约定。\n点上面的「➕ 添加约定」，或聊天时说"
+                f"还没有约定。\n点上面的「{icons.text_glyph('add', '➕')} 添加约定」，或聊天时说"
                 "「以后我说 XX 你要 YY」~"))
             return
         for rule in rules:
@@ -791,9 +892,12 @@ class PageMemoryBook(QWidget):
                 ("🗑 删除", "码铃会立刻忘掉这条约定（立即生效）",
                  lambda i=rid: self._on_delete_rule(i)),
             ]
-            title = ("📌 " if enabled else "⏸ ") + trigger
+            title = trigger
+            prefix = "📌 " if enabled else "⏸ "
+            icon_name = "bookmark" if enabled else "stop"
             self._insert_card(self.rules_tab, _EntryCard(
-                self.app_ctx, title, badge_text, actions))
+                self.app_ctx, title, badge_text, actions,
+                icon_name=icon_name, prefix=prefix))
 
     def _ask_rule_fields(self, trigger: str = "", response: str = "") -> Optional[tuple]:
         """规则字段录入对话框（触发词 / 回应风格）。取消返回 None。"""
@@ -918,8 +1022,8 @@ class PageMemoryBook(QWidget):
             month_badge.setObjectName("memoryBookBadge")
             self._insert_card(self.timeline_tab, month_badge)
             for item in (g.get("items") or []):
-                icon, _kind_label = _TIMELINE_KIND_META.get(
-                    str(item.get("kind")), ("🌟", ""))
+                icon_name, emoji, _kind_label = _TIMELINE_KIND_META.get(
+                    str(item.get("kind")), ("star", "🌟", ""))
                 try:
                     d = item.get("date")
                     day_label = f"{d.month} 月 {d.day} 日"
@@ -930,8 +1034,8 @@ class PageMemoryBook(QWidget):
                     actions.append(("翻开那一周", "跳到往期回顾",
                                     lambda: self._goto_weekly_tab()))
                 self._insert_card(self.timeline_tab, _EntryCard(
-                    self.app_ctx, f"{icon} {str(item.get('text', ''))}",
-                    day_label, actions))
+                    self.app_ctx, str(item.get("text", "")),
+                    day_label, actions, icon_name=icon_name, prefix=f"{emoji} "))
 
     def _goto_weekly_tab(self) -> None:
         """周记节点点击 -> 跳往期回顾 Tab（D-V18-04 ④）。"""
@@ -988,7 +1092,7 @@ class PageMemoryBook(QWidget):
                 logger.warning("读取偏好失败: %s", exc)
         if not prefs:
             self._insert_card(self.pref_tab, self._empty_label(
-                "还没有记下的偏好。\n点上面的「➕ 添加偏好」，或在聊天里自然地告诉码铃~"))
+                f"还没有记下的偏好。\n点上面的「{icons.text_glyph('add', '➕')} 添加偏好」，或在聊天里自然地告诉码铃~"))
             return
         for key, item in prefs.items():
             value = item.get("value", "") if isinstance(item, dict) else str(item)
@@ -1209,11 +1313,13 @@ class PageMemoryBook(QWidget):
             rel = _relative_time(e.get("time", ""))
             excerpt = str(e.get("excerpt", "") or "")
             badge_text = (f" · {rel}" if rel else "")
-            title = f"😌 {label}" if emotion != "happy" else f"😊 {label}"
+            emoji = "😊" if emotion == "happy" else "😌"
+            title = label
             if excerpt:
                 title = f"{title} ——「{excerpt}」"
             self._insert_card(self.emotion_tab, _EntryCard(
-                self.app_ctx, title, badge_text.strip(" ·"), []))
+                self.app_ctx, title, badge_text.strip(" ·"), [],
+                icon_name="emotion", prefix=f"{emoji} "))
 
     # ------------------------------------------------------------------
     def _apply_style(self) -> None:
@@ -1248,15 +1354,28 @@ class PageMemoryBook(QWidget):
 
     def _color_tabs(self) -> None:
         """v1.8(D-V18-09/Q-D2): Tab 分组着色 —— 记忆组（暖粉）/ 经历组（暖蓝）/
-        日记组（暖橙）。平铺不重构，只动本页样式，数据链零改动（R-D）。"""
-        memory_tabs = {"主人偏好", "活跃话题", "情绪记录", "人物关系", "回应约定 📌"}
-        story_tabs = {"共同经历 🌟", "往期回顾"}
+        日记组（暖橙）。平铺不重构，只动本页样式，数据链零改动（R-D）。
+
+        v2.1(V21-12/D-V21-06): 同时统一 8 Tab 矢量图标（尺寸/取色一致）；图标字体
+        不可用 → 回落原 emoji 文案（不空白、不崩）。分组仍按序位（文本随图标可用性
+        变，文本匹配会失效，故改序位判定，行为等价）。
+        """
+        colors = {
+            "memory": theme_color(self.app_ctx, "accent", "#FF6B9D"),
+            "story": theme_color(self.app_ctx, "info", "#5B9BD5"),
+            "diary": theme_color(self.app_ctx, "warning", "#E6A23C"),
+        }
+        self.tabs.setIconSize(QSize(_TAB_ICON_SIZE, _TAB_ICON_SIZE))
         for i in range(self.tabs.count()):
-            name = self.tabs.tabText(i)
-            if name in memory_tabs:
-                color = theme_color(self.app_ctx, "accent", "#FF6B9D")
-            elif name in story_tabs:
-                color = theme_color(self.app_ctx, "info", "#5B9BD5")
-            else:  # 日记组
-                color = theme_color(self.app_ctx, "warning", "#E6A23C")
+            if i >= len(_TAB_DEFS):
+                continue
+            clean, fallback, icon_name, group = _TAB_DEFS[i]
+            color = colors.get(group, colors["memory"])
+            ic = _vector_icon(self.app_ctx, icon_name, _TAB_ICON_SIZE, color)
+            if ic is not None:
+                self.tabs.setTabIcon(i, ic)
+                if self.tabs.tabText(i) != clean:
+                    self.tabs.setTabText(i, clean)
+            elif self.tabs.tabText(i) != fallback:
+                self.tabs.setTabText(i, fallback)
             self.tabs.tabBar().setTabTextColor(i, color)

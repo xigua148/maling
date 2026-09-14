@@ -48,6 +48,11 @@ a = Analysis(
         # （不是 'fonts'），与 gui/utils.py get_resource_path 的源码态基准 gui/ 对齐，
         # 否则 frozen 态 get_resource_path("assets/fonts/…") 落空 → 静默回退雅黑。
         ('gui/assets/fonts', 'assets/fonts'),
+        # v2.1(图标字形体系)：图标字体 TTF + manifest + 许可副本。目标目录必须为 'assets/icons'
+        # （与 gui/icons.py 的 ICON_DIR_REL = "assets/icons" 对齐），否则 frozen 态
+        # get_resource_path("assets/icons/…") 落空 → 图标内核 available() 为假 → 静默回退 emoji，
+        # 本轮新增的图标字形体系在打包版中完全不生效。
+        ('gui/assets/icons', 'assets/icons'),
         # ---- v1.7.3: Pi 编程引擎试点 ----
         # 门禁扩展（pi_backend.GATE_PATH 在 frozen 态定位 _internal/pi_gateway/）
         ('pi_gateway/maling_gate.js', 'pi_gateway'),
