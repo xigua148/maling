@@ -64,10 +64,10 @@
   - [ ] onedir 内嵌 `_internal/updater/maling_updater.exe` 存在且体积 ≈7.2MB → 否则非 0 退出（把 sidecar distpath 错误暴露在发版脚本层）
   - [ ] 逃生开关 `--skip-pi-check`（默认**关闭**，仅限有意出精简包时显式开启）
 - [ ] 产出：
-  - [ ] `release/MaLing_vX.Y.Z_win_onedir.zip`（顶层 `maling/`）
-  - [ ] `release/MaLing_vX.Y.Z_win_single.exe`
-  - [ ] `release/MaLing_vX.Y.Z_win_onedir.zip.sha256`（内容 `<64hex>  <文件名>`，**两个空格**）
-  - [ ] `release/MaLing_vX.Y.Z_win_single.exe.sha256`
+  - [ ] `release/MaLing_vX.Y.Z_Desktop.zip`（顶层 `maling/`）
+  - [ ] `release/MaLing_vX.Y.Z_Portable.exe`
+  - [ ] `release/MaLing_vX.Y.Z_Desktop.zip.sha256`（内容 `<64hex>  <文件名>`，**两个空格**）
+  - [ ] `release/MaLing_vX.Y.Z_Portable.exe.sha256`
   - [ ] `release/version_fragment.json`（人工粘贴用，**脚本不改 version.json**）
 - [ ] **门禁**：命名符合 Q-U2；`.sha256` 内容格式合规、可校验（`certutil -hashfile <f> SHA256` 复核一致）。
 

@@ -2,8 +2,8 @@
 r"""tools/build_release.py —— 码铃（MaLing）v2.0 发版制品脚本（V20-17）。
 
 职责（docs/design-v20.md §7 / docs/prd-v20.md §6 第 5~7、10 步固化）：
-    1. 把 onedir 产物目录压成 zip  → MaLing_v<X.Y.Z>_win_onedir.zip
-    2. 把 onefile 产物复制/改名     → MaLing_v<X.Y.Z>_win_single.exe
+    1. 把 onedir 产物目录压成 zip  → MaLing_v<X.Y.Z>_Desktop.zip
+    2. 把 onefile 产物复制/改名     → MaLing_v<X.Y.Z>_Portable.exe
     3. 对上面两个文件各算 sha256    → <file>.sha256（内容 "<64hex>  <filename>"，**两个空格**）
     4. 生成 version.json 的人工粘贴片段（assets + downloads + release_url）→ version_fragment.json
        并同时打印到 stdout。
@@ -214,8 +214,8 @@ def main(argv=None) -> int:
     single_src = Path(args.single_src) if args.single_src else dist_dir / "MaLing_single.exe"
     out_dir = Path(args.out)
 
-    onedir_zip_name = f"MaLing_v{version}_win_onedir.zip"
-    single_exe_name = f"MaLing_v{version}_win_single.exe"
+    onedir_zip_name = f"MaLing_v{version}_Desktop.zip"
+    single_exe_name = f"MaLing_v{version}_Portable.exe"
 
     # ---- 前置检查 ----
     if not onedir_src.is_dir():
