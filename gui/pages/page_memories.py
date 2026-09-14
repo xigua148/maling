@@ -229,6 +229,25 @@ class PageMemories(QWidget):
         self._list_widgets: List[QWidget] = []   # 追踪本次插入的空态/卡片，refresh 统一清理
         self._build_ui()
 
+        # v2.1(UI-Fix-0914): 换肤刷新 —— 本页与卡片的局部样式在构建期取色，换主题后不跟随。
+        self._apply_theme()
+        try:
+            _engine = getattr(self.app_ctx, "theme_engine", None)
+            if _engine is not None and hasattr(_engine, "theme_changed"):
+                _engine.theme_changed.connect(lambda _n: self._apply_theme())
+        except Exception:
+            logger.debug("静默降级：page_memories 换肤订阅中忽略异常", exc_info=True)
+
+    # ------------------------------------------------------------------
+    def _apply_theme(self) -> None:
+        """换肤刷新：本页样式 + 所有已渲染卡片（卡片样式亦为构造期取色）。"""
+        try:
+            self._apply_style()
+            for card in self.findChildren(_MemoryCard):
+                card._apply_style()
+        except Exception:
+            logger.debug("静默降级：page_memories._apply_theme 中忽略异常", exc_info=True)
+
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
