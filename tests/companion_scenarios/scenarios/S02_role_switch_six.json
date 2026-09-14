@@ -1,0 +1,16 @@
+{
+  "id": "S02",
+  "title": "六角色连续切换不串味（边界消息幂等、旧人设痕迹清除）",
+  "targets": ["session.notify_role_switch"],
+  "mode": "mock",
+  "steps": [
+    {"action": "session_init", "args": {"rounds": 5}},
+    {"action": "role_switch", "args": {"role_name": "码铃"}, "expect": {"out_contains": "码铃", "boundary_count": 1}},
+    {"action": "role_switch", "args": {"role_name": "鲸鱼娘"}, "expect": {"out_contains": "鲸鱼娘", "boundary_count": 1, "history_not_contains": "「码铃」"}},
+    {"action": "role_switch", "args": {"role_name": "猫娘小雪"}, "expect": {"out_contains": "猫娘小雪", "boundary_count": 1, "history_not_contains": "「鲸鱼娘」"}},
+    {"action": "role_switch", "args": {"role_name": "夜诊医生"}, "expect": {"out_contains": "夜诊医生", "boundary_count": 1, "history_not_contains": "「猫娘小雪」"}},
+    {"action": "role_switch", "args": {"role_name": "御宅同好"}, "expect": {"out_contains": "御宅同好", "boundary_count": 1, "history_not_contains": "「夜诊医生」"}},
+    {"action": "role_switch", "args": {"role_name": "极简助手"}, "expect": {"out_contains": "极简助手", "boundary_count": 1, "history_not_contains": "「御宅同好」"}}
+  ],
+  "redline_words": []
+}

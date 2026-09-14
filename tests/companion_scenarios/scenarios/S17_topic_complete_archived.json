@@ -1,0 +1,15 @@
+{
+  "id": "S17",
+  "title": "话题完成即归档（不再参与续接，宁缺毋滥）",
+  "targets": ["memory.complete_topic", "memory.get_active_topics"],
+  "mode": "mock",
+  "steps": [
+    {"action": "add_topic", "args": {"subject": "周末爬山"}},
+    {"action": "backdate_topic", "args": {"subject": "周末爬山", "hours": 48}},
+    {"action": "complete_topic", "args": {"subject": "周末爬山"}, "expect": {"out_equals": true}},
+    {"action": "active_topics_not_contains", "args": {"subject": "周末爬山"}, "expect": {"out_equals": true}},
+    {"action": "archived_topics_contains", "args": {"subject": "周末爬山"}, "expect": {"out_equals": true}},
+    {"action": "build_followup", "args": {"min_hours": 1, "max_hours": 72}, "expect": {"out_is_null": true}}
+  ],
+  "redline_words": []
+}

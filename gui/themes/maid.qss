@@ -1,0 +1,495 @@
+/* === 女仆粉主题 QSS === */
+
+/* 全局 */
+QWidget {
+    background-color: ${bg};
+    color: ${text};
+    font-family: "${font_family}";
+    font-size: 14px;
+    border-radius: ${radius_sm};
+}
+
+/* 主按钮 */
+QPushButton {
+    background-color: ${primary_dark};
+    color: white;
+    border: none;
+    border-radius: ${radius_pill};
+    padding: 8px 20px;
+    font-weight: bold;
+    font-size: 13px;
+}
+QPushButton:hover {
+    background-color: #FF1493;
+}
+QPushButton:pressed {
+    background-color: ${accent};
+}
+PushButton:disabled {
+    background-color: #E0E0E0;
+    color: #9E9E9E;
+}
+
+/* 快速操作按钮 */
+QPushButton#quickBtn {
+    background-color: ${secondary};
+    color: ${text};
+    border: 1px solid ${border};
+    border-radius: ${radius_md};
+    padding: 6px 16px;
+    font-weight: normal;
+}
+QPushButton#quickBtn:hover {
+    background-color: ${primary};
+    color: white;
+    border-color: ${primary_dark};
+}
+
+/* 主操作按钮 */
+QPushButton#primaryBtn,
+QPushButton#sendBtn {
+    background-color: ${primary_dark};
+    color: white;
+    border: none;
+    border-radius: ${radius_pill};
+    padding: 8px 24px;
+    font-weight: bold;
+    font-size: 14px;
+    min-width: 80px;
+}
+QPushButton#primaryBtn:hover,
+QPushButton#sendBtn:hover {
+    background-color: #FF1493;
+}
+
+/* 复制按钮 */
+QPushButton#copyBtn,
+QPushButton#copyCodeBtn {
+    background-color: transparent;
+    color: ${text_secondary};
+    border: 1px solid ${border};
+    border-radius: ${radius_sm};
+    padding: 2px 6px;
+    font-size: 11px;
+}
+QPushButton#copyBtn:hover,
+QPushButton#copyCodeBtn:hover {
+    background-color: ${secondary};
+    color: ${text};
+}
+
+/* 侧边栏 */
+SidebarWidget {
+    background-color: ${bg_card};
+    border-right: 2px solid ${border};
+}
+SidebarWidget QListWidget {
+    background-color: transparent;
+    border: none;
+    outline: none;
+}
+SidebarWidget QListWidget::item {
+    padding: 14px 16px;
+    border-radius: ${radius_md};
+    margin: 4px 8px;
+    color: ${text};
+    font-size: 13px;
+}
+SidebarWidget QListWidget::item:selected {
+    background-color: ${primary_dark};
+    color: white;
+}
+SidebarWidget QListWidget::item:hover {
+    background-color: ${secondary};
+}
+
+/* 展开聊天按钮 */
+QPushButton#expandChatBtn {
+    background: transparent;
+    color: ${primary_dark};
+    border: 1px solid ${primary_dark};
+    border-radius: 12px;
+    font-size: 12px;
+    padding: 2px 8px;
+}
+QPushButton#expandChatBtn:hover {
+    background: ${primary_dark};
+    color: white;
+    border-color: ${primary_dark};
+}
+
+/* 消息气泡 */
+QWidget#bubbleUser {
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:1, y2:0,
+        stop:0 ${primary}, stop:1 ${primary_dark}
+    );
+    color: white;
+    border-radius: ${radius_lg};
+}
+QWidget#bubbleAI {
+    background-color: ${bg_card};
+    border: 1px solid ${border};
+    border-radius: ${radius_lg};
+}
+QLabel#bubbleRoleLabel {
+    font-size: 10px;
+    color: rgba(255,255,255,0.8);
+}
+QWidget#bubbleAI QLabel#bubbleRoleLabel {
+    color: ${primary_dark};
+}
+QLabel#bubbleText {
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+/* 独立聊天窗口滚动条 */
+ChatWindow QScrollBar:vertical {
+    background: transparent;
+    width: 6px;
+    margin: 0;
+}
+ChatWindow QScrollBar::handle:vertical {
+    background: #FFB6C1;
+    border-radius: 3px;
+    min-height: 30px;
+}
+ChatWindow QScrollBar::handle:vertical:hover {
+    background: #FF69B4;
+}
+ChatWindow QScrollBar::add-line:vertical,
+ChatWindow QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+/* 独立窗口输入区 */
+ChatWindow QTextEdit#chatInput {
+    background: #FFF0F5;
+    border: 1px solid #FFB6C1;
+    border-radius: 20px;
+    padding: 10px 16px;
+    font-size: 14px;
+    color: #4A4A4A;
+    line-height: 1.5;
+    selection-background-color: #FFB6C1;
+}
+ChatWindow QTextEdit#chatInput:focus {
+    border-color: #FF69B4;
+    background: #FFFFFF;
+}
+
+/* 独立窗口发送按钮 */
+ChatWindow QPushButton#chatSendBtn {
+    background: #FF69B4;
+    color: #FFFFFF;
+    border: none;
+    border-radius: 20px;
+    font-size: 16px;
+    font-weight: bold;
+}
+ChatWindow QPushButton#chatSendBtn:hover {
+    background: #FF1493;
+}
+ChatWindow QPushButton#chatSendBtn:pressed {
+    background: #C71585;
+}
+ChatWindow QPushButton#chatSendBtn:disabled {
+    background: #FFD6E0;
+}
+
+/* 代码块 */
+QWidget#codeBlock {
+    background-color: #2D2222;
+    border-radius: ${radius_sm};
+}
+QLabel#codeLangLabel {
+    color: #AAAAAA;
+    font-size: 10px;
+    font-weight: bold;
+}
+QTextEdit#codeEditor {
+    background-color: #2D2222;
+    color: #F8F8F2;
+    border: none;
+    border-radius: ${radius_sm};
+    font-family: "Consolas, JetBrains Mono, monospace";
+    font-size: 12px;
+}
+
+/* 输入框 */
+QTextEdit#chatInput {
+    background-color: ${bg_card};
+    border: 2px solid ${border};
+    border-radius: ${radius_md};
+    padding: 10px;
+    font-size: 14px;
+}
+QTextEdit#chatInput:focus {
+    border-color: ${primary_dark};
+}
+
+/* 聊天输入容器 */
+QWidget#chatInputContainer {
+    background-color: ${bg_card};
+    border-top: 1px solid ${border};
+}
+
+/* 状态栏 */
+QStatusBar {
+    background-color: ${bg_card};
+    border-top: 1px solid ${border};
+}
+QStatusBar QLabel {
+    font-size: 12px;
+    color: ${text_secondary};
+    padding: 0 12px;
+}
+
+/* 滚动区域 */
+QScrollArea {
+    border: none;
+    background-color: transparent;
+}
+
+/* Toggle 卡片 */
+QFrame#toggleCard {
+    background-color: ${bg_card};
+    border: 2px solid ${border};
+    border-radius: ${radius_md};
+    padding: 8px;
+}
+QFrame#toggleCardActive {
+    background-color: ${secondary};
+    border: 2px solid ${primary_dark};
+    border-radius: ${radius_md};
+    padding: 8px;
+}
+QLabel#toggleCardIcon {
+    font-size: 24px;
+}
+QLabel#toggleCardTitle {
+    font-size: 13px;
+    font-weight: bold;
+    color: ${text};
+}
+QLabel#toggleCardDesc {
+    font-size: 11px;
+    color: ${text_secondary};
+}
+QLabel#toggleCardState {
+    font-size: 11px;
+    font-weight: bold;
+    color: ${primary_dark};
+    background-color: ${secondary};
+    border-radius: ${radius_sm};
+    padding: 2px 8px;
+}
+
+/* 设置分区 */
+QFrame#settingsSection {
+    background-color: ${bg_card};
+    border: 1px solid ${border};
+    border-radius: ${radius_md};
+    padding: 16px;
+}
+
+/* 欢迎标签 */
+QLabel#welcomeLabel {
+    color: ${primary_dark};
+}
+QLabel#greetingLabel {
+    color: ${text_secondary};
+    font-size: 13px;
+}
+
+/* 聊天状态 */
+QLabel#chatStatusLabel {
+    color: ${primary_dark};
+    font-size: 11px;
+}
+
+/* 通用输入框 */
+QLineEdit {
+    background-color: ${bg_card};
+    border: 1px solid ${border};
+    border-radius: ${radius_sm};
+    padding: 6px 10px;
+    font-size: 13px;
+}
+QLineEdit:focus {
+    border-color: ${primary_dark};
+}
+
+/* 下拉框 */
+QComboBox {
+    background-color: ${bg_card};
+    border: 1px solid ${border};
+    border-radius: ${radius_sm};
+    padding: 6px 10px;
+    font-size: 13px;
+}
+QComboBox:focus {
+    border-color: ${primary_dark};
+}
+QComboBox::drop-down {
+    border: none;
+    width: 24px;
+}
+QComboBox QAbstractItemView {
+    background-color: ${bg_card};
+    border: 1px solid ${border};
+    border-radius: ${radius_sm};
+    selection-background-color: ${primary_dark};
+}
+
+/* 滑块 */
+QSlider::groove:horizontal {
+    height: 6px;
+    background: ${border};
+    border-radius: 3px;
+}
+QSlider::handle:horizontal {
+    width: 16px;
+    height: 16px;
+    background: ${primary_dark};
+    border-radius: 8px;
+    margin: -5px 0;
+}
+QSlider::sub-page:horizontal {
+    background: ${primary_dark};
+    border-radius: 3px;
+}
+
+/* 复选框 */
+QCheckBox {
+    font-size: 13px;
+    spacing: 8px;
+}
+QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+    border: 2px solid ${border};
+    border-radius: 4px;
+}
+QCheckBox::indicator:checked {
+    background-color: ${primary_dark};
+    border-color: #FF1493;
+}
+
+/* ========== 文件编辑器 ========== */
+
+/* 面包屑导航 */
+QWidget#editorBreadcrumbContainer {
+    background-color: ${bg_card};
+    border-bottom: 1px solid ${border};
+}
+QLabel#editorBreadcrumb {
+    color: ${text_secondary};
+    font-size: 12px;
+    padding: 2px 0;
+}
+
+/* 标签页 */
+QTabWidget#editorTabWidget::pane {
+    border: none;
+    background-color: ${bg_card};
+}
+QTabWidget#editorTabWidget::tab-bar {
+    left: 4px;
+}
+QTabBar::tab {
+    background-color: ${bg};
+    color: ${text_secondary};
+    border: 1px solid ${border};
+    border-bottom: none;
+    border-top-left-radius: ${radius_sm};
+    border-top-right-radius: ${radius_sm};
+    padding: 6px 16px;
+    font-size: 12px;
+    min-width: 80px;
+}
+QTabBar::tab:selected {
+    background-color: ${bg_card};
+    color: ${text};
+    border: 1px solid ${border};
+    border-bottom: 2px solid ${primary_dark};
+    margin-bottom: -1px;
+}
+QTabBar::tab:hover {
+    background-color: ${secondary};
+    color: ${text};
+}
+QTabBar::close-button {
+    subcontrol-position: right;
+}
+QTabBar::close-button:hover {
+    background-color: ${primary_dark};
+    border-radius: ${radius_sm};
+}
+
+/* 代码编辑区 */
+QPlainTextEdit#codeEditorArea {
+    background-color: #2D2222;
+    color: #F8F8F2;
+    border: none;
+    font-family: "JetBrains Mono, Consolas, monospace";
+    font-size: 12px;
+    padding: 8px;
+    selection-background-color: ${primary_dark};
+    selection-color: white;
+}
+QPlainTextEdit#codeEditorArea:focus {
+    border: none;
+}
+
+/* 编辑器状态栏 */
+QWidget#editorStatusBar {
+    background-color: ${bg_card};
+    border-top: 1px solid ${border};
+}
+QLabel#editorStatusLabel {
+    color: ${text_secondary};
+    font-size: 11px;
+    font-family: "JetBrains Mono, Consolas, monospace";
+}
+
+/* 空状态 */
+QWidget#editorEmptyState {
+    background-color: ${bg};
+}
+QLabel#editorEmptyIcon {
+    color: ${primary_dark};
+}
+QLabel#editorEmptyTitle {
+    color: ${text_secondary};
+    margin-top: 12px;
+}
+QLabel#editorEmptyDesc {
+    color: ${text_secondary};
+    font-size: 12px;
+    margin-top: 8px;
+}
+
+/* 项目视图文件树 */
+QTreeView#projectTreeView {
+    background-color: ${bg_card};
+    border: 1px solid ${border};
+    border-radius: ${radius_md};
+    outline: none;
+    padding: 4px;
+}
+QTreeView#projectTreeView::item {
+    padding: 4px 8px;
+    border-radius: ${radius_sm};
+}
+QTreeView#projectTreeView::item:selected {
+    background-color: ${primary_dark};
+    color: white;
+}
+QTreeView#projectTreeView::item:hover {
+    background-color: ${secondary};
+}
+QTreeView#projectTreeView::branch:has-children {
+    padding-left: 4px;
+}

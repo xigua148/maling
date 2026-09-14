@@ -1,0 +1,14 @@
+{
+  "id": "S09",
+  "title": "意图五态逐态识别（含 chat 默认态）",
+  "targets": ["gui.intent.classify_intent"],
+  "mode": "mock",
+  "steps": [
+    {"action": "intent", "args": {"text": "我心里难受，只想说说"}, "expect": {"out_equals": "confide"}},
+    {"action": "intent", "args": {"text": "帮我写一个冒泡排序"}, "expect": {"out_equals": "act"}},
+    {"action": "intent", "args": {"text": "帮我分析一下这段代码为什么报错"}, "expect": {"out_equals": "analyze"}},
+    {"action": "intent", "args": {"text": "这两个框架我该怎么选？"}, "expect": {"out_equals": "advise"}},
+    {"action": "intent", "args": {"text": "在吗？陪我聊聊"}, "expect": {"out_equals": "chat"}}
+  ],
+  "redline_words": []
+}

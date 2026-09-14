@@ -1,0 +1,14 @@
+{
+  "id": "S12",
+  "title": "话题续接 7 天去重（asked_at 记账期内不再开口）",
+  "targets": ["memory.pick_topic_followup"],
+  "mode": "mock",
+  "steps": [
+    {"action": "add_topic", "args": {"subject": "搬家计划"}},
+    {"action": "backdate_topic", "args": {"subject": "搬家计划", "hours": 30}},
+    {"action": "pick_followup", "args": {"min_hours": 1, "max_hours": 72}, "expect": {"out_not_null": true}},
+    {"action": "backdate_topic", "args": {"subject": "搬家计划", "hours": 3}},
+    {"action": "pick_followup", "args": {"min_hours": 1, "max_hours": 72}, "expect": {"out_is_null": true}}
+  ],
+  "redline_words": []
+}

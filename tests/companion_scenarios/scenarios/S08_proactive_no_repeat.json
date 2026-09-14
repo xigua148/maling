@@ -1,0 +1,29 @@
+{
+  "id": "S08",
+  "title": "主动不重复（日上限 / 冷却 / 同轮空闲防连环，四重闸）",
+  "targets": ["ProactivePolicy.decision"],
+  "mode": "mock",
+  "steps": [
+    {"action": "policy",
+     "args": {"cfg": {"daily_cap": 3, "cooldown_minutes": 60, "quiet_start": "23:00", "quiet_end": "07:00"},
+              "st": {"now": "2026-09-08T20:00:00", "count_today": 3, "last_proactive_at": "2026-09-08T19:00:00",
+                     "last_user_activity_at": "2026-09-08T18:00:00", "idle_already_helloed": false}},
+     "expect": {"decision": {"allow": false, "reason": "daily_cap_reached"}}},
+    {"action": "policy",
+     "args": {"cfg": {"daily_cap": 3, "cooldown_minutes": 60, "quiet_start": "23:00", "quiet_end": "07:00"},
+              "st": {"now": "2026-09-08T20:00:00", "count_today": 2, "last_proactive_at": "2026-09-08T19:30:00",
+                     "last_user_activity_at": "2026-09-08T18:00:00", "idle_already_helloed": false}},
+     "expect": {"decision": {"allow": false, "reason_contains": "cooldown("}}},
+    {"action": "policy",
+     "args": {"cfg": {"daily_cap": 3, "cooldown_minutes": 60, "quiet_start": "23:00", "quiet_end": "07:00"},
+              "st": {"now": "2026-09-08T20:00:00", "count_today": 2, "last_proactive_at": "2026-09-08T18:00:00",
+                     "last_user_activity_at": "2026-09-08T18:00:00", "idle_already_helloed": true}},
+     "expect": {"decision": {"allow": false, "reason": "no_scene"}}},
+    {"action": "policy",
+     "args": {"cfg": {"daily_cap": 3, "cooldown_minutes": 60, "quiet_start": "23:00", "quiet_end": "07:00"},
+              "st": {"now": "2026-09-08T20:00:00", "count_today": 2, "last_proactive_at": "2026-09-08T18:00:00",
+                     "last_user_activity_at": "2026-09-08T18:00:00", "idle_already_helloed": false}},
+     "expect": {"decision": {"allow": true, "scene": "idle_hello"}}}
+  ],
+  "redline_words": []
+}

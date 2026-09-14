@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "version": 1,
+  "expressions": ["normal", "happy", "thinking", "focus", "tired"],
+  "moods": ["normal", "happy", "concerned", "shy", "tired"],
+  "activity_states": ["thinking", "focus", "surprised"],
+  "themes": ["default"],
+  "asset_notes": {
+    "scope": "A8/A8-1 窗口角落微型常驻宠物专用资产目录（与主形象 gui/assets/maid/ 独立）",
+    "character": "以女仆形象为基础的小动物形态——戴铃铛发饰/领结的女仆装小兽（猫耳方向），非主形象简单缩小",
+    "micro_states_v12": "A8-1 微型档 v1.2 先行 normal/happy/thinking/focus/tired 5 态，缺失自动回落 normal 或 QPainter 占位小兽",
+    "fallback": "任一 png 缺失/损坏时显示中性兜底（不渲染 PetChibiPainter 程序占位兽），UI 永不空白或崩溃",
+    "loading": "文件名 = 表情 id（如 normal.png）。PNG 到位即被 gui/widgets/maid_pet.py 的 PetAssets 自动加载，接口不变"
+  }
+}

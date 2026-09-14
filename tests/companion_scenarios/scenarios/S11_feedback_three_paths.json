@@ -1,0 +1,20 @@
+{
+  "id": "S11",
+  "title": "反馈三键三路径（heart 加权 / chat 记账 / mute 静默 14 天 + 内容源静默）",
+  "targets": ["memory.record_followup_feedback", "memory.is_source_muted"],
+  "mode": "mock",
+  "steps": [
+    {"action": "add_topic", "args": {"subject": "学吉他"}},
+    {"action": "backdate_topic", "args": {"subject": "学吉他", "hours": 48}},
+    {"action": "feedback", "args": {"subject": "学吉他", "feedback": "heart"}, "expect": {"out_equals": true}},
+    {"action": "feedback", "args": {"subject": "学吉他", "feedback": "chat"}, "expect": {"out_equals": true}},
+    {"action": "feedback", "args": {"subject": "学吉他", "feedback": "mute"}, "expect": {"out_equals": true}},
+    {"action": "score_min", "args": {"subject": "学吉他", "n": 1}, "expect": {"out_equals": true}},
+    {"action": "build_followup", "args": {"min_hours": 1, "max_hours": 72}, "expect": {"out_is_null": true}},
+    {"action": "feedback", "args": {"subject": "__emotion__", "feedback": "mute"}, "expect": {"out_equals": true}},
+    {"action": "is_source_muted", "args": {"key": "__emotion__"}, "expect": {"out_equals": true}},
+    {"action": "feedback", "args": {"subject": "__emotion__", "feedback": "heart"}, "expect": {"out_equals": false}},
+    {"action": "is_source_muted", "args": {"key": "__todo__"}, "expect": {"out_equals": false}}
+  ],
+  "redline_words": []
+}

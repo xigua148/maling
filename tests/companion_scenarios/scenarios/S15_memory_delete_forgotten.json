@@ -1,0 +1,20 @@
+{
+  "id": "S15",
+  "title": "记忆删除即遗忘（偏好删除 / 话题遗忘 / 彻底删除）",
+  "targets": ["memory.delete_preference", "memory.forget_topic", "memory.delete_topic_forever"],
+  "mode": "mock",
+  "steps": [
+    {"action": "set_preference", "args": {"key": "喜欢的城市", "value": "杭州"}},
+    {"action": "add_topic", "args": {"subject": "装修计划"}},
+    {"action": "memory_context", "args": {"max_chars": 2000}, "expect": {"out_contains": ["杭州", "装修计划"]}},
+    {"action": "forget_topic", "args": {"subject": "装修计划"}, "expect": {"out_equals": true}},
+    {"action": "delete_preference", "args": {"key": "喜欢的城市"}, "expect": {"out_equals": true}},
+    {"action": "memory_context", "args": {"max_chars": 2000}, "expect": {"out_not_contains": ["装修计划", "杭州"]}},
+    {"action": "get_preference", "args": {"key": "喜欢的城市"}, "expect": {"out_is_null": true}},
+    {"action": "active_topics_not_contains", "args": {"subject": "装修计划"}, "expect": {"out_equals": true}},
+    {"action": "archived_topics_contains", "args": {"subject": "装修计划"}, "expect": {"out_equals": true}},
+    {"action": "delete_topic_forever", "args": {"subject": "装修计划"}, "expect": {"out_equals": true}},
+    {"action": "archived_topics_contains", "args": {"subject": "装修计划"}, "expect": {"out_equals": false}}
+  ],
+  "redline_words": []
+}

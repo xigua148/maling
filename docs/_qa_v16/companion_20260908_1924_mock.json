@@ -1,0 +1,12 @@
+{
+  "kind": "companion_scenarios_mock_replay",
+  "time": "20260908_1924",
+  "scenario_count": 18,
+  "mock_summary": {
+    "cmd": "pytest test_scenarios.py",
+    "returncode": 0,
+    "summary": "============================= 20 passed in 0.30s =============================="
+  },
+  "baseline": "",
+  "note": "mock 档零成本；真实档核对请显式 --yes"
+}

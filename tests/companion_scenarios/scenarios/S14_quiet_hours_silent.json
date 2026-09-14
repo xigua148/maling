@@ -1,0 +1,19 @@
+{
+  "id": "S14",
+  "title": "免打扰时段静默（quiet_hours 闸拦截，白天不误拦）",
+  "targets": ["ProactivePolicy.gates"],
+  "mode": "mock",
+  "steps": [
+    {"action": "policy",
+     "args": {"cfg": {"quiet_start": "22:00", "quiet_end": "07:00", "daily_cap": 3},
+              "st": {"now": "2026-09-08T23:30:00", "last_user_activity_at": "2026-09-08T21:00:00",
+                     "idle_already_helloed": false}},
+     "expect": {"decision": {"allow": false, "reason": "quiet_hours"}}},
+    {"action": "policy",
+     "args": {"cfg": {"quiet_start": "22:00", "quiet_end": "07:00", "daily_cap": 3},
+              "st": {"now": "2026-09-08T14:00:00", "last_user_activity_at": "2026-09-08T11:00:00",
+                     "idle_already_helloed": false}},
+     "expect": {"decision": {"allow": true, "scene": "idle_hello", "reason_not": "quiet_hours"}}}
+  ],
+  "redline_words": []
+}

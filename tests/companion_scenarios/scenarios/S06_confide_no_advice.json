@@ -1,0 +1,12 @@
+{
+  "id": "S06",
+  "title": "倾诉不给建议（情绪化文本路由 confide，零改道）",
+  "targets": ["gui.intent.classify_intent", "INTENT_HINTS"],
+  "mode": "mock",
+  "steps": [
+    {"action": "intent", "args": {"text": "同事又甩锅给我，烦死了，只想说说"}, "expect": {"out_equals": "confide"}},
+    {"action": "intent", "args": {"text": "今天被领导说了几句，心情很差"}, "expect": {"out_equals": "confide"}},
+    {"action": "intent_hint", "args": {"state": "confide"}, "expect": {"out_contains": "不要列解决方案", "out_not_contains": "【方案】"}}
+  ],
+  "redline_words": []
+}

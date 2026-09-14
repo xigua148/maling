@@ -1,0 +1,13 @@
+{
+  "id": "S07",
+  "title": "隔天跟进（24h 前话题可续接，续接后记账去重）",
+  "targets": ["memory.build_topic_followup", "memory.pick_topic_followup"],
+  "mode": "mock",
+  "steps": [
+    {"action": "add_topic", "args": {"subject": "考研复习"}},
+    {"action": "backdate_topic", "args": {"subject": "考研复习", "hours": 24}},
+    {"action": "build_followup", "args": {"min_hours": 1, "max_hours": 72}, "expect": {"out_contains": "考研复习", "out_not_null": true}},
+    {"action": "build_followup", "args": {"min_hours": 1, "max_hours": 72}, "expect": {"out_is_null": true}}
+  ],
+  "redline_words": []
+}

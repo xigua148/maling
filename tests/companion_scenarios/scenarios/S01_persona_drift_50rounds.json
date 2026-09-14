@@ -1,0 +1,13 @@
+{
+  "id": "S01",
+  "title": "50 轮长对话人设漂移防线（上下文边界截断，30-50 轮类）",
+  "targets": ["session.history", "session.context_trimmed"],
+  "mode": "mock",
+  "steps": [
+    {"action": "session_init", "args": {"rounds": 3}},
+    {"action": "rounds", "args": {"n": 50}, "expect": {"history_max_len": 11, "trimmed": true}},
+    {"action": "history_first_role", "expect": {"out_equals": "system"}},
+    {"action": "history_last_role", "expect": {"out_equals": "assistant"}}
+  ],
+  "redline_words": []
+}

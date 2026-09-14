@@ -1,0 +1,18 @@
+# 码铃（MaLing）基础依赖清单（CLI + 核心库，不含 GUI）
+# 用法：pip install -r requirements.txt
+# 适用场景：只用 CLI、跑核心库单元测试、CI 环境。
+# GUI 用户请改用 requirements_gui.txt（含 PySide6 / pygments / 语音等）。
+#
+# v10.15: 此文件作为分层依赖的基础层被独立出来；GUI 用户应在
+# requirements_gui.txt 顶部 -r requirements.txt 引入基础层。
+
+requests>=2.31
+PyYAML>=6.0
+colorama>=0.4
+python-dotenv>=1.0
+pyperclip>=1.8
+# v1.5.0: Agent 工具 list_processes / system_info 必需（缺失时已加 stdlib 降级兜底）
+psutil>=5.9
+
+# 可选：联网搜索（不装则搜索命令降级）
+ddgs>=9.0

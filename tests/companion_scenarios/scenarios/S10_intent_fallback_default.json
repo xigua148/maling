@@ -1,0 +1,12 @@
+{
+  "id": "S10",
+  "title": "意图误判落默认（未识别文本 → chat，无消息黑洞）",
+  "targets": ["gui.intent.classify_intent"],
+  "mode": "mock",
+  "steps": [
+    {"action": "intent", "args": {"text": "哈哈哈哈好的呀"}, "expect": {"out_equals": "chat"}},
+    {"action": "intent", "args": {"text": "qwerty 12345"}, "expect": {"out_equals": "chat"}},
+    {"action": "intent", "args": {"text": ""}, "expect": {"out_equals": "chat"}}
+  ],
+  "redline_words": []
+}

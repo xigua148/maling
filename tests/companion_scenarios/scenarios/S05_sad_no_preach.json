@@ -1,0 +1,14 @@
+{
+  "id": "S05",
+  "title": "低落时不说教（情绪识别 + 倾诉路由 + 主动延续文案无建议味）",
+  "targets": ["gui.intent", "memory.detect_emotion", "greeting.build_contentful_line"],
+  "mode": "mock",
+  "steps": [
+    {"action": "detect_emotion", "args": {"text": "我今天好累，感觉快撑不住了"}, "expect": {"out_equals": "tired"}},
+    {"action": "intent", "args": {"text": "我心里难受，撑不住了，不需要建议"}, "expect": {"out_equals": "confide"}},
+    {"action": "intent_hint", "args": {"state": "confide"}, "expect": {"out_contains": "不要列解决方案"}},
+    {"action": "extract_dialogue", "args": {"user": "我今天好累，感觉快撑不住了", "assistant": "辛苦了，先歇会儿"}},
+    {"action": "contentful_line", "expect": {"out_not_null": true, "out_not_contains": ["建议", "方案", "分析"]}}
+  ],
+  "redline_words": []
+}

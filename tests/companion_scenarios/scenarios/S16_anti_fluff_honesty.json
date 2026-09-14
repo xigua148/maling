@@ -1,0 +1,12 @@
+{
+  "id": "S16",
+  "title": "反套话诚实（截断后注入一次性提示、不入历史、开关可关）",
+  "targets": ["ChatService", "ANTI_FLUFF_INJECTION", "session.context_trimmed"],
+  "mode": "mock",
+  "steps": [
+    {"action": "anti_fluff", "args": {"trim": true}, "expect": {"injection": true}},
+    {"action": "anti_fluff", "args": {"trim": false}, "expect": {"injection": false}},
+    {"action": "anti_fluff", "args": {"trim": true, "switch": false}, "expect": {"injection": false}}
+  ],
+  "redline_words": []
+}

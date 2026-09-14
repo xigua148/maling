@@ -1,0 +1,37 @@
+# 码铃（MaLing）GUI 依赖清单（v10.4 打包整合版，v10.15 分层依赖）
+# 用法：pip install -r requirements_gui.txt
+# 分层：基础依赖（CLI 核心）走 requirements.txt，GUI / 可选走本文件；
+#       本文件第一行 -r requirements.txt 自动引入基础层，避免重复列包。
+#
+# 依赖依据（对应包内实际 import 位置）：
+#   PySide6            gui/qt_compat.py 顶层（全部界面控件）
+#   requests           core/__init__.py 顶层（API 调用）
+#   PyYAML             core/__init__.py try-import（config.yaml 读写）
+#   colorama           core/__init__.py try-import（终端着色）
+#   python-dotenv      core/__init__.py try-import（.env 支持）
+#   pyperclip          core/__init__.py try-import（剪贴板）
+#   pygments           gui/pages/page_editor.py try-import（编辑器语法高亮）
+#   ddgs               core/__init__.py try-import（联网搜索，回退 duckduckgo_search）
+#   SpeechRecognition  gui/widgets/voice_input.py importlib 动态导入（语音输入）
+#   pyaudio            speech_recognition.Microphone 的录音后端
+# 注：原清单中的 markdown 已移除——全包无 `import markdown`，
+#     导出 Markdown 是 chat_exporter.py 手写字符串拼接，不依赖该库。
+
+-r requirements.txt
+
+# ---- GUI 核心（必需）----
+PySide6>=6.5
+pygments>=2.16
+
+# ---- 可选：联网搜索（不装则搜索命令降级）----
+ddgs>=9.0
+
+# v1.5.0: Agent 工具 list_processes / system_info（基础层已收录，此处显式列出防遗漏）
+psutil>=5.9
+
+# ---- 可选：语音输入（不装则语音按钮弹出明确的不可用说明，不影响其余功能）----
+SpeechRecognition>=3.10
+pyaudio>=0.2.13
+
+# ---- 打包工具（仅打 .exe 的机器需要）----
+pyinstaller>=6.0

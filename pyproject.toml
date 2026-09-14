@@ -1,0 +1,147 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "maling"
+dynamic = ["version"]
+description = "码铃 MaLing —— 住在桌面里的 AI 女仆伙伴"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+authors = [
+    {name = "MaLing Team"},
+]
+keywords = ["ai", "assistant", "desktop", "companion", "pyside6"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# 基础依赖（CLI + 核心库，不含 GUI）
+dependencies = [
+    "requests>=2.31",
+    "PyYAML>=6.0",
+    "colorama>=0.4",
+    "python-dotenv>=1.0",
+    "pyperclip>=1.8",
+]
+
+[project.optional-dependencies]
+# GUI 用户（桌面端）
+gui = [
+    "PySide6>=6.5",
+    "pygments>=2.16",
+]
+# 联网搜索
+search = [
+    "ddgs>=9.0",
+]
+# 语音输入
+voice = [
+    "SpeechRecognition>=3.10",
+    "pyaudio>=0.2.13",
+]
+# 打包发布
+build = [
+    "pyinstaller>=6.0",
+]
+# 开发 & 测试
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.4",
+]
+# 全量安装
+all = [
+    "maling[gui,search,voice,dev]",
+]
+
+[project.scripts]
+maling = "main:main"
+
+[project.urls]
+Homepage = "https://github.com/your-repo/maling"
+Repository = "https://github.com/your-repo/maling"
+Issues = "https://github.com/your-repo/maling/issues"
+
+# ── setuptools 动态版本 ────────────────────────────────────────
+[tool.setuptools.dynamic]
+version = {attr = "version.get_version"}
+
+[tool.setuptools.packages.find]
+include = [
+    "core*", "gui*", "commands*",
+    "agent_engine", "agent_tools", "agent_task",
+    "api", "memory", "utils", "session",
+    "security", "helpers", "persona", "greeting",
+    "companion", "chat_mode", "intimacy",
+]
+exclude = ["tests*", "build*", "dist*", "_qa14*"]
+
+# ── pytest ─────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+minversion = "7.0"
+
+# ── ruff（代码检查 & 格式化）──────────────────────────────────
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+exclude = [
+    "build", "dist", "build_v*", "dist_v*",
+    "__pycache__", ".venv", "_qa14_deep",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+]
+ignore = [
+    "E501",   # line too long（交给 formatter）
+    "E402",   # module level import not at top（Qt 兼容层需要）
+    "B008",   # do not perform function calls in argument defaults
+    "B905",   # zip() without strict= parameter
+    "F401",   # unused import（Qt 兼容层大量 from X import *）
+    "F403",   # 'from module import *' used
+    "F405",   # name may be undefined, star imports
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["core", "gui", "commands"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["B", "E402"]
+"gui/qt_compat.py" = ["F401", "F403"]
+
+# ── coverage ───────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["."]
+omit = [
+    "tests/*",
+    "build*",
+    "dist*",
+    "_qa14_deep/*",
+    "gui/qt_compat.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+fail_under = 40.0

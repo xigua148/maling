@@ -1,0 +1,14 @@
+{
+  "id": "S04",
+  "title": "修改事实后旧记忆消失（同 key 覆盖 + 上下文同步）",
+  "targets": ["memory.set_preference", "memory.build_memory_context"],
+  "mode": "mock",
+  "steps": [
+    {"action": "set_preference", "args": {"key": "favorite_drink", "value": "奶茶"}},
+    {"action": "memory_context", "args": {"max_chars": 2000}, "expect": {"out_contains": "奶茶"}},
+    {"action": "set_preference", "args": {"key": "favorite_drink", "value": "咖啡"}},
+    {"action": "memory_context", "args": {"max_chars": 2000}, "expect": {"out_contains": "咖啡", "out_not_contains": "奶茶"}},
+    {"action": "get_preference", "args": {"key": "favorite_drink"}, "expect": {"out_equals": "咖啡"}}
+  ],
+  "redline_words": []
+}

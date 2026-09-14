@@ -1,0 +1,33 @@
+{
+  "id": "S03",
+  "title": "20 条事实全部召回（偏好读写 + 记忆上下文拼装）",
+  "targets": ["memory.set_preference", "memory.get_preference", "memory.build_memory_context"],
+  "mode": "mock",
+  "steps": [
+    {"action": "set_preference", "args": {"key": "fact_01", "value": "内容1"}},
+    {"action": "set_preference", "args": {"key": "fact_02", "value": "内容2"}},
+    {"action": "set_preference", "args": {"key": "fact_03", "value": "内容3"}},
+    {"action": "set_preference", "args": {"key": "fact_04", "value": "内容4"}},
+    {"action": "set_preference", "args": {"key": "fact_05", "value": "内容5"}},
+    {"action": "set_preference", "args": {"key": "fact_06", "value": "内容6"}},
+    {"action": "set_preference", "args": {"key": "fact_07", "value": "内容7"}},
+    {"action": "set_preference", "args": {"key": "fact_08", "value": "内容8"}},
+    {"action": "set_preference", "args": {"key": "fact_09", "value": "内容9"}},
+    {"action": "set_preference", "args": {"key": "fact_10", "value": "内容10"}},
+    {"action": "set_preference", "args": {"key": "fact_11", "value": "内容11"}},
+    {"action": "set_preference", "args": {"key": "fact_12", "value": "内容12"}},
+    {"action": "set_preference", "args": {"key": "fact_13", "value": "内容13"}},
+    {"action": "set_preference", "args": {"key": "fact_14", "value": "内容14"}},
+    {"action": "set_preference", "args": {"key": "fact_15", "value": "内容15"}},
+    {"action": "set_preference", "args": {"key": "fact_16", "value": "内容16"}},
+    {"action": "set_preference", "args": {"key": "fact_17", "value": "内容17"}},
+    {"action": "set_preference", "args": {"key": "fact_18", "value": "内容18"}},
+    {"action": "set_preference", "args": {"key": "fact_19", "value": "内容19"}},
+    {"action": "set_preference", "args": {"key": "fact_20", "value": "内容20"}},
+    {"action": "get_preference", "args": {"key": "fact_01"}, "expect": {"out_equals": "内容1"}},
+    {"action": "get_preference", "args": {"key": "fact_10"}, "expect": {"out_equals": "内容10"}},
+    {"action": "get_preference", "args": {"key": "fact_20"}, "expect": {"out_equals": "内容20"}},
+    {"action": "memory_context", "args": {"max_chars": 2000}, "expect": {"out_contains": ["内容1", "内容10", "内容20"], "out_not_null": true}}
+  ],
+  "redline_words": []
+}

@@ -1,0 +1,24 @@
+{
+  "id": "S18",
+  "title": "免提退出恢复缓冲（external_cooldown 入闸：期内拦截、过期放行）",
+  "targets": ["ProactivePolicy.gates", "PolicyState.external_cooldown_until"],
+  "mode": "mock",
+  "steps": [
+    {"action": "policy",
+     "args": {"cfg": {"quiet_start": "23:00", "quiet_end": "07:00", "daily_cap": 3},
+              "st": {"now": "2026-09-08T20:00:00", "external_cooldown_until": "2026-09-08T21:00:00",
+                     "last_user_activity_at": "2026-09-08T18:00:00", "idle_already_helloed": false}},
+     "expect": {"decision": {"allow": false, "reason": "resume_buffer"}}},
+    {"action": "policy",
+     "args": {"cfg": {"quiet_start": "23:00", "quiet_end": "07:00", "daily_cap": 3},
+              "st": {"now": "2026-09-08T21:30:00", "external_cooldown_until": "2026-09-08T21:00:00",
+                     "last_user_activity_at": "2026-09-08T19:40:00", "idle_already_helloed": false}},
+     "expect": {"decision": {"allow": true, "scene": "idle_hello", "reason_not": "resume_buffer"}}},
+    {"action": "policy",
+     "args": {"cfg": {"quiet_start": "23:00", "quiet_end": "07:00", "daily_cap": 3},
+              "st": {"now": "2026-09-08T20:00:00", "external_cooldown_until": "2026-09-08T19:00:00",
+                     "last_user_activity_at": "2026-09-08T18:00:00", "idle_already_helloed": false}},
+     "expect": {"decision": {"allow": true, "scene": "idle_hello", "reason_not": "resume_buffer"}}}
+  ],
+  "redline_words": []
+}

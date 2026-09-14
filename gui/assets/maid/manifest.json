@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "version": 1,
+  "expressions": ["normal", "happy", "thinking", "focus", "concerned", "shy", "tired", "surprised"],
+  "moods": ["normal", "happy", "concerned", "shy", "tired"],
+  "activity_states": ["thinking", "focus", "surprised"],
+  "themes": ["default"],
+  "asset_notes": {
+    "source_size": "主形象按 2x 出图（展示约 260~340px 高），运行时按需缩略/圆裁，不重复导图",
+    "fallback": "任一 png 缺失/损坏时显示中性铃铛兜底（PLACEHOLDER_ENABLED=False 不渲染程序占位脸），UI 永不空白或崩溃",
+    "micro_states_v12": "A8-1 微型档 v1.2 先行 normal/happy/thinking/focus/tired 5 态，缺失自动回落 normal 或占位脸"
+  }
+}

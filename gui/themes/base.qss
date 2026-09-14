@@ -1,0 +1,246 @@
+/* ============================================================
+   base.qss —— 码铃「简洁 × 女仆基调」(B8/D7) 公共组件结构层
+
+   渲染链（theme_engine.load_theme）：
+     qss = base.qss（本文件，公共结构/布局/间距/圆角/密度）
+          + cute|minimal|maid.qss（配色/肤感层，后加载可覆盖）
+   变量：颜色与 layout token（形如 bg / spacing_md / radius_lg）在 load_theme
+   统一替换为当前主题的值；font_family 同理。
+
+   v1.2 范围（design R1 分两段执行）：
+     - 本文件只覆盖「本批新增/重构 UI 组件」；全部选择器走 objectName 命名空间，
+       避免与既有三套 QSS 的通用选择器互相干扰，保证三主题零回归。
+     - 既有三套 QSS 的「收窄为肤感层」全量裁剪 → P2（需 U-5 offscreen 截图回归兜底）。
+
+   B8 对照：远看简洁（扁平、克制描边、清晰状态区分）；近看码铃（玫粉/奶油白
+   由主题 primary 变量透出、柔和倒角走 radius、留白走 spacing token）。
+   ============================================================ */
+
+/* ---------- 1. B9「模型与接口」专区（ModelConfigPanel） ---------- */
+
+/* 面板根：放进设置分区（settingsSection 已是卡片底），自身透明 */
+QWidget#modelConfigPanel {
+    background: transparent;
+}
+
+/* 分区说明小字（标题下引导文案） */
+QLabel#modelSectionDesc {
+    color: ${text_hint};
+    font-size: 12px;
+    background: transparent;
+}
+
+/* ① 状态头卡片 */
+QFrame#modelStatusCard {
+    background-color: ${bg_light};
+    border: 1px solid ${divider};
+    border-radius: ${radius_md};
+    padding: ${spacing_md};
+}
+QLabel#modelStatusProvider {
+    font-size: 15px;
+    font-weight: bold;
+    color: ${text};
+    background: transparent;
+}
+QLabel#modelStatusStateText {
+    font-size: 12px;
+    color: ${text_secondary};
+    background: transparent;
+}
+QLabel#modelStatusMeta {
+    font-size: 12px;
+    color: ${text_secondary};
+    background: transparent;
+}
+/* Key 末四位脱敏展示（chip） */
+QLabel#modelStatusKeyChip {
+    background-color: ${bg_card};
+    border: 1px solid ${divider};
+    border-radius: ${radius_sm};
+    color: ${text};
+    font-size: 11px;
+    padding: 2px 8px;
+}
+/* 缺 Key 引导提示（默认隐藏，缺 Key 时置 Visible） */
+QLabel#modelMissingKeyHint {
+    color: ${state_warn};
+    font-size: 12px;
+    font-weight: bold;
+    background: transparent;
+}
+
+/* ② 厂商卡片点选区（替代纯下拉，B9④） */
+QPushButton#providerCard,
+QPushButton#providerCardSelected {
+    background-color: ${bg_card};
+    border: 1px solid ${divider};
+    border-radius: ${radius_md};
+    padding: ${spacing_sm};
+    font-weight: normal;
+    font-size: 12px;
+    color: ${text};
+    text-align: left;
+}
+QPushButton#providerCard:hover {
+    background-color: ${surface_muted};
+    border-color: ${focus_accent};
+}
+QPushButton#providerCard:pressed {
+    background-color: ${bg_light};
+}
+/* 选中态：码铃粉描边 = 保留主色辨识度 */
+QPushButton#providerCardSelected {
+    border: 2px solid ${primary_dark};
+    background-color: ${bg_light};
+}
+QPushButton#providerCardSelected:hover {
+    background-color: ${surface_muted};
+    border-color: ${primary_dark};
+}
+/* 卡片内文本（QLabel 默认不透明度，需显式上色） */
+QLabel#providerCardTitle {
+    color: ${text};
+    font-size: 13px;
+    font-weight: bold;
+    background: transparent;
+}
+QLabel#providerCardDesc {
+    color: ${text_secondary};
+    font-size: 11px;
+    background: transparent;
+}
+QLabel#providerCardModel {
+    color: ${text_hint};
+    font-size: 11px;
+    font-family: "${font_family}";
+    background: transparent;
+}
+/* 「本地」小标签（ollama 等本地运行） */
+QLabel#providerCardTagLocal {
+    color: ${primary_dark};
+    background-color: ${bg_light};
+    border: 1px solid ${primary};
+    border-radius: ${radius_pill};
+    font-size: 10px;
+    padding: 1px 6px;
+}
+
+/* ③ 编辑区：Key / Base URL / 模型 输入 */
+QWidget#modelEditArea {
+    background: transparent;
+}
+QLabel#modelFieldLabel {
+    color: ${text_secondary};
+    font-size: 12px;
+    background: transparent;
+}
+/* 输入框/下拉继承主题肤感层的通用 QLineEdit/QComboBox 样式；
+   这里只补更舒适的纵向密度与圆角（id 优先级高于主题通用类型选择器） */
+QLineEdit#modelKeyEdit,
+QLineEdit#modelUrlEdit {
+    padding: ${spacing_sm} ${spacing_md};
+    border-radius: ${radius_md};
+}
+QComboBox#modelModelCombo {
+    padding: ${spacing_sm} ${spacing_md};
+    border-radius: ${radius_md};
+}
+/* ① 下拉右侧下三角指示（叠加 QLabel，颜色随主题；落在 drop-down 区域，点击透传给 combo） */
+QLabel#modelComboArrow {
+    color: ${text_secondary};
+    background: transparent;
+    font-size: 14px;
+    font-weight: bold;
+}
+QPushButton#modelShowKeyBtn {
+    background: transparent;
+    color: ${text_hint};
+    border: none;
+    font-size: 11px;
+    padding: 2px 4px;
+}
+QPushButton#modelShowKeyBtn:hover {
+    color: ${primary_dark};
+    text-decoration: underline;
+}
+/* 本地厂商（ollama）说明小字 */
+QLabel#modelLocalHint {
+    color: ${state_ok};
+    font-size: 11px;
+    background: transparent;
+}
+/* 保存主按钮：略为加宽，保持「主操作」位阶 */
+QPushButton#modelSaveBtn {
+    min-width: 108px;
+    padding: ${spacing_sm} ${spacing_lg};
+}
+
+/* ---------- 2. 首页「模型设置」快捷入口（U-4 最小入口） ---------- */
+
+QPushButton#homeModelEntry {
+    background-color: ${bg_light};
+    border: 1px solid ${divider};
+    border-radius: ${radius_md};
+    padding: ${spacing_sm} ${spacing_md};
+    color: ${text};
+    font-size: 13px;
+    font-weight: normal;
+    text-align: left;
+}
+QPushButton#homeModelEntry:hover {
+    background-color: ${surface_muted};
+    border-color: ${focus_accent};
+    color: ${text};
+}
+QPushButton#homeModelEntry:pressed {
+    background-color: ${bg_card};
+}
+QLabel#homeModelEntryDesc {
+    color: ${text_hint};
+    font-size: 11px;
+    background: transparent;
+}
+
+/* ---------- 3. 侧栏「模型状态」直达按钮（U-4，含脱敏状态） ---------- */
+
+/* 放置于帮助/关于之上的一整行状态入口；肤感上比导航项更轻 */
+QPushButton#sidebarModelBtn {
+    background-color: ${bg_light};
+    border: 1px solid ${divider};
+    border-radius: ${radius_md};
+    color: ${text};
+    font-size: 12px;
+    font-weight: normal;
+    padding: 6px 8px;
+    text-align: left;
+}
+QPushButton#sidebarModelBtn:hover {
+    background-color: ${surface_muted};
+    border-color: ${focus_accent};
+    color: ${text};
+}
+QPushButton#sidebarModelBtn:pressed {
+    background-color: ${bg_card};
+}
+/* 状态点（形状；颜色由代码用 theme_color 的 state_ok/state_warn 设入，禁止裸值） */
+QLabel#sidebarModelDot {
+    min-width: 8px;
+    max-width: 8px;
+    min-height: 8px;
+    max-height: 8px;
+    border-radius: 4px;
+}
+
+/* ---------- v1.9 B/D-V19-05：标题位字体（${font_title}） ----------
+   标题 / 卡片标题 / 空态标题走标题字体（默认与正文同链；用户选「jf open 粉圆」
+   时仅这些标题位换成粉圆，正文保持资源圆体 —— Q-E4「粉圆仅标题」）。
+   ID 选择器特异性高于全局 QWidget 规则，故此处可覆盖全局正文族。 */
+QLabel#toggleCardTitle,
+QLabel#statusCardTitle,
+QLabel#memoryBookTitle,
+QLabel#miniGamesTitle,
+QLabel#providerCardTitle,
+QLabel#editorEmptyTitle {
+    font-family: "${font_title}";
+}

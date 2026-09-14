@@ -1,0 +1,15 @@
+{
+  "id": "S13",
+  "title": "话题 14 天静默（「先不提」mute 期内跳过，过期自动解禁）",
+  "targets": ["memory.pick_topic_followup", "memory.record_followup_feedback"],
+  "mode": "mock",
+  "steps": [
+    {"action": "add_topic", "args": {"subject": "换工作的事"}},
+    {"action": "mute_topic", "args": {"subject": "换工作的事", "days": 14}},
+    {"action": "backdate_topic", "args": {"subject": "换工作的事", "hours": 30}},
+    {"action": "pick_followup", "args": {"min_hours": 1, "max_hours": 72}, "expect": {"out_is_null": true}},
+    {"action": "mute_topic", "args": {"subject": "换工作的事", "days": -15}},
+    {"action": "pick_followup", "args": {"min_hours": 1, "max_hours": 72}, "expect": {"out_not_null": true}}
+  ],
+  "redline_words": []
+}

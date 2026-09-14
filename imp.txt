@@ -1,0 +1,1 @@
+IMPORT_OK PySide6.QtCore.QSize(64, 64)

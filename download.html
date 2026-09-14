@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>码铃 MaLing — 下载</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    background: linear-gradient(160deg, #fff7f9 0%, #ffffff 60%);
+    color: #333; min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .wrap { width: min(720px, 92vw); padding: 48px 0 32px; }
+  header { text-align: center; margin-bottom: 36px; }
+  h1 { font-size: 40px; letter-spacing: 2px; }
+  h1 .en { font-size: 20px; color: #EC5985; font-weight: 600; margin-left: 10px; }
+  .tagline { margin-top: 12px; font-size: 16px; color: #666; }
+  .badge {
+    display: inline-block; margin-top: 18px; padding: 4px 16px;
+    border-radius: 999px; background: #EC5985; color: #fff;
+    font-size: 14px; font-weight: 600;
+  }
+  .downloads { text-align: center; margin-bottom: 14px; }
+  .btn {
+    display: inline-block; padding: 14px 36px; margin: 6px;
+    border-radius: 12px; font-size: 17px; font-weight: 600;
+    text-decoration: none; transition: transform .1s;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn-main { background: #EC5985; color: #fff; }
+  .btn-mirror { background: #fff; color: #EC5985; border: 2px solid #EC5985; }
+  .hint { text-align: center; font-size: 13px; color: #999; margin-bottom: 40px; }
+  section {
+    background: #fff; border: 1px solid #f2e3e8; border-radius: 14px;
+    padding: 22px 26px; margin-bottom: 20px;
+  }
+  section h2 { font-size: 17px; margin-bottom: 12px; color: #EC5985; }
+  section ol, section ul { padding-left: 22px; line-height: 1.9; font-size: 15px; }
+  section p { line-height: 1.8; font-size: 15px; }
+  footer {
+    text-align: center; padding: 20px 0 28px; font-size: 13px; color: #aaa;
+    line-height: 2;
+  }
+  footer a { color: #EC5985; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>码铃<span class="en">MaLing</span></h1>
+    <p class="tagline">叮铃一响、码上应答的女仆小铃铛——会聊天、会写码、有点小性格的桌面 AI 编程助手。</p>
+    <span class="badge">v1.0.0 · Windows</span>
+  </header>
+
+  <div class="downloads">
+    <!-- TODO(仓库地址待定): 仓库建立后把 your-repo 替换为真实仓库路径（建议 maling），并回填网盘镜像直链 -->
+    <a class="btn btn-main" href="https://github.com/your-repo/maling/releases/download/v1.0.0/maling_v1.0.0_win64.zip">下载 码铃 v1.0.0（Windows）</a>
+    <a class="btn btn-mirror" href="https://your-mirror.example.com/maling/maling_v1.0.0_win64.zip">备用下载（网盘镜像）</a>
+  </div>
+  <p class="hint">两个下载内容完全一致，哪个快用哪个。下载后解压，运行文件夹内的「MaLing.exe」即可，无需安装 Python。</p>
+
+  <section>
+    <h2>首次运行弹蓝色提示怎么办？</h2>
+    <ol>
+      <li>首次运行时，Windows 可能弹出「Windows 已保护你的电脑」蓝色提示。这是因为码铃是独立开发者软件、未购买代码签名证书，Windows 会对所有这类软件统一显示该提醒，<b>不代表检测到病毒</b>。</li>
+      <li>在弹窗中点击「<b>更多信息</b>」；</li>
+      <li>点击「<b>仍要运行</b>」，码铃即可正常启动。</li>
+      <li>如仍不放心，可在运行前把压缩包上传到任意在线病毒扫描服务检查。</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>系统要求</h2>
+    <ul>
+      <li>Windows 10 及以上；</li>
+      <li>无需安装 Python 与任何依赖（exe 已内置运行环境）。</li>
+    </ul>
+  </section>
+
+  <footer>
+    <a href="https://github.com/your-repo/maling/blob/main/CHANGELOG.md">更新日志</a> ｜
+    <a href="https://github.com/your-repo/maling/releases">历史版本（GitHub Releases）</a> ｜
+    反馈：联系分享给你码铃的朋友即可。
+  </footer>
+</div>
+</body>
+</html>
