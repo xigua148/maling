@@ -1,0 +1,11 @@
+# Issue 模板选择页的附加配置
+# 文档：https://docs.github.com/communities/using-templates-to-encourage-useful-issues-and-pull-requests/configuring-issue-templates-for-your-repository
+blank_issues_enabled: true
+
+contact_links:
+  - name: 🔐 报告安全漏洞（请勿用公开 Issue）
+    url: https://github.com/xigua148/maling/security/advisories/new
+    about: 安全问题请走私密渠道，详见 SECURITY.md
+  - name: 📖 使用与打包说明
+    url: https://github.com/xigua148/maling/blob/master/README.md
+    about: 安装、配置、打包、常见问题先看这里
