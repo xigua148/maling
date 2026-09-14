@@ -1,0 +1,92 @@
+NOTICE
+=====
+
+码铃（MaLing）
+-------------
+
+Copyright (c) 2026 MaLing project contributors
+
+本项目代码以 MIT 许可证发布（见 LICENSE）。
+**本 NOTICE 所列的第三方组件与素材，各自沿用其自身的许可条款，不因本项目的 MIT 而改变。**
+
+完整登记台账（含 commit 哈希、复核记录、改写摘要）见：docs/THIRD_PARTY.md
+许可原文副本目录：docs/third_party_licenses/（源树）与各资产目录内（随包）
+
+
+一、随仓库分发的第三方代码（源码级纳入/改写）
+----------------------------------------------
+
+| 组件 | 来源 | 许可 | 版权行 | 入库位置 |
+|---|---|---|---|---|
+| 2048 小游戏 | github.com/tangentecode/2048-pyqt6 | MIT | Copyright (c) 2024 jøhann | gui/widgets/games/game_2048.py |
+| 扫雷小游戏 | github.com/dawsonbooth/pynsweeper | MIT | Copyright (c) 2020 Dawson Booth | gui/widgets/games/game_minesweeper.py |
+
+两者均由 PyQt 改写为 PySide6 并裁剪功能；原许可副本见
+docs/third_party_licenses/tangentecode_2048-pyqt6.txt 与 dawsonbooth_pynsweeper.txt。
+
+
+二、随仓库分发的字体与图标（子集化产物）
+-----------------------------------------
+
+| 资产 | 来源 | 许可 | 入库位置 |
+|---|---|---|---|
+| Remix Icon 2.5.0（图标字体子集） | github.com/Remix-Design/RemixIcon | Apache License 2.0 | gui/assets/icons/maling_icons.ttf |
+| 资源圆体 Resource Han Rounded CN（GB2312 子集） | github.com/CyanoHao/Resource-Han-Rounded | SIL Open Font License 1.1 | gui/assets/fonts/ResourceHanRoundedCN-*.ttf |
+| jf open 粉圆（标题子集） | github.com/justfont/open-huninn-font | SIL Open Font License 1.1 | gui/assets/fonts/jf-openhuninn-subset.ttf |
+
+OFL 许可全文副本随包（gui/assets/fonts/OFL-*.txt）与源树（docs/third_party_licenses/）各一份；
+Apache-2.0 许可全文见 gui/assets/icons/LICENSE 与 docs/third_party_licenses/remix_icon.txt。
+
+
+三、内容素材（美术形象）
+-------------------------
+
+**本项目全部角色表情差分图（女仆主形象 36 张、宠物造型等）均为项目自有素材（AI 生成），
+无第三方归属义务。**
+
+唯一例外 —— 基于社区 OC 角色二创的鲸鱼娘形象（此前已按作者公开声明登记）：
+
+| 素材 | 许可 | 署名义务 | 位置 |
+|---|---|---|---|
+| 鲸鱼娘表情差分图（37 张） | **CC BY-NC-SA 4.0**（署名-非商业性-相同方式共享） | 角色原型 OC「溟月」© 上善无形（2025-06）；女仆装版二次设计 © ZipZipPipe（2026-04）。详见 docs/THIRD_PARTY.md §二 | gui/assets/roles/preset_whale/ |
+
+⚠️ **非商业提示**：上述素材为 CC BY-NC-SA 4.0。本项目当前**免费**开源分发，符合 NC 条款；
+若下游将其用于**商业用途**，须自行向素材作者获取授权，或移除该素材后使用。
+「相同方式共享」：对本素材的衍生加工须沿用同协议。
+本素材**不是** MIT，不随本项目 LICENSE 转移。
+
+
+四、运行时依赖（随发行包分发的第三方库）
+------------------------------------------
+
+以 `requirements.txt` / `requirements_gui.txt` 锁定的运行为准：
+
+| 依赖 | 许可 | 说明 |
+|---|---|---|
+| PySide6 | **LGPL-3.0** | Qt 官方 Python 绑定。以动态链接（.pyd/.dll）方式随包分发；用户可自行替换该库文件。LGPL 许可文本见 https://www.gnu.org/licenses/lgpl-3.0.html |
+| requests | Apache-2.0 | |
+| PyYAML | MIT | |
+| pygments | BSD-2-Clause | |
+| psutil | BSD-3-Clause | |
+| colorama | BSD-3-Clause | |
+| python-dotenv | BSD-3-Clause | |
+| pyperclip | BSD-3-Clause | |
+| ddgs（可选） | MIT | 未安装时联网搜索自动降级 |
+| SpeechRecognition（可选） | BSD-3-Clause | |
+| pyaudio（可选） | MIT | |
+
+构建期工具（不随发行包分发）：PyInstaller（GPL-2.0 + bootloader 例外条款，
+允许打包产物按任意许可分发）。
+
+以上依赖均通过 pip 按其上游发布渠道获取，本项目未修改其源码；
+如需各依赖的完整许可文本，请访问其对应的 PyPI / 上游仓库页面。
+
+
+五、参考但未复制代码的项目
+----------------------------
+
+| 参考 | 说明 |
+|---|---|
+| Pomodoro-timer（github.com/Wenlin-AI/Pomodoro-timer） | 仅借鉴「专注/休息计时交互形态」，未复制任何代码或资产 |
+
+详见 docs/THIRD_PARTY.md「参考未采用」一节。
