@@ -1,0 +1,718 @@
+{
+  "book_id": "lantern",
+  "title": "灯笼酒馆",
+  "schema": "chapters.v1",
+
+  "reachable": {
+    "": ["counter"],
+    "counter": ["counter", "backdoor", "window", "table"],
+    "backdoor": ["counter", "backdoor"],
+    "window": ["counter", "window", "backdoor"],
+    "table": ["counter", "table", "backdoor"]
+  },
+  "known_topics": {
+    "": ["photo"],
+    "counter": ["photo", "name", "lantern", "guest", "door"],
+    "backdoor": ["alley", "door", "lantern"],
+    "window": ["rain", "alley", "lantern"],
+    "table": ["guest", "photo", "letter", "name"]
+  },
+  "menu": {
+    "": ["long_night"],
+    "counter": ["long_night"],
+    "table": ["long_night"],
+    "backdoor": ["long_night"]
+  },
+  "open_conditions": {
+    "backdoor": true,
+    "counter:drawer": true,
+    "oil": true,
+    "latch": true,
+    "letter": true
+  },
+  "openable": ["drawer", "oil", "latch", "letter"],
+
+  "labels": {
+    "counter": "吧台",
+    "backdoor": "门外巷子",
+    "window": "窗边",
+    "table": "桌边",
+    "long_night": "长夜酒",
+    "photo": "那张照片",
+    "name": "她的名字",
+    "lantern": "灯笼",
+    "guest": "来客",
+    "door": "那扇门",
+    "rain": "雨声",
+    "alley": "巷子",
+    "letter": "信",
+    "drawer": "抽屉",
+    "oil": "灯油",
+    "latch": "窗闩"
+  },
+
+  "chapters": [
+    {
+      "chapter_id": "ch1",
+      "title": "灯笼还亮着",
+      "nodes": [
+        {
+          "id": "opening",
+          "title": "推门进来",
+          "text": "门轴响了一声。她抬起头，把手里的杯子放到吧台上。",
+          "llm_brief": "她注意到有人进来，但没有急着招呼，先把手里的活收尾，只用眼神示意吧台前还留着位置。",
+          "prerequisites": {"scene_id": ""},
+          "effects": {},
+          "choices": [
+            {
+              "choice_id": "sit_down",
+              "label": "在吧台前坐下",
+              "transform": "move_to",
+              "args": {"target": "counter"}
+            },
+            {
+              "choice_id": "look_around",
+              "label": "先环顾四周",
+              "transform": "wait",
+              "args": {"effects": [{"field": "photo_seen", "op": "set", "value": true}]}
+            },
+            {
+              "choice_id": "order_drink",
+              "label": "点一杯长夜酒",
+              "transform": "order",
+              "args": {"item": "long_night"}
+            },
+            {
+              "choice_id": "open_backdoor",
+              "label": "看一眼门外的巷子",
+              "transform": "open",
+              "args": {"key": "backdoor"}
+            }
+          ]
+        },
+        {
+          "id": "counter_photo",
+          "title": "吧台后的旧照片",
+          "text": "吧台后面钉着一张旧照片。她的目光在照片上停了一下，又移开。",
+          "llm_brief": "她下意识避开那张照片的话题；若客人追问，她会松一点口，但不会一次说尽。",
+          "prerequisites": {"scene_id": "counter"},
+          "effects": {},
+          "choices": [
+            {
+              "choice_id": "ask_photo_who",
+              "label": "问她照片里的人是谁",
+              "transform": "ask_about",
+              "args": {"topic": "photo"}
+            },
+            {
+              "choice_id": "ask_photo_soft",
+              "label": "先说自己也留着一张旧照片，再问起她那张",
+              "transform": "ask_about",
+              "args": {"topic": "photo"}
+            },
+            {
+              "choice_id": "look_closer",
+              "label": "凑近看清楚一点",
+              "transform": "wait",
+              "args": {"effects": [{"field": "photo_seen", "op": "set", "value": true}]}
+            },
+            {
+              "choice_id": "ask_lantern_at_counter",
+              "label": "问那盏灯笼",
+              "transform": "ask_about",
+              "args": {"topic": "lantern"}
+            },
+            {
+              "choice_id": "leave_to_alley",
+              "label": "推门去巷子里站一会儿",
+              "transform": "move_to",
+              "args": {"target": "backdoor"}
+            }
+          ]
+        },
+        {
+          "id": "long_night",
+          "title": "长夜酒",
+          "text": "杯子推到你面前，还带着一点温度。她把手收回去，靠在吧台边等你开口。",
+          "llm_brief": "气氛安静下来，可以让她讲一点自己的事，也可以只是陪着坐。别急着替这杯酒下定义。",
+          "prerequisites": {"scene_id": "counter", "poured": "long_night"},
+          "effects": {},
+          "choices": [
+            {
+              "choice_id": "ask_name_first",
+              "label": "问她的名字",
+              "transform": "ask_about",
+              "args": {"topic": "name"}
+            },
+            {
+              "choice_id": "ask_guest_tonight",
+              "label": "问今晚会不会有客人",
+              "transform": "ask_about",
+              "args": {"topic": "guest"}
+            },
+            {
+              "choice_id": "tell_name",
+              "label": "不问她，先报上自己的名字",
+              "transform": "wait",
+              "args": {"effects": [{"field": "knows_name", "op": "set", "value": true}]}
+            },
+            {
+              "choice_id": "look_out",
+              "label": "端着杯子坐去窗边",
+              "transform": "move_to",
+              "args": {"target": "window"}
+            },
+            {
+              "choice_id": "door_with_cup",
+              "label": "端着杯子走到门口",
+              "transform": "move_to",
+              "args": {"target": "backdoor"}
+            }
+          ]
+        },
+        {
+          "id": "window_view",
+          "title": "窗外的巷子",
+          "text": "窗玻璃上蒙着一层水汽。巷子很窄，路灯把积水照得发亮。",
+          "llm_brief": "窗边适合把节奏慢下来。让她陪你听一会儿雨，别把气氛推向任何结论。",
+          "prerequisites": {"scene_id": "window"},
+          "effects": {},
+          "choices": [
+            {
+              "choice_id": "watch_rain_first",
+              "label": "听巷子里的雨声",
+              "transform": "ask_about",
+              "args": {"topic": "rain"}
+            },
+            {
+              "choice_id": "watch_rain_quiet",
+              "label": "不开口，只把窗推开一点听雨",
+              "transform": "ask_about",
+              "args": {"topic": "rain"}
+            },
+            {
+              "choice_id": "open_latch_once",
+              "label": "把窗闩拨开一条缝",
+              "transform": "open",
+              "args": {"key": "latch"}
+            },
+            {
+              "choice_id": "step_back",
+              "label": "回到吧台边",
+              "transform": "move_to",
+              "args": {"target": "counter"}
+            },
+            {
+              "choice_id": "step_to_door",
+              "label": "从窗边绕到门口",
+              "transform": "move_to",
+              "args": {"target": "backdoor"}
+            }
+          ]
+        },
+        {
+          "id": "drawer_note",
+          "title": "抽屉里的字条",
+          "text": "吧台下面的一只抽屉没有关严，露出一角发黄的纸。",
+          "llm_brief": "抽屉里的东西是她不提的旧事。客人若伸手，她会看着，不拦，也不解释。",
+          "prerequisites": {"scene_id": "counter"},
+          "effects": {},
+          "choices": [
+            {
+              "choice_id": "open_drawer",
+              "label": "拉开那只抽屉",
+              "transform": "open",
+              "args": {"key": "drawer"}
+            },
+            {
+              "choice_id": "open_drawer_slow",
+              "label": "先看她一眼，再慢慢拉开抽屉",
+              "transform": "open",
+              "args": {"key": "drawer"}
+            },
+            {
+              "choice_id": "ask_door",
+              "label": "问门外那扇门通向哪里",
+              "transform": "ask_about",
+              "args": {"topic": "door"}
+            },
+            {
+              "choice_id": "sit_table",
+              "label": "端着酒去桌边坐",
+              "transform": "move_to",
+              "args": {"target": "table"}
+            },
+            {
+              "choice_id": "walk_to_door",
+              "label": "走到门口，看一眼巷子",
+              "transform": "move_to",
+              "args": {"target": "backdoor"}
+            }
+          ]
+        },
+        {
+          "id": "echo_photo",
+          "title": "她先开了口",
+          "text": "她把擦到一半的杯子放下，说那张照片挂得太久，久到她自己都不常看了。",
+          "llm_brief": "客人先前留意过那张照片，所以她愿意多说半句。让这句话轻轻落下，别追问到底。",
+          "prerequisites": {"scene_id": "counter", "photo_seen": true},
+          "effects": {},
+          "choices": [
+            {
+              "choice_id": "echo_photo_ask",
+              "label": "顺着那张照片再问一句",
+              "transform": "ask_about",
+              "args": {"topic": "photo"}
+            },
+            {
+              "choice_id": "echo_photo_lantern",
+              "label": "把话头引到灯笼上",
+              "transform": "ask_about",
+              "args": {"topic": "lantern"}
+            },
+            {
+              "choice_id": "echo_photo_to_table",
+              "label": "端着杯子去桌边",
+              "transform": "move_to",
+              "args": {"target": "table"}
+            },
+            {
+              "choice_id": "echo_photo_to_backdoor",
+              "label": "走到门口透口气",
+              "transform": "move_to",
+              "args": {"target": "backdoor"}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "chapter_id": "ch2",
+      "title": "雨夜来客",
+      "nodes": [
+        {
+          "id": "guest_arrives",
+          "title": "门轴又响了",
+          "text": "门被推开，一位肩头湿透的客人走进来，在门口站了一会儿，才朝吧台这边走。",
+          "llm_brief": "来客带着一身雨气，暂时不想说话。她照常擦杯子，把开口的分寸留给客人自己。",
+          "prerequisites": {"scene_id": "counter"},
+          "effects": {},
+          "choices": [
+            {
+              "choice_id": "greet_guest",
+              "label": "向来客点头",
+              "transform": "ask_about",
+              "args": {"topic": "guest"}
+            },
+            {
+              "choice_id": "offer_drink",
+              "label": "替来客要一杯长夜酒",
+              "transform": "order",
+              "args": {"item": "long_night"}
+            },
+            {
+              "choice_id": "watch_quiet",
+              "label": "什么都不说，看雨",
+              "transform": "wait",
+              "args": {}
+            },
+            {
+              "choice_id": "guest_known_ask",
+              "label": "问他是不是她一直在等的人",
+              "transform": "ask_about",
+              "args": {"topic": "guest"},
+              "prerequisites": {"known": {"has": "guest"}}
+            },
+            {
+              "choice_id": "guest_to_door",
+              "label": "先走到门口，把门掩上",
+              "transform": "move_to",
+              "args": {"target": "backdoor"}
+            }
+          ]
+        },
+        {
+          "id": "table_talk",
+          "title": "同桌的客人",
+          "text": "客人在桌边坐下，把湿漉漉的外套搭在椅背上，看了那盏灯笼一眼。",
+          "llm_brief": "客人开始愿意开口，但话头还围着雨和酒。让节奏慢一点，别一次问到底。",
+          "prerequisites": {"scene_id": "table"},
+          "effects": {},
+          "choices": [
+            {
+              "choice_id": "ask_guest_origin",
+              "label": "问他从哪儿来",
+              "transform": "ask_about",
+              "args": {"topic": "guest"}
+            },
+            {
+              "choice_id": "ask_letter_about",
+              "label": "问他手边那封信",
+              "transform": "ask_about",
+              "args": {"topic": "letter"}
+            },
+            {
+              "choice_id": "order_more",
+              "label": "再添一杯长夜酒",
+              "transform": "order",
+              "args": {"item": "long_night"}
+            },
+            {
+              "choice_id": "table_ask_photo",
+              "label": "把吧台后那张照片说给他听",
+              "transform": "ask_about",
+              "args": {"topic": "photo"}
+            },
+            {
+              "choice_id": "table_to_door",
+              "label": "起身走到门口",
+              "transform": "move_to",
+              "args": {"target": "backdoor"}
+            }
+          ]
+        },
+        {
+          "id": "letter_open",
+          "title": "桌上的信",
+          "text": "客人把一封信放到桌上，没有封口，也没有推到谁面前，就那么摊着。",
+          "llm_brief": "信是客人自己的事。她不会替你拆，也不会拦你；没封口的信，谁先读谁先记下。",
+          "prerequisites": {"scene_id": "table"},
+          "effects": {},
+          "choices": [
+            {
+              "choice_id": "open_letter",
+              "label": "把信摊开看看",
+              "transform": "open",
+              "args": {
+                "key": "letter",
+                "effects": [{"field": "scene_items", "op": "append", "value": "letter"}]
+              }
+            },
+            {
+              "choice_id": "ask_letter_to_whom",
+              "label": "先问客人这信写给谁",
+              "transform": "ask_about",
+              "args": {"topic": "letter"}
+            },
+            {
+              "choice_id": "sit_with_guest",
+              "label": "什么都不动，陪他坐一会儿",
+              "transform": "wait",
+              "args": {}
+            },
+            {
+              "choice_id": "letter_leave",
+              "label": "把信往桌心推了推，谁都能拿到",
+              "transform": "wait",
+              "args": {"effects": [{"field": "scene_items", "op": "append", "value": "letter"}]}
+            },
+            {
+              "choice_id": "letter_to_door",
+              "label": "把信留在桌上，去门口站一会儿",
+              "transform": "move_to",
+              "args": {"target": "backdoor"}
+            }
+          ]
+        },
+        {
+          "id": "wine_taste",
+          "title": "先闻后喝",
+          "text": "客人端起杯子，先闻了闻，才小口喝下去。她在一旁看着，没出声。",
+          "llm_brief": "这一杯开始把人和人连起来。可以让客人讲一点来意，也可以让他把话咽回去。",
+          "prerequisites": {"scene_id": "counter", "poured": "long_night"},
+          "effects": {},
+          "choices": [
+            {
+              "choice_id": "ask_lantern_guest",
+              "label": "问他为什么盯着灯笼看",
+              "transform": "ask_about",
+              "args": {"topic": "lantern"}
+            },
+            {
+              "choice_id": "open_oil_guest",
+              "label": "去添一点灯油",
+              "transform": "open",
+              "args": {"key": "oil"}
+            },
+            {
+              "choice_id": "wine_photo",
+              "label": "把那张照片说给他听",
+              "transform": "ask_about",
+              "args": {"topic": "photo"},
+              "prerequisites": {"photo_seen": true}
+            },
+            {
+              "choice_id": "wine_wait",
+              "label": "什么都不说，陪他把这杯喝完",
+              "transform": "wait",
+              "args": {}
+            },
+            {
+              "choice_id": "sit_to_end",
+              "label": "陪他坐到雨停，一起走到门口",
+              "transform": "move_to",
+              "args": {"target": "backdoor"}
+            }
+          ]
+        },
+        {
+          "id": "echo_letter",
+          "title": "信摊在桌上",
+          "text": "信纸摊在两个人中间，谁都没有先开口。灯影落在字上，看不清的地方就那样空着。",
+          "llm_brief": "信已经摊开，谁读过谁心里有数。让这件事自己留着，别替任何一方把话说完。",
+          "prerequisites": {"scene_id": "table", "opened": {"has": "letter"}},
+          "effects": {},
+          "choices": [
+            {
+              "choice_id": "take_letter",
+              "label": "把信收进怀里",
+              "transform": "take",
+              "args": {"item": "letter"}
+            },
+            {
+              "choice_id": "echo_letter_ask",
+              "label": "问他信里写的是谁",
+              "transform": "ask_about",
+              "args": {"topic": "letter"}
+            },
+            {
+              "choice_id": "echo_letter_to_counter",
+              "label": "把信留在桌上，回吧台去",
+              "transform": "move_to",
+              "args": {"target": "counter"}
+            },
+            {
+              "choice_id": "echo_letter_to_door",
+              "label": "把信按在桌上，走到门口",
+              "transform": "move_to",
+              "args": {"target": "backdoor"}
+            }
+          ]
+        },
+        {
+          "id": "ending_guest_leaves",
+          "title": "客人推门走了",
+          "text": "雨停了。客人把椅子轻轻推回原位，推门走进巷子。她替他把杯沿擦干净，收进柜子，没有催你走。这一夜就到这里。",
+          "llm_brief": "这一夜温到此处为止。她不会追问，也不会替谁总结；留白由客人自己带走，不必再推进任何事。",
+          "prerequisites": {"scene_id": "backdoor", "opened": {"has": "letter"}},
+          "effects": {},
+          "choices": []
+        }
+      ]
+    },
+    {
+      "chapter_id": "ch3",
+      "title": "天亮之前",
+      "nodes": [
+        {
+          "id": "last_call",
+          "title": "最后一杯",
+          "text": "外面已经没什么声音了。她把瓶子收了一半，问你要不要再来一杯。",
+          "llm_brief": "打烊前的吧台最安静。可以让她多留一会儿，也可以就着这一杯把话说完。",
+          "prerequisites": {"scene_id": "counter"},
+          "effects": {},
+          "choices": [
+            {
+              "choice_id": "order_one_more",
+              "label": "再来一杯长夜酒",
+              "transform": "order",
+              "args": {"item": "long_night"}
+            },
+            {
+              "choice_id": "ask_photo_again",
+              "label": "再提一次那张照片",
+              "transform": "ask_about",
+              "args": {"topic": "photo"}
+            },
+            {
+              "choice_id": "last_call_note",
+              "label": "把抽屉里那张字条拿出来，又放回去",
+              "transform": "wait",
+              "args": {},
+              "prerequisites": {"opened": {"has": "drawer"}}
+            },
+            {
+              "choice_id": "last_call_name",
+              "label": "叫她的名字，跟她道一声谢",
+              "transform": "ask_about",
+              "args": {"topic": "name"},
+              "prerequisites": {"knows_name": true}
+            },
+            {
+              "choice_id": "turn_to_door",
+              "label": "看向门外",
+              "transform": "move_to",
+              "args": {"target": "backdoor"}
+            }
+          ]
+        },
+        {
+          "id": "lantern_oil",
+          "title": "灯笼该添油了",
+          "text": "檐下的灯笼轻轻晃了一下。她从柜子底下取出一只小油壶。",
+          "llm_brief": "灯笼是这间屋子的心跳。可以陪她一起把灯芯理一理，也可以只是看着那团光。",
+          "prerequisites": {"scene_id": "counter"},
+          "effects": {},
+          "choices": [
+            {
+              "choice_id": "open_oil_help",
+              "label": "帮她添一点灯油",
+              "transform": "open",
+              "args": {"key": "oil"}
+            },
+            {
+              "choice_id": "ask_lantern_why",
+              "label": "问灯笼为什么一晚上不灭",
+              "transform": "ask_about",
+              "args": {"topic": "lantern"}
+            },
+            {
+              "choice_id": "lantern_photo",
+              "label": "一边添油一边问起那张照片",
+              "transform": "ask_about",
+              "args": {"topic": "photo"},
+              "prerequisites": {"opened": {"has": "oil"}}
+            },
+            {
+              "choice_id": "stay",
+              "label": "就看着那团光",
+              "transform": "wait",
+              "args": {}
+            },
+            {
+              "choice_id": "lantern_to_door",
+              "label": "把灯芯理好，走到门口",
+              "transform": "move_to",
+              "args": {"target": "backdoor"}
+            }
+          ]
+        },
+        {
+          "id": "photo_person",
+          "title": "照片里的人",
+          "text": "她擦杯子的手慢下来。照片里那两个并着肩的影子，和半截灯笼一样旧。",
+          "llm_brief": "这是她愿意多说一点的时候。让往事自己浮上来，别替她下判断，也别急着收尾。",
+          "prerequisites": {"scene_id": "counter"},
+          "effects": {},
+          "choices": [
+            {
+              "choice_id": "ask_photo_when",
+              "label": "问这照片是不是很久以前拍的",
+              "transform": "ask_about",
+              "args": {"topic": "photo"}
+            },
+            {
+              "choice_id": "ask_name_again",
+              "label": "再问一次她的名字",
+              "transform": "ask_about",
+              "args": {"topic": "name"}
+            },
+            {
+              "choice_id": "look_at_lantern",
+              "label": "把话题引回灯笼",
+              "transform": "ask_about",
+              "args": {"topic": "lantern"}
+            },
+            {
+              "choice_id": "call_her_name",
+              "label": "叫她一声名字，再提那张照片",
+              "transform": "ask_about",
+              "args": {"topic": "photo"},
+              "prerequisites": {"knows_name": true}
+            },
+            {
+              "choice_id": "photo_to_door",
+              "label": "把杯子收好，走到门口",
+              "transform": "move_to",
+              "args": {"target": "backdoor"}
+            }
+          ]
+        },
+        {
+          "id": "rain_slows",
+          "title": "雨小了",
+          "text": "窗外的雨细下来，巷子里只剩屋檐滴水的声音。",
+          "llm_brief": "夜要过去了。可以再听一会儿，也可以准备回吧台；不要替客人决定什么时候走。",
+          "prerequisites": {"scene_id": "window"},
+          "effects": {},
+          "choices": [
+            {
+              "choice_id": "watch_rain_again",
+              "label": "再听一会儿雨滴",
+              "transform": "ask_about",
+              "args": {"topic": "rain"}
+            },
+            {
+              "choice_id": "open_latch_wider",
+              "label": "把窗缝再开大一点",
+              "transform": "open",
+              "args": {"key": "latch"}
+            },
+            {
+              "choice_id": "back_to_counter",
+              "label": "回到吧台",
+              "transform": "move_to",
+              "args": {"target": "counter"}
+            },
+            {
+              "choice_id": "rain_to_door",
+              "label": "合上窗，绕到门口",
+              "transform": "move_to",
+              "args": {"target": "backdoor"}
+            }
+          ]
+        },
+        {
+          "id": "guest_thanks",
+          "title": "客人道谢",
+          "text": "客人把杯子放正，朝她点了点头，像是道谢，也像是告别。",
+          "llm_brief": "客人准备走了。可以送他到门口，也可以把最后一句话留在桌边。",
+          "prerequisites": {"scene_id": "table"},
+          "effects": {},
+          "choices": [
+            {
+              "choice_id": "ask_guest_return",
+              "label": "问他下次还会来吗",
+              "transform": "ask_about",
+              "args": {"topic": "guest"}
+            },
+            {
+              "choice_id": "ask_letter_taken",
+              "label": "问他那封信带走了没有",
+              "transform": "ask_about",
+              "args": {"topic": "letter"}
+            },
+            {
+              "choice_id": "give_letter_back",
+              "label": "把怀里的信还给他",
+              "transform": "give",
+              "args": {"item": "letter"},
+              "prerequisites": {"held_items": {"has": "letter"}}
+            },
+            {
+              "choice_id": "wait_last_sip",
+              "label": "陪他把最后一口酒喝完",
+              "transform": "wait",
+              "args": {}
+            },
+            {
+              "choice_id": "see_off",
+              "label": "送他到门口",
+              "transform": "move_to",
+              "args": {"target": "backdoor"}
+            }
+          ]
+        },
+        {
+          "id": "ending_dawn",
+          "title": "灯该灭了",
+          "text": "天边泛白的时候，她把灯笼从檐下取下来，吹熄。屋里暗下去，可她说，门还是开着的，你随时可以再来。这一夜到此为止。",
+          "llm_brief": "本局的收束节点：她不会追问来客，也不会总结这一夜；把门留着，故事停在最轻的地方，不必再推进任何事。",
+          "prerequisites": {"scene_id": "backdoor", "opened": {"has_not": "letter"}},
+          "effects": {},
+          "choices": []
+        }
+      ]
+    }
+  ]
+}

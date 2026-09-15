@@ -129,6 +129,10 @@ class PomodoroDialog(QDialog):
     def _apply_theme(self) -> None:
         bg = theme_color(self.app_ctx, "bg_card", "#FFFFFF")
         accent = theme_color(self.app_ctx, "accent", "#FF6B9D")
+        # 对比度修复：accent 是「填充用」强调色，作字色时在 bg_card 上只有
+        # 3.267/2.163/6.485/3.245（三套浅色 <4.5）；accent_text 是配套「文字用」
+        # 强调色，实测 4.844/4.924/6.507/4.935（phase 17px 按 4.5、time 59px 按 3.0 均达标）。
+        accent_text = theme_color(self.app_ctx, "accent_text", "#B45073")
         primary = theme_color(self.app_ctx, "primary", "#FFB6C1")
         text = theme_color(self.app_ctx, "text", "#5D4037")
         secondary = theme_color(self.app_ctx, "text_secondary", "#8A8A8A")
@@ -136,8 +140,8 @@ class PomodoroDialog(QDialog):
         divider = theme_color(self.app_ctx, "divider", "#EFE0E2")
         self.setStyleSheet(
             f"QDialog {{ background: {bg}; color: {text}; }}"
-            f"QLabel#pomPhase {{ color: {accent}; background: transparent; }}"
-            f"QLabel#pomTime {{ color: {accent}; background: transparent; }}"
+            f"QLabel#pomPhase {{ color: {accent_text}; background: transparent; }}"
+            f"QLabel#pomTime {{ color: {accent_text}; background: transparent; }}"
             f"QLabel#pomSub, QLabel#pomTail {{ color: {secondary}; font-size: 11px;"
             f" background: transparent; }}"
             f"QFrame#pomCard {{ background: {bg_light}; border: 1px solid {divider};"
@@ -145,7 +149,9 @@ class PomodoroDialog(QDialog):
             f"QPushButton#pomBtnPrimary {{ background: {accent}; color: #FFFFFF;"
             f" border: none; border-radius: 8px; padding: 8px 10px; font-size: 13px; }}"
             f"QPushButton#pomBtnPrimary:hover {{ background: {primary}; }}"
-            f"QPushButton#pomBtn {{ background: {bg_light}; color: {accent};"
+            # pomBtn 字落在 bg_light 实底上：accent 仅 2.783/1.931/5.317/2.814，
+            # 改用文字色 text（14.492/11.556/12.503/11.980）。
+            f"QPushButton#pomBtn {{ background: {bg_light}; color: {text};"
             f" border: 1px solid {primary}; border-radius: 8px; padding: 8px 10px;"
             f" font-size: 13px; }}"
             f"QPushButton#pomBtn:hover {{ background: {primary}; color: #FFFFFF; }}"

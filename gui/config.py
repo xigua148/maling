@@ -122,6 +122,10 @@ class GuiConfig:
         self.power_save_mode: bool = False              # 省电模式（C-2 一键关动效+毛玻璃）
         self.animation_level_pre_power_save: str = "standard"   # 进省电前的动效档快照
         self.glass_enabled_pre_power_save: bool = True          # 进省电前的毛玻璃快照
+        # ---- v2.1(P1/D-V21-01): 滚轮守卫总开关（下拉/数值框/滑块不被滚轮误改）----
+        # 默认 True = 保持既有行为（守卫默认开启，升级用户零变化）；设置页可即时切换。
+        # ⚠️ 新增键必须**同时**改 __init__ 与本类 save()（save 逐键显式列举，漏改会静默不持久化）。
+        self.wheel_guard_enabled: bool = True
 
     @classmethod
     def load(cls) -> "GuiConfig":
@@ -226,6 +230,8 @@ class GuiConfig:
             "power_save_mode": self.power_save_mode,
             "animation_level_pre_power_save": self.animation_level_pre_power_save,
             "glass_enabled_pre_power_save": self.glass_enabled_pre_power_save,
+            # v2.1(P1/D-V21-01): 滚轮守卫总开关（既有键零改动）
+            "wheel_guard_enabled": self.wheel_guard_enabled,
         }
         try:
             self._config_path().write_text(

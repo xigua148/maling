@@ -27,6 +27,7 @@ except Exception:
     final_expression = None
 
 from gui.qt_compat import QObject, Signal, QThread, QTimer
+from gui.qt_exit_guard import ExitSafeQThread
 
 from core import normalize_provider
 
@@ -498,18 +499,21 @@ def fallback_speaker(display_session, member_roles: dict):
     return (member_roles or {}).get(order[0]) if order else None
 
 
-class GroupScheduleWorker(QThread):
+class GroupScheduleWorker(ExitSafeQThread):
     """v1.7(F10): 群聊接话调度 worker —— api.chat 单次轻量调用（严格 JSON）。
 
     独立于发言 ApiWorker（单槽互斥），调度完成后经 Signal 回主线程解析入队。
+    退出自我收口（继承 :class:`gui.qt_exit_guard.ExitSafeQThread`）：本 worker 由
+    ``ChatService._group_sched_worker`` 持有、**不在** ``_quit_stop_services`` 的停机
+    清单内；退出时若调度调用仍在进行 → 收口靠 ``aboutToQuit`` 幂等有界 ``stop()``。
     """
 
     schedule_ready = Signal(str, str, dict)   # (req_id, content, usage)
     schedule_failed = Signal(str, str)        # (req_id, error)
 
     def __init__(self, api, messages: list, req_id: str,
-                 max_tokens: int = GROUP_SCHED_MAX_TOKENS):
-        super().__init__()
+                 max_tokens: int = GROUP_SCHED_MAX_TOKENS, parent=None):
+        super().__init__(parent)
         self._api = api
         self._messages = messages
         self._req_id = req_id

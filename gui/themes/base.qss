@@ -185,13 +185,15 @@ QPushButton#modelSaveBtn {
    给图标取色 accent，accent 与 primary 在多套主题里同值（ui_night/ui_whale 两者
    皆同色）→ 图标色 == 按钮底色，图标**完全不可见**（非豆腐块，静态扫描抓不到）。
    本段补全局定义；base.qss 对全部主题生效，单点收口，避免逐主题漂移。
-   注意：卡片内 #memoryBookBtn 由 page_memory_book 的**控件级内联样式表**覆盖，
-   其优先级高于全局规则，不受本段影响（改前改后外观应逐字节一致）。
+   注意：本段文字色给 `accent_text`（「文字用」强调色）而非 accent —— 页面层
+   #memoryBookBtn 是文字型次级按钮，落浅色底时 accent 仅 2.1~3.1:1。卡片内实例
+   仍由 page_memory_book 的**控件级内联样式表**覆盖（优先级更高），不受本段影响。
+   （本条 v2.2.1 订正：原文写 accent_text 而实现留 ${accent}，二者不符。）
    本段**刻意不设** padding / font-size / font-weight —— 避免改变按钮尺寸引发版式位移。 */
 QPushButton#secondaryBtn,
 QPushButton#memoryBookBtn {
     background: transparent;
-    color: ${accent};
+    color: ${accent_text};
     border: 1px solid ${divider};
     border-radius: ${radius_md};
 }
@@ -203,6 +205,11 @@ QPushButton#memoryBookBtn:hover {
 QPushButton#secondaryBtn:pressed,
 QPushButton#memoryBookBtn:pressed {
     background-color: ${bg_light};
+    /* v2.2.1 订正：本伪态换底为 ${bg_light} 却未给 color → 单独命中时回落常态的
+       ${accent_text}，落 ${bg_light} 上 = 4.125 / 4.397 / 5.335 / 4.280（三套浅色 <4.5）。
+       取 ${text}（vs ${bg_light} = 14.492 / 11.556 / 12.503 / 11.980，四套全 ≥4.5）——
+       与同文件「12. 聊天气泡动作行」的 #actionBtn:pressed 同款手法与同一对数。 */
+    color: ${text};
 }
 QPushButton#secondaryBtn:disabled,
 QPushButton#memoryBookBtn:disabled {
@@ -465,13 +472,18 @@ QComboBox:disabled {
     border-color: ${divider};
 }
 
-/* ---------- 5. 按钮 focus 态：点击后默认 focus 圈（粉色 ${focus_accent}）太显眼 → 隐藏。
-   理由：现代桌面应用（Chrome / VSCode 等）对鼠标点击的 focus 圈默认隐藏，仅键盘 Tab 导航时保留。
-   Qt QSS 不支持 :focus-visible 选择器，故最简方案是全局隐藏 —— 代价是键盘 Tab 用户失去每按钮的
-   视觉指示，但按钮仍接收焦点（屏幕阅读器 / Enter 激活均正常），hover 态仍提供反馈。
-   若日后需要区分鼠标/键盘 focus，需改走 focusReason + setStyleSheet 动态分支，改动面较大。 */
+/* ---------- 5. 按钮 focus 态（键盘可达性，v2.1 上线收口） ----------
+   此前此处为 `QPushButton:focus { outline: none; }` —— 全局移除焦点圈，键盘 Tab 到按钮时
+   **零视觉反馈**（QSS 无 :focus-visible，无法只对鼠标点击隐藏）。本轮改为「保留一个可见但
+   克制的焦点圈」：
+     · 用 outline（不动 border / background / padding → 焦点切换零版式位移；且各 id 按钮规则
+       均未声明 outline，故本规则对全部按钮生效，不会被 `QPushButton#id` 抢走）；
+     · 取色 `${text}`：Qt 的焦点圈绘制在控件**内容区边缘**、压在按钮自身底色上，而四套新风格的
+       focus_accent 与 primary 同值（实底主按钮上描边会被同色底吃掉，实测 diff=4px≈不可见）；
+       `${text}` 是唯一在「primary 实底」与「bg_card / 透明底」两类按钮上都不退化的前景语义键。
+     · 1px、无动画（QSS 天然静态 → off 档同样可见）。 */
 QPushButton:focus {
-    outline: none;
+    outline: 1px solid ${text};
 }
 
 /* ---------- 6. 复选框五态（normal/checked 由肤感层给；补 hover / focus / disabled） ---------- */
@@ -533,7 +545,44 @@ QTabBar::tab:selected:disabled {
     color: ${disabled_text};
 }
 QTabBar::tab:selected:focus {
-    border-bottom: 2px solid ${focus_accent};
+    /* v2.1 上线收口：原用 ${focus_accent}，但四套新风格里 focus_accent ≡ primary，
+       而选中页签的下边框本就是 ${primary} → 聚焦时**色值无变化**（实测 diff=0px）。
+       改取 ${text}：与 primary 在所有主题下都可区分，且压在页签底（bg_card）上可辨。 */
+    border-bottom: 2px solid ${text};
+}
+
+/* ---------- 9b. 焦点态补齐：列表 / 树视图 / 文本编辑 / 滑杆（键盘可达性，v2.1 上线收口） ----------
+   背景：base §5 原全局隐藏按钮焦点圈；四套肤感层又对列表 / 树视图容器写 `outline: none`
+   （移除原生点线焦点框）→ 键盘 Tab 无反馈；未命中任何 QSS 的裸 QTextEdit / QPlainTextEdit
+   则走系统原生焦点框（实测是 Windows 蓝 #0067C0 = 「外来」样式），QPlainTextEdit 甚至干脆没有。
+   QSS 无 :focus-visible，无法只对鼠标隐藏，故统一补回「可见但克制」的静态焦点态。
+   手法（真机实测选取，非拍脑袋）：
+     · 列表 / 树视图 / 文本编辑走 `border` —— `outline` 在 QAbstractScrollArea 上**不渲染**
+       （实测 diff=0px），`border` 生效；且对文本编辑设 border 能**替换**系统原生蓝框
+       （实测蓝像素 248 → 0）。具名容器（#sessionList / #projectTreeView）在肤感层写有更高
+       特异性的 border/outline，故逐处用 id 规则补回。
+     · 描边取色 `${focus_accent}`：此处描边压在**页面 / 卡片底色**上，与既有 QLineEdit /
+       QComboBox 焦点同一语义键（项目既有口径）；仅当该键与底色同值而退化时（见 §5 按钮、
+       §9 页签）才改用 `${text}`。
+     · 无动画（QSS 天然静态，off 档同样可见）。
+   注：已有具名焦点规则的编辑器（#chatInput / #codeEditorArea）特异性更高，不受本块影响。 */
+QListWidget:focus,
+QListView:focus,
+QTreeView:focus {
+    border: 1px solid ${focus_accent};
+}
+QListWidget#sessionList:focus,
+QTreeView#projectTreeView:focus {
+    border: 1px solid ${focus_accent};
+}
+QTextEdit:focus,
+QPlainTextEdit:focus {
+    border: 1px solid ${focus_accent};
+}
+/* 滑杆：焦点落在手柄上 → 给手柄加一圈描边（不改变手柄尺寸/位置）；
+   取色 ${text}（手柄本身即 ${primary} 填充，用 focus_accent 会被同色吃掉） */
+QSlider::handle:horizontal:focus {
+    border: 1px solid ${text};
 }
 
 /* ============================================================
@@ -614,6 +663,19 @@ QLabel#pomTime { font-size: 59px; }               /* 番茄钟计时 44pt */
 QLabel#sidebarTitle { font-size: 19px; }          /* 侧栏标题 14pt（工具箱/角色面板/计划编辑器） */
 QLabel#statusCardIcon { font-size: 24px; }        /* 状态卡图标兜底 emoji 18pt */
 
+/* ---------- 字号恢复 · 弹窗/分区标题补齐（v2.1 上线收口） ----------
+   背景：以下 4 处标题的代码本意字号为 12pt(=16px)，其 `setPointSize` 在历史批次被作为
+   「死字号」删除（确为死行：被全局 `QWidget{font-size:14px}` 压平）—— 删除无视觉回归，
+   但层级随之丢失，现回落 14px 正文基线。本轮据「字号单一收口」纪律改由 QSS 单点补回。
+   命名空间：`#updTitle` 自带 id，直接命中；其余三处的标题控件**无 objectName**（核实：以
+   代码为准，评审给的 model_config_panel / kb_dialog / todo_dialog 是模块名而非 objectName），
+   故沿用本项目既有「Python 类名选择器」惯用法（同 SidebarWidget / ChatWindow）作用域到各自
+   容器；用 `>` 直接子选择器收窄，避免波及其他页面/兄弟控件（见各处验证读数）。 */
+QLabel#updTitle { font-size: 16px; }          /* 更新下载弹窗标题（update_progress，12pt） */
+ModelConfigPanel > QLabel { font-size: 16px; }/* 「模型与接口」面板节标题「选择厂商」（12pt） */
+KnowledgeBaseDialog > QLabel { font-size: 16px; } /* 知识库弹窗标题（12pt） */
+TodoDialog > QLabel { font-size: 16px; }      /* 待办弹窗标题（12pt） */
+
 /* ---------- 10. 侧栏导航滚动条（v2.1 阶段 C-1：hover 门控 / WorkBuddy 风格） ----------
    用户诉求：默认隐藏，鼠标进入侧栏模块才显示（滚动中/激活时也显示）。
    实现：代码侧（sidebar.py）按光标是否在侧栏矩形内，把滚动条动态属性
@@ -646,4 +708,131 @@ QListWidget#sidebarNavList QScrollBar::sub-line:vertical {
 QListWidget#sidebarNavList QScrollBar::add-page:vertical,
 QListWidget#sidebarNavList QScrollBar::sub-page:vertical {
     background: transparent;   /* 无底槽 */
+}
+
+/* ---------- 11. 酒馆功能域控件（字号单一收口点，全部集中在本文件） ----------
+   纪律：酒馆所有控件的字号 / 字重**只在此处定义**；`gui/widgets/tavern/*` 一律不写
+   `font-size` / `font-weight`（`setPointSize/setPixelSize` 另有永久守卫测试）。
+   **不设 color** —— 颜色一律由控件代码经 `theme_color(...)` 读时现取（§6.3 / §6.5），
+   避免与代码取色争优先级。仅追加规则，不改动本文件既有规则的语义。
+   11a = 世界书 / 我的故事 / 记录；11b = 叙述流 / 输入区 / 顶部 HUD。 */
+/* --- 11a. 世界书 / 我的故事 / 记录 --- */
+QLabel#tavernPanelTitle { font-size: 17px; font-weight: bold; }
+QLabel#tavernPanelHint { font-size: 12px; }
+QLabel#tavernEntryTitle { font-size: 14px; font-weight: bold; }
+QLabel#tavernEntryKeys { font-size: 12px; }
+QLabel#tavernEntrySummary { font-size: 12px; }
+QLabel#tavernHitChip { font-size: 11px; }
+QLabel#tavernEmptyHint { font-size: 12px; }
+QLabel#tavernPlayTitle { font-size: 14px; font-weight: bold; }
+QLabel#tavernPlayMeta { font-size: 12px; }
+QLabel#tavernActiveChip { font-size: 11px; }
+QLabel#tavernTraceRole { font-size: 13px; font-weight: bold; }
+QLabel#tavernTraceField { font-size: 12px; }
+QLabel#tavernTraceReason { font-size: 12px; }
+QLabel#tavernEndingName { font-size: 12px; }
+QPushButton#tavernPlayLoad { font-size: 12px; }
+QPushButton#tavernPlayDelete { font-size: 12px; }
+
+/* --- 11b. 叙述流 / 输入区 / 顶部 HUD --- */
+QLabel#tavernNarrativeText { font-size: 15px; }
+QLabel#tavernNarrativePlayer { font-size: 12px; }
+QLabel#tavernNarrativeEmpty { font-size: 13px; }
+QPushButton#tavernChoiceBtn { font-size: 13px; }
+QPlainTextEdit#tavernInputEdit { font-size: 14px; }
+QPushButton#tavernSendBtn { font-size: 14px; font-weight: bold; }
+QLabel#tavernInlineHint { font-size: 12px; }
+QLabel#tavernHudChapter { font-size: 15px; font-weight: bold; }
+QLabel#tavernHudScene { font-size: 12px; }
+QLabel#tavernHudItem { font-size: 11px; }
+QLabel#tavernHudStatus { font-size: 12px; }
+
+/* --- 11c. 酒馆页面（`gui/pages/page_tavern.py` 装配的页面级 id） ---
+   同上纪律：本段**只给字号 / 字重**，不写 `color`（颜色由页面经 `theme_color` 读时现取）。
+   11a / 11b 是控件侧 id，本段只收页面自建小部件的 id；上面两段一字未动。 */
+QLabel#tavernCastName { font-size: 14px; font-weight: bold; }
+QLabel#tavernCastRole { font-size: 11px; }
+QLabel#tavernCastLine { font-size: 12px; }
+QLabel#tavernSettingsLabel { font-size: 13px; }
+QLabel#tavernSettingsHint { font-size: 12px; }
+QCheckBox#tavernAllowPropose { font-size: 13px; }
+QSpinBox#tavernBudgetSpin { font-size: 13px; }
+QPushButton#tavernRerollBtn { font-size: 12px; }
+QPushButton#tavernEditBtn { font-size: 12px; }
+QLabel#tavernStartHint { font-size: 13px; }
+QPushButton#tavernStartBtn { font-size: 14px; font-weight: bold; }
+
+/* ---------- 12. 聊天气泡动作行（「复制」按钮 / 时间戳）换肤收口 ----------
+   缺陷：`message_bubble.py` 的「复制」按钮（objectName=actionBtn）与时间戳
+   （objectName=timeLabel）此前用**控件级内联样式表**写死裸粉 / 裸灰
+   （#FFE4EC / #BBBBBB / #FFF0F3 / #FFB6C1 / #FF6B9D），而全仓 8 份 qss 中
+   **没有任何** `QPushButton#actionBtn` / `QLabel#timeLabel` 规则 → 深色主题下
+   这两个控件仍是浅粉 / 裸灰，与主题完全不搭（内联样式优先级高于 app 级 qss，
+   故必须同时移除内联，单侧改动无效）。
+   落点选择：放 base（公共结构层）——下列选择器在四风格肤感层中均未定义，
+   符合 D-V21-09 正交化惯例（一处生效四风格，无需分叉四份）。
+
+   取色纪律：
+   · 常规态边框 ${border} / 文字 ${text_secondary}、悬停底 ${bg_light} /
+     边框 ${accent_light}、时间戳 ${text_hint} —— 与同排的
+     #readAloudBtn / #regenBtn（代码侧 theme_color 现取）保持同一语义键。
+   · **悬停态文字色用 ${text}（「落在主题淡填充上的正文文字色」），不得用
+     ${accent}/${primary}（「填充用」色），也不能用 ${text_on_accent}**：
+     本规则 hover 的底 ${bg_light} 是一个**随主题翻转的淡填充**（浅色主题=浅底，
+     ui_night=深底 #3A2430），故配它的文字键也必须随之翻转 —— ${text} 正是该键。
+     实测候选令牌 vs ${bg_light} 的四风格对比度：
+       ${text}            14.492 / 11.556 / 12.503 / 11.980  ← 唯一四套全 ≥4.5
+       ${accent_text}      4.125 /  4.397 /  5.335 /  4.280  （三套浅色 <4.5）
+       ${text_on_accent}  14.492 / 11.556 /  1.220 / 14.612  （ui_night 崩）
+       ${accent} / ${primary_dark} / ${text_secondary} / ${text_hint}  全 < 3.9
+     ⚠ ${text_on_accent} 的语义是「落在**强调实底**上的文字」，而 accent/primary
+     实底在四套主题里**永远是亮色** → 该键永远取深色，落在 ui_night 的深色
+     ${bg_light} 上只剩 1.220（不可读）。它**不是** ${bg_light} 的配对键。
+   · 悬停/按下的**描边取 ${accent_text}，不取 ${accent_light} 也不取 ${accent}**：
+     · ${accent_light} 不可用 —— 四套主题里 accent_light ≡ bg_light（逐字节相同），
+       拿它当描边 → 描边与悬停底同色，对比度 1.000，**完全不可见**；
+     · ${accent} 也不可用 —— 实测 ${accent} vs ${bg_light} = **2.783 / 1.931 / 5.317 /
+       2.814**，三套浅色 **< 3:1**（ui_cream 仅 1.931），作为"看得见的描边"不达标。
+       （注：3.144 / 2.538 / 3.853 / 3.841 是 **${primary_dark}** vs ${bg_light} 的读数，
+       不是 ${accent} 的。）
+     · 故取 ${accent_text} vs ${bg_light} = **4.125 / 4.397 / 5.335 / 4.280**，四套均
+       ≥3:1（且 ≥4.5），既保住强调色相又真的看得见。此手法与 base §5/§9/§9b 一致 ——
+       项目对「必须可见的装饰描边」本就取前景/文字类令牌（那里用的是 ${text}），
+       而非填充类令牌。备选中性键 ${text_secondary} = 3.840 / 3.975 / 4.285 / 4.010。
+   · :pressed / :disabled 复用既有令牌 ${bg_light} / ${disabled_bg} /
+     ${disabled_text} / ${divider}，不引入未注册令牌。
+   字号（11px / 10px）沿用原内联值，按「字号单一收口」纪律只在本块声明。 */
+QPushButton#actionBtn {
+    background: transparent;
+    border: 1px solid ${border};
+    border-radius: 6px;
+    color: ${text_secondary};
+    font-size: 11px;
+    padding: 2px 8px;
+}
+QPushButton#actionBtn:hover {
+    background: ${bg_light};
+    border-color: ${accent_text};
+    color: ${text};
+}
+/* 显式给 :pressed 声明 color：该伪态若单独命中（无 :hover 同时作用）而不给 color，
+   会回落到常规态的 ${text_secondary} 落在 ${bg_light} 上 = 3.840 / 3.975 / 4.285 /
+   4.010（四套全部不达标）。取 ${text} 与悬停态同键；描边同悬停取 ${accent_text}。 */
+QPushButton#actionBtn:pressed {
+    background: ${bg_light};
+    border-color: ${accent_text};
+    color: ${text};
+}
+QPushButton#actionBtn:disabled {
+    background: ${disabled_bg};
+    color: ${disabled_text};
+    border-color: ${divider};
+}
+/* 10px 次级时间戳。取 ${text_hint}（vs chat_bg = 3.000 / 3.022 / 3.501 / 3.008）——
+   低于小字 AA 的 4.5，但对照被替换掉的旧内联裸色 #BBBBBB（vs 白底仅 1.92）已是
+   显著改善；进一步提对比需改色板（另一议题），故本轮**维持**此键并如实标注。 */
+QLabel#timeLabel {
+    font-size: 10px;
+    color: ${text_hint};
+    padding-left: 8px;
 }

@@ -60,6 +60,51 @@ class TestWidgetInstantiation:
         bubble.update_text("更新后")
         assert bubble.get_text() == "更新后"
 
+    def test_message_bubble_update_text_recomputes_height(self, qtbot):
+        """v2.1(UI-Fix-0915): update_text「原地 setHtml」快路径必须重算高度。
+
+        内容 browser 是 Expanding×Fixed + setFixedHeight；快路径若不显式调
+        ``_adjust_height``，高度会冻结在首个短分片的值 → 长流式回复被裁剪。
+        此处断言长文本更新后的内容 browser 高度**严格大于**短文本更新后的高度。
+        （纯 ASCII 长文本：确定性、不依赖 CJK 字形 / 墙钟。）
+        """
+        from gui.qt_compat import QApplication, QWidget, Qt
+        from gui.widgets.message_bubble import MessageBubble
+
+        bubble = MessageBubble("assistant", "short")
+        qtbot.addWidget(bubble)
+        bubble.setAttribute(Qt.WA_DontShowOnScreen, True)
+        bubble.resize(360, 400)
+        bubble.show()
+        qtbot.wait(1)
+        QApplication.processEvents()
+
+        def content_browser():
+            frame = bubble.findChild(QWidget, "bubbleFrame")
+            assert frame is not None and frame.layout() is not None
+            widget = frame.layout().itemAt(0).widget()
+            assert widget is not None
+            return widget
+
+        bubble.update_text("short")
+        qtbot.wait(1)
+        QApplication.processEvents()
+        short_browser = content_browser()
+        short_h = short_browser.height()
+
+        long_text = "This is a long streaming reply used to verify the bubble grows. " * 120
+        bubble.update_text(long_text)
+        qtbot.wait(1)
+        QApplication.processEvents()
+        long_browser = content_browser()
+        # 快路径原地 setHtml，不换 widget —— 应为同一对象
+        assert long_browser is short_browser
+        assert long_browser.document().size().height() > 0
+        assert long_browser.height() > short_h, (
+            "update_text 快路径未重算高度：short=%d long=%d"
+            % (short_h, long_browser.height())
+        )
+
     def test_thinking_indicator(self, qtbot):
         """思考指示器可创建。"""
         from gui.widgets.thinking_indicator import ThinkingIndicator

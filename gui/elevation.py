@@ -30,11 +30,15 @@ Qt 的 QSS **不支持** ``box-shadow``（见 ``gui/themes/base.qss`` 第 10 节
 """
 from __future__ import annotations
 
+import logging
 import re
 import weakref
 from typing import Any, Optional, Tuple
 
 from gui.qt_compat import QColor, QGraphicsDropShadowEffect
+
+#: 模块级日志器（R-Q 静默降级统一记 ``debug``：属预期行为、非告警）
+logger = logging.getLogger("maid_coder.gui.elevation")
 
 __all__ = [
     "ENABLED",
@@ -351,7 +355,7 @@ def _on_theme_changed(theme_name: str = "") -> None:
     try:
         refresh_all(theme_name)
     except Exception:
-        pass
+        logger.debug("换肤后刷新投影失败，已静默忽略", exc_info=True)
 
 
 def apply_card_shadow(widget, *, level: int = 1,

@@ -1,6 +1,7 @@
 """帮助页面 —— 使用指南与快捷命令参考。"""
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from gui import icons
@@ -9,6 +10,8 @@ from gui.qt_compat import (
     QHBoxLayout, Qt, QFont,
 )
 from gui.utils import theme_color
+
+logger = logging.getLogger("maid_coder.gui")
 
 
 def _vector_icon(app_ctx, name: str, size: int, color):
@@ -31,7 +34,35 @@ class PageHelp(QWidget):
         super().__init__(parent)
         self.app_ctx = app_context
         self.title = title
+        self._title_icon_label: Optional[QLabel] = None
         self._init_ui()
+        # v2.1(#291): 本页此前**无任何换肤订阅**，标题图标取色只在构造期发生一次
+        # → 换主题后颜色不跟随。照同类页（page_memories / page_memory_book）既有范式
+        # 补订阅：主题变更 → 用 theme_color 取新色重渲染标题图标。
+        self._apply_theme()
+        try:
+            _engine = getattr(self.app_ctx, "theme_engine", None)
+            if _engine is not None and hasattr(_engine, "theme_changed"):
+                _engine.theme_changed.connect(lambda _n: self._apply_theme())
+        except Exception:
+            logger.debug("静默降级：page_help 换肤订阅中忽略异常", exc_info=True)
+
+    def _apply_theme(self) -> None:
+        """换肤刷新：按新主题色重渲染标题矢量图标（任务 #291）。
+
+        取色同构造期（``theme_color(app_ctx, "text")``）；图标字体不可用 / 渲染失败
+        时静默保持原状（不空白、不崩），尺寸 20px 不变。
+        """
+        label = getattr(self, "_title_icon_label", None)
+        if label is None:
+            return
+        try:
+            tic = _vector_icon(self.app_ctx, "help", 20,
+                               theme_color(self.app_ctx, "text", "#5D4037"))
+            if tic is not None:
+                label.setPixmap(tic.pixmap(20, 20))
+        except Exception:
+            logger.debug("静默降级：page_help._apply_theme 中忽略异常", exc_info=True)
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -53,6 +84,7 @@ class PageHelp(QWidget):
             icon_lab.setPixmap(tic.pixmap(20, 20))
             icon_lab.setFixedSize(20, 20)
             title_row.addWidget(icon_lab)
+            self._title_icon_label = icon_lab
         title_row.addWidget(title_label)
         title_row.addStretch()
         layout.addLayout(title_row)

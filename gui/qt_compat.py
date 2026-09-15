@@ -95,6 +95,8 @@ __all__ = [
     "QImage", "QImageWriter",
     # v2.1 预编增补（Gui）
     "QPixmapCache",
+    # v2.1(阶段 C-1): 侧栏滚动条 hover 门控（QCursor 全局坐标判定，sidebar.py 用）
+    "QCursor",
     # v1.3(P1-2)
     "QGuiApplication", "QScreen",
     # Core 增补：v1.3(P1-2) screen_capture 选区绘制用

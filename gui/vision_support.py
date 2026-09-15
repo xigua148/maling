@@ -21,7 +21,8 @@ import json
 import logging
 from typing import List, Optional
 
-from gui.qt_compat import QThread, Signal
+from gui.qt_compat import Signal
+from gui.qt_exit_guard import ExitSafeQThread
 
 logger = logging.getLogger("maid_coder.gui.vision_support")
 
@@ -140,10 +141,16 @@ def build_vision_messages(
     ]
 
 
-class VisionQueryWorker(QThread):
+class VisionQueryWorker(ExitSafeQThread):
     """一次后台视觉小调用（QThread，非流式；供 B1 分类 / B2 意图复用）。
 
     succeeded(str text, dict usage) / failed(str error)。
+
+    退出自我收口（继承 :class:`gui.qt_exit_guard.ExitSafeQThread`）：本 worker 由
+    ``ScreenWatchService._classify_worker`` / ``ComputerUseController._worker`` 以
+    ``parent=承载对象`` 持有；若退出时网络调用仍在进行，父对象析构会**连坐析构仍在运行
+    的 ``QThread``** → ``0xC0000409`` fail-fast。基类自挂 ``aboutToQuit`` + 父控件
+    ``destroyed`` → 幂等有界 ``stop()``；超时则 detach + 强引用（对齐 kb_worker 取舍）。
     """
 
     succeeded = Signal(str, dict)

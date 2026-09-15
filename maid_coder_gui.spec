@@ -57,6 +57,12 @@ a = Analysis(
         # get_resource_path("assets/icons/…") 落空 → 图标内核 available() 为假 → 静默回退 emoji，
         # 本轮新增的图标字形体系在打包版中完全不生效。
         ('gui/assets/icons', 'assets/icons'),
+        # v2.2(V22-09): 酒馆内容包（book.json / chapters.json / transforms.json）。
+        # 目标目录必须**恰好**是 'tavern/content'：gui/tavern/worldbook.py::content_dir()
+        # 源码态取 <repo>/gui/tavern/content、frozen 态取 <_MEIPASS>/tavern/content。
+        # 写错（如 'assets/tavern/content'）会让 frozen 态内容包加载落空 → 静默降级为
+        # 空内容包（**不报错**），故必须与 content_dir() 严格对齐。
+        ('gui/tavern/content', 'tavern/content'),
         # ---- v1.7.3: Pi 编程引擎试点 ----
         # 门禁扩展（pi_backend.GATE_PATH 在 frozen 态定位 _internal/pi_gateway/）
         ('pi_gateway/maling_gate.js', 'pi_gateway'),

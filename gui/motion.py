@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import ctypes
+import logging
 import os
 import time
 from typing import Optional
@@ -34,6 +35,31 @@ from gui.qt_compat import (
     QApplication, QEasingCurve, QGraphicsOpacityEffect, QPropertyAnimation,
     QTimer, Qt,
 )
+
+#: 模块级日志器（R-Q 静默降级统一记 ``debug``：属预期行为、非告警）
+logger = logging.getLogger("maid_coder.gui.motion")
+
+#: 热路径静默降级的"只记一次"去重键（**防日志刷屏**，见 :func:`_log_once`）
+_LOGGED_ONCE: "set[str]" = set()
+
+
+def _log_once(key: str, message: str) -> None:
+    """热路径静默降级日志：同一 ``key`` 只记一次（**防日志刷屏**）。
+
+    本模块多处 except 位于**每次 tick / 每帧**或**信号突发**路径 ——
+    ``_tick_loops`` 的相位回调（~60fps）、驱动器启停、``destroyed`` /
+    ``finished`` 信号收尾。若每次都 ``logger.debug`` 会随 tick 次数**线性增长**，
+    故这里按 ``key`` 去重，保证**总日志条数有界**（不随 tick / 帧次数增长）。
+    （本模块所有 except 均收口到本函数，口径统一。）
+
+    ``exc_info=True``：本函数在 ``except`` 动态作用域内被调用，
+    ``sys.exc_info()`` 仍能取到当前正在处理的异常，故不必显式传异常对象。
+    """
+    if key in _LOGGED_ONCE:
+        return
+    _LOGGED_ONCE.add(key)
+    logger.debug(message, exc_info=True)
+
 
 # ---------------------------------------------------------------------------
 # 档位常量（唯一真值源；值与设计 §4.2 一致）
@@ -158,7 +184,8 @@ def _forget(anim: "QPropertyAnimation") -> None:
         _RUNNING.discard(anim)
         _CALLBACKS.pop(anim, None)
     except Exception:
-        pass
+        # destroyed 信号突发路径 → 只记一次，避免批量销毁时刷屏
+        _log_once("forget", "从动画登记表移除失败，已忽略")
 
 
 def _cleanup(anim: "QPropertyAnimation") -> None:
@@ -171,7 +198,8 @@ def _cleanup(anim: "QPropertyAnimation") -> None:
         try:
             cb()
         except Exception:
-            pass
+            # finished 信号突发路径 → 只记一次
+            _log_once("cleanup-cb", "动画结束回调执行失败，已忽略")
 
 
 def animate(widget, prop: bytes, start, end, *, duration_ms: Optional[int] = None,
@@ -236,8 +264,8 @@ def stop_all(final: bool = True) -> None:
                 anim.setCurrentTime(anim.duration())
             anim.stop()
         except RuntimeError:
-            # C++ 侧对象已销毁
-            pass
+            # C++ 侧对象已销毁（收束期批量停 → 只记一次）
+            _log_once("stop-all-runtime", "停止动画时 C++ 对象已销毁，已忽略")
     if final:
         for anim in list(_RUNNING):
             _cleanup(anim)
@@ -293,7 +321,8 @@ def _ensure_driver() -> "Optional[QTimer]":
             try:
                 _DRIVER.setTimerType(Qt.PreciseTimer)
             except Exception:
-                pass
+                # 驱动器创建期一次性路径（_ensure_driver 每个循环启动都会走）→ 只记一次
+                _log_once("driver-timer-type", "设置驱动器精确定时器类型失败，已忽略")
             _DRIVER.timeout.connect(_tick_loops)
         except Exception:
             _DRIVER = None
@@ -302,7 +331,8 @@ def _ensure_driver() -> "Optional[QTimer]":
             if not _DRIVER.isActive():
                 _DRIVER.start()
         except RuntimeError:
-            pass
+            # 循环频繁启停路径 → 只记一次
+            _log_once("driver-start", "启动动效驱动器失败，已忽略")
     return _DRIVER
 
 
@@ -314,7 +344,8 @@ def _stop_driver() -> None:
         if _DRIVER.isActive():
             _DRIVER.stop()
     except RuntimeError:
-        pass
+        # 亦可达于 _tick_loops 空转分支（每 tick 可达）→ 只记一次，避免刷屏
+        _log_once("driver-stop", "停止动效驱动器失败，已忽略")
 
 
 def loop(owner, on_tick, *, period_ms: Optional[int] = None,
@@ -359,7 +390,8 @@ def loop(owner, on_tick, *, period_ms: Optional[int] = None,
         try:
             owner.destroyed.connect(lambda *_: stop_loop(handle))
         except Exception:
-            pass
+            # 循环频繁启停路径 → 只记一次
+            _log_once("loop-connect", "连接 owner.destroyed 自动停循环失败，已忽略")
     _ensure_driver()
     return handle
 
@@ -398,7 +430,8 @@ def _stop_all_loops(notify: bool) -> None:
         try:
             cb()
         except Exception:
-            pass
+            # 批量停循环路径 → 只记一次
+            _log_once("stop-all-loops-cb", "循环 on_disabled 回调执行失败，已忽略")
 
 
 def _tick_loops(now: Optional[float] = None) -> None:
@@ -428,4 +461,5 @@ def _tick_loops(now: Optional[float] = None) -> None:
         try:
             entry.on_tick(progress)
         except Exception:
-            pass
+            # ⚠ 热路径：每个 tick（~60fps）× 每个循环都会走到 → 只记一次，严防刷屏
+            _log_once("tick-on-tick", "循环 on_tick 回调执行失败，已忽略")

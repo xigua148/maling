@@ -229,3 +229,90 @@ def test_adaptive_browser_uses_no_wheel_subclass(qapp):
 
     w = MessageBubble._make_adaptive_browser("<p>hello</p>")
     assert isinstance(w, _NoWheelTextBrowser)
+
+
+# ---------------------------------------------------------------------------
+# ⑧ v2.1(P1/D-V21-01)：总开关接上真实配置键（消灭「有 set_enabled 无配置键」）
+# ---------------------------------------------------------------------------
+def test_config_key_default_enabled(monkeypatch, tmp_path):
+    """设置项默认 True（既有行为：守卫默认开启；升级用户零变化）。"""
+    import gui.config as config_mod
+
+    monkeypatch.setattr(config_mod, "get_user_data_dir", lambda: tmp_path)
+    assert config_mod.GuiConfig().wheel_guard_enabled is True
+
+
+def test_config_key_missing_falls_back_enabled(monkeypatch):
+    """缺键（旧存档）→ _config_enabled 回落 True（零迁移）。"""
+
+    class _NoKeyConfig:
+        @staticmethod
+        def load():
+            return object()  # 无 wheel_guard_enabled 属性
+
+    import gui.config as config_mod
+    monkeypatch.setattr(config_mod, "GuiConfig", _NoKeyConfig)
+    assert wheel_guard._config_enabled() is True
+
+
+def test_sync_from_config_seeds_disabled(monkeypatch):
+    """未显式设置时，sync_from_config 按持久化配置初始化总开关。"""
+    monkeypatch.setattr(wheel_guard, "_EXPLICIT", False)
+    monkeypatch.setattr(wheel_guard, "_config_enabled", lambda: False)
+    assert wheel_guard.sync_from_config() is False
+    assert wheel_guard.ENABLED is False
+
+
+def test_sync_from_config_respects_explicit(monkeypatch):
+    """已显式设置过 → 启动同步不覆盖运行中的切换。"""
+    wheel_guard.set_enabled(True)
+    monkeypatch.setattr(wheel_guard, "_config_enabled", lambda: False)
+    assert wheel_guard.sync_from_config() is True
+    assert wheel_guard.ENABLED is True
+
+
+def test_install_seeds_from_config(monkeypatch, qapp):
+    """install() 会按配置初始化总开关（未被显式设置时）。"""
+    wheel_guard.uninstall(qapp)
+    monkeypatch.setattr(wheel_guard, "_EXPLICIT", False)
+    monkeypatch.setattr(wheel_guard, "_config_enabled", lambda: False)
+    assert wheel_guard.install(qapp) is True
+    assert wheel_guard.ENABLED is False
+    wheel_guard.uninstall(qapp)
+
+
+def test_toggle_off_then_combo_wheel_changes_value(qapp):
+    """两态对照：关 → 不再拦截（组合框值被滚轮改）。
+
+    与 ``test_disabled_restores_default_behaviour``（滑块态）互补，覆盖评审
+    点名的 QComboBox 场景。
+    """
+    wheel_guard.set_enabled(False)
+    combo = QComboBox()
+    combo.addItems(["A", "B", "C"])
+    combo.setCurrentIndex(1)
+    area, combo = _area_with(combo)
+    combo.installEventFilter(_GUARD_FILTER)
+    v0 = combo.currentIndex()
+    QApplication.sendEvent(combo, _wheel(combo))
+    qapp.processEvents()
+    assert combo.currentIndex() != v0, "关掉守卫后组合框应恢复默认（滚轮可改值）"
+
+
+def test_toggle_on_then_combo_wheel_keeps_value(qapp):
+    """两态对照：开 → 拦截（组合框值不变，事件转发给滚动区）。"""
+    wheel_guard.set_enabled(True)
+    combo = QComboBox()
+    combo.addItems(["A", "B", "C"])
+    combo.setCurrentIndex(1)
+    area, combo = _area_with(combo)
+    combo.installEventFilter(_GUARD_FILTER)
+    bar = area.verticalScrollBar()
+    bar.setValue(300)
+    qapp.processEvents()
+    v0, sc0 = combo.currentIndex(), bar.value()
+    QApplication.sendEvent(combo, _wheel(combo))
+    qapp.processEvents()
+    assert combo.currentIndex() == v0, "开启守卫时组合框值不得被滚轮改动"
+    assert bar.value() != sc0, "滚轮应转交滚动区（页面照常滚动）"
+

@@ -36,7 +36,21 @@ from gui import icons
 #   记录，异常被完全吞掉，问题只能靠肉眼发现。改走 logger.debug 后可在日志里定位
 #   （仅记录、不重抛，行为零变化）。
 import logging
+import re
+
 logger = logging.getLogger("maid_coder.gui.page_settings")
+
+# ---------------------------------------------------------------------------
+# v2.1(任务#290)：换肤保留语义色 —— 「11px 提示标签」可能用到的语义色键登记表。
+#
+# 键名 → ``theme_color`` 兜底色（必须与构建期各 setStyleSheet 站点的兜底色一致）。
+# 事实来源：探针枚举本页全部 ``font-size: 11px`` 标签（共 22 个），其中 21 个为
+# hint（text_secondary），**只有 1 类语义色 state_warn**（自动更新「上次安装」、
+# TTS 降级说明、看屏缺视觉模型提示）。新增语义色 11px 标签时在此登记即可。
+# ---------------------------------------------------------------------------
+_SEMANTIC_11PX_KEYS: "dict[str, str]" = {
+    "state_warn": "#E5A02E",
+}
 
 # v1.3(P1-3): 全局热键改键用 QKeySequenceEdit（按下捕获）；极旧 PySide6 缺失则降级只读
 try:
@@ -98,15 +112,35 @@ class PageSettings(QWidget):
     # v2.1(UI-Fix-0914): 换肤刷新
     #   本页 31 处局部 setStyleSheet 绝大多数是「11px 提示文字」，颜色取自 _hint_color()。
     #   只重刷「本页自己套过 11px 提示样式」的 QLabel（按样式签名识别），
-    #   不动其它控件、不动构建期样式本身；带 state_warn 语义色的保留其语义色。
+    #   不动其它控件、不动构建期样式本身；命中签名者统一套回 hint 提示色。
+    #
+    # v2.1(任务#290) 修复：原初版把**所有**命中 11px 签名的标签一律刷成 hint，
+    #   于是构建期用 ``state_warn`` 语义色着色的标签（自动更新「上次安装」状态、
+    #   TTS 降级说明、看屏缺视觉模型提示）在换肤后被刷成 hint 弱化色 ——
+    #   刚启动是琥珀警示色，一切主题就「变淡」，**语义色丢失**（真 bug）。
+    #   历史实现 ``warn_style if "state_warn" in cur else hint_style`` 恒假：
+    #   ``cur`` 是**样式串**（只含上一次渲染的色值，如 ``#E0A02E``），
+    #   ``"state_warn"`` 是**色键名**，色值里永不含该字面量 → 三元永远取 hint。
+    #   本次修复改为**按色值反查语义键**（不再搜键名），命中即套回该语义键在
+    #   **当前主题**下的新色值；未命中任何语义键者仍套 hint（保持原行为）。
     # ------------------------------------------------------------------
     def _apply_theme(self) -> None:
         try:
             hint_style = f"QLabel {{ color: {self._hint_color()}; font-size: 11px; }}"
-            warn_style = (
-                f"QLabel {{ color: {theme_color(self.app_ctx, 'state_warn', '#E5A02E')};"
-                " font-size: 11px; }"
-            )
+            # 语义键 → 换肤后要套回的新样式（色值取**当前主题**，故换肤即更新）
+            semantic_styles = {
+                key: f"QLabel {{ color: "
+                     f"{theme_color(self.app_ctx, key, fallback)}; font-size: 11px; }}"
+                for key, fallback in _SEMANTIC_11PX_KEYS.items()
+            }
+            # 语义键 → 该键在「所有主题 × 明暗」色板中出现过的**历史色值集合**
+            # （含兜底色）。为何不比对「当前色值」：``theme_changed`` 在引擎
+            # 切换**之后**才回调，此刻 ``cur`` 里是**旧主题**的色值，
+            # 只比对当前色值会在换肤时失配（正是本 bug 的成因）。
+            semantic_values = {
+                key: self._semantic_value_set(key, fallback)
+                for key, fallback in _SEMANTIC_11PX_KEYS.items()
+            }
             for lbl in self.findChildren(QLabel):
                 try:
                     cur = lbl.styleSheet() or ""
@@ -114,7 +148,9 @@ class PageSettings(QWidget):
                     continue
                 if "font-size: 11px" not in cur:
                     continue
-                lbl.setStyleSheet(warn_style if "state_warn" in cur else hint_style)
+                matched = self._match_semantic_key(cur, semantic_values)
+                lbl.setStyleSheet(
+                    semantic_styles[matched] if matched else hint_style)
             # 强调色按钮的选中态（依赖主题色）
             try:
                 self._refresh_accent_selection()
@@ -122,6 +158,45 @@ class PageSettings(QWidget):
                 logger.debug("静默降级：_apply_theme 中忽略异常", exc_info=True)
         except Exception:
             logger.debug("静默降级：page_settings._apply_theme 中忽略异常", exc_info=True)
+
+    @staticmethod
+    def _extract_color(style: str) -> str:
+        """从内联 QSS 串取首个 ``color`` 值（小写归一）；取不到返回空串。"""
+        m = re.search(r"color:\s*([^;}\s]+)", style or "")
+        return m.group(1).strip().lower() if m else ""
+
+    @staticmethod
+    def _semantic_value_set(key: str, fallback: str) -> "set[str]":
+        """收集语义键 ``key`` 在全部主题 × 明暗色板中出现过的色值（小写）+ 兜底色。
+
+        用「历史色值全集」而非「当前色值」反查，才能在换肤回调（cur 仍是旧主题
+        色值）时正确命中语义键。纯静态：只读 ``ThemeEngine.THEME_DEFINITIONS``。
+        """
+        values = {str(fallback).lower()}
+        try:
+            for theme_def in ThemeEngine.THEME_DEFINITIONS.values():
+                for pal_name in ("colors", "colors_dark"):
+                    palette = theme_def.get(pal_name) or {}
+                    color = palette.get(key)
+                    if color:
+                        values.add(str(color).lower())
+        except Exception:
+            logger.debug("静默降级：_semantic_value_set 中忽略异常", exc_info=True)
+        return values
+
+    @staticmethod
+    def _match_semantic_key(style: str, semantic_values: "dict[str, set]") -> Optional[str]:
+        """按**色值**反查语义键：命中返回键名，未命中返回 ``None``。
+
+        绝非「在样式串里搜键名」（那恒假）；此处比对的是 ``cur`` 里真实的色值。
+        """
+        color = PageSettings._extract_color(style)
+        if not color:
+            return None
+        for key, values in semantic_values.items():
+            if color in values:
+                return key
+        return None
 
     def _init_ui(self) -> None:
         # v10.15: 整个设置页用 QScrollArea 包起来，保证所有设置模块完整可见，
@@ -801,6 +876,31 @@ class PageSettings(QWidget):
             f"QLabel {{ color: {self._hint_color()}; font-size: 11px; }}"
         )
         common_layout.addWidget(autostart_hint)
+
+        # v2.1(P1/D-V21-01): 滚轮守卫 —— 下拉框/数值框/滑块不再被滚轮误改（默认开）。
+        # 即时生效路径：写 cfg + save → wheel_guard.set_enabled（翻转模块级总开关）。
+        wg_row = QHBoxLayout()
+        self.wheel_guard_check = QCheckBox("滚轮不误改设置（下拉框 / 数值框 / 滑块）")
+        self.wheel_guard_check.setToolTip(
+            "开启后：鼠标滚轮经过下拉框、数值框、滑块时只滚动页面，不改变控件取值；\n"
+            "点击与键盘（方向键）照常可用。\n"
+            "关闭后：恢复系统默认（滚轮可调整这些控件的取值）。"
+        )
+        self.wheel_guard_check.stateChanged.connect(self._on_wheel_guard_changed)
+        wg_row.addWidget(self.wheel_guard_check)
+        wg_row.addStretch()
+        common_layout.addLayout(wg_row)
+
+        wg_hint = QLabel(
+            "默认开启：用滚轮翻设置页时，不会因为鼠标经过下拉框/滑块而意外改动设置；"
+            "点击或键盘仍可正常调整。切换后立即生效，无需重启。"
+        )
+        wg_hint.setWordWrap(True)
+        wg_hint.setStyleSheet(
+            f"QLabel {{ color: {self._hint_color()}; font-size: 11px; }}"
+        )
+        common_layout.addWidget(wg_hint)
+
         layout.addWidget(common_frame)
         self.common_frame = common_frame
 
@@ -888,9 +988,12 @@ class PageSettings(QWidget):
         _last_hint = last_install_hint(load_update_state())
         self.update_last_install_label = QLabel(_last_hint)
         self.update_last_install_label.setWordWrap(True)
+        # ⚠ 两半**必须都是 f-string**：隐式拼接时前半的 `{{` 会被反转义成 `{`，
+        # 而后半若是普通字符串，`}}` 会**原样保留** → 拼出 `{ ... }}`（1 开 2 闭），
+        # Qt 解析失败会**整条规则丢弃**并打 4 条 "Could not parse stylesheet" 告警。
         self.update_last_install_label.setStyleSheet(
             f"QLabel {{ color: {theme_color(self.app_ctx, 'state_warn', '#E5A02E')}; "
-            "font-size: 11px; }}"
+            f"font-size: 11px; }}"
         )
         self.update_last_install_label.setVisible(bool(_last_hint))
         box.addWidget(self.update_last_install_label)
@@ -1185,6 +1288,28 @@ class PageSettings(QWidget):
             config.save()
         except Exception:
             logger.debug("静默降级：_on_close_quits_changed 中忽略异常", exc_info=True)
+
+    def _on_wheel_guard_changed(self, state: int) -> None:
+        """v2.1(P1/D-V21-01): 滚轮守卫开关 —— 写配置 + 即时生效（无需重启）。
+
+        关闭时过滤器**完全不拦截**（等价于未安装），不留半开状态；开启时恢复
+        「滚轮转交滚动区、不改控件值」的默认行为。
+        """
+        config = getattr(self.app_ctx, "config", None)
+        enabled = self.wheel_guard_check.isChecked()
+        if config is not None:
+            config.wheel_guard_enabled = enabled
+            try:
+                config.save()
+            except Exception:
+                logger.debug(
+                    "静默降级：_on_wheel_guard_changed 中忽略异常", exc_info=True)
+        try:
+            from gui import wheel_guard
+            wheel_guard.set_enabled(enabled)
+        except Exception:
+            logger.debug(
+                "静默降级：_on_wheel_guard_changed 中忽略异常", exc_info=True)
 
     # -- v1.8(V18-13/D-V18-07): 场景设置 --
     def _on_scene_auto_changed(self, state: int) -> None:
@@ -1735,6 +1860,14 @@ class PageSettings(QWidget):
                 logger.debug("静默降级：_load_settings 中忽略异常", exc_info=True)
         if hasattr(self, "close_quits_check"):
             self.close_quits_check.setChecked(bool(getattr(config, "close_quits", False)))
+        # v2.1(P1/D-V21-01): 滚轮守卫开关回显（阻塞信号：回显不触发保存/即时生效）
+        if hasattr(self, "wheel_guard_check"):
+            self.wheel_guard_check.blockSignals(True)
+            try:
+                self.wheel_guard_check.setChecked(
+                    bool(getattr(config, "wheel_guard_enabled", True)))
+            finally:
+                self.wheel_guard_check.blockSignals(False)
         # ---- v1.3(P2-7): 外观模式初始化 ----
         if hasattr(self, "appearance_combo"):
             mode = getattr(config, "theme_mode", "light") or "light"
@@ -2249,6 +2382,14 @@ class PageSettings(QWidget):
             if hasattr(self, "hotkey_toggle_edit") or hasattr(self, "hotkey_screenshot_edit"):
                 config.hotkey_toggle = self._current_hotkey("toggle")
                 config.hotkey_screenshot = self._current_hotkey("screenshot")
+            # v2.1(P1/D-V21-01): 滚轮守卫开关一并落盘 + 即时生效
+            if hasattr(self, "wheel_guard_check"):
+                config.wheel_guard_enabled = self.wheel_guard_check.isChecked()
+                try:
+                    from gui import wheel_guard
+                    wheel_guard.set_enabled(config.wheel_guard_enabled)
+                except Exception:
+                    logger.debug("静默降级：_on_save_all 中忽略异常", exc_info=True)
             # v1.7.2(T3): 编程引擎选择落盘（GuiConfig 字段）
             if hasattr(self, "coding_engine_combo"):
                 data = self.coding_engine_combo.currentData()

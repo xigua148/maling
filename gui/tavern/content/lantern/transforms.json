@@ -1,0 +1,51 @@
+{
+  "book_id": "lantern",
+  "schema": "transforms.v1",
+
+  "var_names": ["photo_seen"],
+
+  "quick_actions": [
+    {
+      "action_id": "qa_look_around",
+      "label": "环顾四周",
+      "icon": "search",
+      "transform": "wait",
+      "args": {"effects": [{"field": "photo_seen", "op": "set", "value": true}]}
+    },
+    {
+      "action_id": "qa_order_drink",
+      "label": "来一杯长夜酒",
+      "icon": "glass",
+      "transform": "order",
+      "args": {"item": "long_night"}
+    },
+    {
+      "action_id": "ask_about_photo",
+      "label": "问那张照片",
+      "icon": "menu_book",
+      "transform": "ask_about",
+      "args": {"topic": "photo"}
+    },
+    {
+      "action_id": "ask_about_guest",
+      "label": "问那位客人",
+      "icon": "person",
+      "transform": "ask_about",
+      "args": {"topic": "guest"}
+    },
+    {
+      "action_id": "watch_window",
+      "label": "看窗外的雨",
+      "icon": "cloud",
+      "transform": "ask_about",
+      "args": {"topic": "rain"}
+    },
+    {
+      "action_id": "qa_stay_silent",
+      "label": "什么都不问",
+      "icon": "moon",
+      "transform": "wait",
+      "args": {}
+    }
+  ]
+}

@@ -57,6 +57,12 @@ a = Analysis(
         #    一致）；否则 frozen 态 get_resource_path("assets/icons/…") 落空 → 图标内核
         #    available() 为假 → 静默回退 emoji，本轮新增的图标字形体系在单文件版失效。
         ('gui/assets/icons', 'assets/icons'),
+        # v2.2(V22-09): 酒馆内容包（book.json / chapters.json / transforms.json）。
+        # 目标目录必须**恰好**是 'tavern/content'（与 onedir.spec 一致）：
+        # gui/tavern/worldbook.py::content_dir() 源码态取 <repo>/gui/tavern/content、
+        # frozen 态取 <_MEIPASS>/tavern/content。写错会让单文件版内容包加载落空 →
+        # 静默降级为空内容包（**不报错**），故必须与 content_dir() 严格对齐。
+        ('gui/tavern/content', 'tavern/content'),
         # ---- v2.0(V20-17): 内嵌自动更新 sidecar（design D-V20-08）----
         # onefile 下 datas 进自解压 _MEIPASS → 运行时 _MEIPASS/updater/maling_updater.exe；
         # 与 gui/main.py:977 get_resource_path("updater") + ensure_self_installed 布局对齐。

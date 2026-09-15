@@ -25,11 +25,28 @@ R-F：仅 PySide6 内置（``QPainter``/``QColor``/``QPen``）+ 标准库。
 """
 from __future__ import annotations
 
+import logging
 import math
 from typing import Optional
 
 from gui.qt_compat import QWidget, QSize, QPainter, QColor, QPen, QRectF, Qt
 from gui import motion
+
+#: 模块级日志器（R-Q 静默降级统一记 ``debug``：属预期行为、非告警）
+logger = logging.getLogger("maid_coder.gui.loop_indicator")
+
+#: ``paintEvent`` 是**每帧重绘**路径（``motion.loop`` 每 tick 触发 ``update()``），
+#: 故静默降级按"只记一次"去重，避免随帧数刷屏。
+_LOGGED_ONCE: "set[str]" = set()
+
+
+def _log_once(key: str, message: str) -> None:
+    """**热路径**（每帧重绘）静默降级日志：同一 ``key`` 只记一次，防刷屏。"""
+    if key in _LOGGED_ONCE:
+        return
+    _LOGGED_ONCE.add(key)
+    logger.debug(message, exc_info=True)
+
 
 #: 各形态的固定尺寸（宽, 高）——**刻意小**，规避 v1.4.9「太大」回滚教训。
 #: ``pulse`` / ``ripple`` 沿用状态条既有 ``●`` 的 14px 宽，**不改布局占位**。
@@ -159,7 +176,8 @@ class LoopIndicator(QWidget):
                 self._paint_typing(painter, phase)
             painter.end()
         except Exception:
-            pass
+            # 热路径：paintEvent 每帧重绘 → 只记一次，避免刷屏
+            _log_once("paint", "循环指示器自绘失败，已忽略")
 
     # ------------------------------------------------------------------
     # 形态绘制（phase 为 None 时画静态基态）

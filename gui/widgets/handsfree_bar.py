@@ -24,10 +24,15 @@ def state_texts() -> dict:
 
     v2.1(D-V21-06): 状态图标改用 ``icons.text_glyph``，图标不可用时
     原样回落 emoji（不空白、不崩）。禁止改为模块级常量（启动期字体未注册）。
+    例外：``recognizing`` 的 ``👂`` 按 #279 裁决保留裸符号（无贴切语义名）。
     """
     return {
         "idle": f"免提未开启：点下方「{icons.text_glyph('voice', '🎙')} 免提」即可开口发消息（说「暂停」或敲键盘会自动停下）",
         "listening": f"{icons.text_glyph('headphone', '🎧')} 免提中 · 我在听，主人直接说就好～（开始打字/动鼠标会自动暂停）",
+        # v2.1(#279 裁决回退)：`recognizing` 保留**裸 emoji 👂**。manifest 无「耳朵/聆听」
+        # 语义名；若复用 `headphone` 会与 listening 态 `🎧→headphone` **同名重复**（“双耳机”，
+        # 语义重复比留 emoji 更糟）。按「找不到贴切名就不硬凑」原则，此处不做字形化，
+        # 👂 直接作显示字符（本身即语义 fallback）。
         "recognizing": "👂 听到了，正在识别…",
         "sending": f"{icons.text_glyph('send', '📨')} 正在发送给码铃… 稍等一下下~",
         "speaking": f"{icons.text_glyph('volume', '🔊')} 码铃正在把回答读给主人听…",
@@ -43,6 +48,15 @@ class HandsfreeBar(QWidget):
         super().__init__(parent)
         self.app_ctx = app_ctx
         self._state: str = "idle"
+
+        # 本控件用**类名选择器**给自己写底色/描边/圆角（见 ``_apply_theme`` 里的
+        # ``HandsfreeBar { background: ...; border: ...; border-radius: ... }``），
+        # 但它是 Python 的 ``QWidget`` 子类 → Qt 不会自动置 ``WA_StyledBackground``
+        # （详见 ``MainWindow._ensure_page_backgrounds`` 的实测表）。属性缺失时
+        # ``QWidget::paintEvent`` 不发 ``PE_Widget`` → **底色、1px 描边、圆角三者
+        # 全不绘制**（毛玻璃下链路已 transparent，直接呈透明列）。故构造期显式置位；
+        # 仅补属性，不动任何 QSS / 配色 / 尺寸。
+        self.setAttribute(Qt.WA_StyledBackground, True)
 
         self._row = QHBoxLayout(self)
         self._row.setContentsMargins(12, 2, 12, 2)
@@ -137,7 +151,14 @@ class HandsfreeBar(QWidget):
     def _apply_theme(self) -> None:
         try:
             idle_dot = theme_color(self.app_ctx, "disabled_text", "#9E9E9E")
-            active_dot = theme_color(self.app_ctx, "accent", "#FF6B9D")
+            # 对比度修复：状态点是**非文字图形**，需 vs surface_muted ≥3:1。
+            # 「填充用」accent 实测仅 3.159/2.102/6.183/3.079（ui_cream 2.102 不过）
+            # → 改用更深一档的「文字用」accent_text（4.684/4.785/6.204/4.683）。
+            active_dot = theme_color(self.app_ctx, "accent_text", "#B45073")
+            # ⚠ 停止键 hover 底属「实底 + text_on_accent」配对（P4 类，
+            #   5.208/5.984/6.485/5.192），与上面的状态点分工不同 → 单独取 accent，
+            #   不得与 active_dot 合并（合并会让 hover 字对比度掉到 2.6~3.5）。
+            hover_accent = theme_color(self.app_ctx, "accent", "#FF6B9D")
             text = theme_color(self.app_ctx, "text_secondary", "#8A8A8A")
             text_on_accent = theme_color(self.app_ctx, "text_on_accent", "#FFFFFF")
             primary = theme_color(self.app_ctx, "primary", "#FFB6C1")
@@ -158,7 +179,7 @@ class HandsfreeBar(QWidget):
                 f"  border: none; border-radius: 10px; padding: 2px 12px; font-size: 11px;"
                 f"}}"
                 f"QPushButton#handsfreeStopBtn:hover {{"
-                f"  background: {active_dot}; }}"
+                f"  background: {hover_accent}; }}"
             )
         except Exception:
             pass

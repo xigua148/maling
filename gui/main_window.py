@@ -6,8 +6,9 @@ from typing import Dict, Optional
 
 from gui.qt_compat import (
     QMainWindow, QWidget, QStackedWidget, QSplitter,
-    QVBoxLayout, QStatusBar, QLabel, Qt,
+    QVBoxLayout, QHBoxLayout, QStatusBar, QLabel, Qt,
     QPushButton,  # v1.2.1: 顶部 Key 引导横幅
+    QPixmap,  # v2.1.1: 状态栏图标清空/降级
     QEvent, QGraphicsOpacityEffect,  # v2.1(V21-08): 窗口状态重应用 / 切页淡入收尾
 )
 from gui.utils import theme_color  # v2.1(V21-08): 取色唯一入口
@@ -48,6 +49,7 @@ from gui.pages.page_toolbox import PageToolbox
 from gui.pages.page_plan import PagePlan
 from gui.pages.page_memories import PageMemories  # v1.3(P2-3): 高光回忆册
 from gui.pages.page_memory_book import PageMemoryBook  # v1.6(P0-1): 透明记忆中心
+from gui.pages.page_tavern import PageTavern  # v2.2(V22-09): 酒馆（AI 陪伴叙事）
 from gui.pages.onboarding import OnboardingDialog
 
 logger = logging.getLogger("maid_coder.gui")
@@ -130,6 +132,11 @@ class MainWindow(QMainWindow):
 
         # 7. 首次启动引导
         self._check_first_run()
+
+        # 8. 页面根 / 侧栏底色属性
+        # 必须放在第 7 步**之后**：``_check_first_run()`` 会把 ``OnboardingDialog``
+        # addWidget 到页面栈（晚入栈页根），早于它执行就会漏掉该页根。
+        self._ensure_page_backgrounds()
 
     def _setup_central_layout(self) -> None:
         """中心区域：左侧功能导航栏 + 中间主屏（页面栈）。
@@ -266,6 +273,7 @@ class MainWindow(QMainWindow):
             ("agent", PageRole, "角色面板"),
             ("tools", PageToolbox, "工具箱"),
             ("plan", PagePlan, "计划编辑器"),
+            ("tavern", PageTavern, "酒馆"),  # v2.2(V22-09)
         ]
 
         for key, cls, title in page_classes:
@@ -279,6 +287,75 @@ class MainWindow(QMainWindow):
         # 初始化 PageManager
         self.page_manager = PageManager(self.page_stack, self.pages)
         self.app_ctx.page_manager = self.page_manager
+
+    def _ensure_page_backgrounds(self) -> None:
+        """给「页面根 / 侧栏」打开 ``WA_StyledBackground``，让主题 QSS 底色真正被绘制。
+
+        缺陷（毛玻璃下整块透黑）：``SidebarWidget`` 与全部页面类都是**直接继承
+        ``QWidget`` 的 Python 子类**，metaobject 与 ``QWidget`` 不同 → Qt 的样式表
+        引擎**不会**给它自动置 ``Qt::WA_StyledBackground``。实测（app 级 QSS +
+        ``show()`` + ``ensurePolished()`` 后取样）：
+
+          · ``QWidget()``                    → True
+          · ``QFrame``                       → True
+          · Python 的 ``QFrame`` 子类         → True
+          · **Python 的 ``QWidget`` 子类**    → **False**
+
+        「不被自动置位」只适用于**直接继承 ``QWidget`` 的 Python 子类**这一档
+        （``QFrame`` 子类不受此影响）；且 ``QWidget()`` / ``QSplitter`` 在**构造
+        时刻**实测同样为 False，需 ``show()`` / polish 之后才被引擎置为 True ——
+        故本修复在 ``__init__`` 末尾（``_check_first_run()`` 之后）**显式补位**，
+        不依赖 polish 时机。
+
+        该属性缺失时 ``QWidget::paintEvent`` 不画 ``PE_Widget``，故主题 QSS 里的
+        ``QWidget { background-color: ${bg} }`` / ``SidebarWidget
+        { background-color: ${bg_card} }`` **完全不生效**，控件区域保持「未绘制」。
+
+        为什么只在毛玻璃下暴露：玻璃关时未绘制区透出 MainWindow 自绘的 ``${bg}``
+        （看起来正常）；玻璃开时 base.qss §1 把 ``glassCentralOuter`` /
+        ``glassCentralSplitter`` / ``glassPageStack`` 置 ``background: transparent``
+        （D-V21-04），链路再无底色可透 → 真机呈全透明（截图转 RGB 即成纯黑）。
+        实测读数：侧栏矩形黑占比约 79.5%~79.8%（玻璃开，两次独立采样）→ 0.0%
+        （本修复后）。修复前黑区不止侧栏，全窗扫描共 8 处未绘制：help 44.5% /
+        about 26.7% / memories 17.2% / memory_book 15.9% / project 13.8% /
+        tavern 1.9% / chat 1.6%（20px 全高缝）/ 侧栏 79.5%，本修复后全部归零。
+
+        **注意：这不是「零视觉变化」的改动。** 玻璃**关闭**时侧栏底色同样会改变
+        （``${bg}`` → ``${bg_card}``，如 ``#F7F7F8`` → ``#FFFFFF``；四风格实测
+        两色对比度 ≤1.094、ΔL* ≤4.04），依据是 ``SidebarWidget`` 那条底色规则本身
+        **无条件、没有 ``[glass="on"]`` 门控** —— 改前显示 ``${bg}`` 属「属性缺失
+        导致整条规则失效」的偶然结果；同一规则里的 1px ``border-right`` 也随之恢复
+        绘制（此前同样被跳过）。页面根则与该区域原有底色同值（``${bg}``），实测
+        13 页 × 4 风格改前/改后零像素差异。读数留档见 ``_probe/glass_off_matrix.txt``。
+
+        与 base.qss §1 注释「页面根、侧栏…仍需各自的主题底色保持可读」的设计意图
+        一致，也符合 G-1 验收②「不支持时保持纯色 ${bg}，不黑窗」。仅补属性，不动
+        任何 QSS / 配色 / 布局。
+
+        **候选集口径（治类不治例）**：取「侧栏 ∪ ``self.pages`` ∪ ``page_stack``
+        的**全部直接子级**」。只听 ``self.pages`` 会漏掉**晚入栈的页根** ——
+        ``OnboardingDialog`` 由 ``_check_first_run()`` 在 ``_setup_pages()`` 之后才
+        ``page_stack.addWidget()``（见 ``_show_onboarding``），它不在 ``self.pages``
+        里，玻璃开时实测未绘制 6.87%。并入页面栈直接子级后，同类时序漏网自动闭合。
+        本方法**幂等**，可安全重入。
+        """
+        roots = [self.sidebar, *self.pages.values()]
+        stack = getattr(self, "page_stack", None)
+        if stack is not None:
+            try:
+                roots.extend(stack.widget(i) for i in range(stack.count()))
+            except Exception:
+                logger.debug("静默降级：枚举页面栈子级失败", exc_info=True)
+
+        seen = set()
+        for widget in roots:
+            if widget is None or id(widget) in seen:
+                continue
+            seen.add(id(widget))
+            try:
+                widget.setAttribute(Qt.WA_StyledBackground, True)
+            except Exception:
+                logger.debug("静默降级：页面底色属性设置失败", exc_info=True)
 
     def _build_placeholder_page(self, title: str) -> QWidget:
         """构建占位页面。"""
@@ -298,57 +375,114 @@ class MainWindow(QMainWindow):
         layout.addStretch()
         return page
 
+    def _make_status_item(self, key: str, text: str) -> QLabel:
+        """构造一个状态项：``[图标 QLabel] + [文案 QLabel]`` 装进 ``QHBoxLayout`` 容器。
+
+        **为什么不共用一个 QLabel**：Qt 的 ``QLabel`` 单次只能显示 pixmap 或 text
+        之一 —— ``setText()`` 会清掉已设的 pixmap，``setPixmap()`` 会清掉已有的
+        text。若把图标设到文案 label 上（旧实现），文案立即被清空；API 状态路径又
+        反向调 ``setText()`` 把图标清掉，于是三项互相覆盖（v2.1.1 修复的既有缺陷）。
+        拆成两个 QLabel 从结构上杜绝这类互斥。
+
+        返回**文案 QLabel**，由调用方挂到 ``self.status_theme`` / ``status_mode`` /
+        ``status_api`` —— 保持 ``.text()`` 语义与既有 ``setText()`` 调用点零变更。
+
+        内边距：主题 QSS 有 ``QStatusBar QLabel { padding: 0 12px; }`` 后代规则，
+        会**同时命中**图标与文案两个子 label（旧实现只有一个 label，故无此问题），
+        使图标与文案之间出现 24px 空洞、图标「浮空」。此处仅重排内边距、不改字号/
+        颜色：项左内边距 12px 收口到容器，图标 label 居中无内边距，文案保留右侧
+        12px —— 最终节奏与旧「单标签 12px 内边距」一致（图标 14px + 4px 间距 + 文案）。
+        """
+        suffix = key[len("status_"):] if key.startswith("status_") else key
+        container = QWidget(self.status_bar)
+        container.setObjectName(f"statusItem_{suffix}")
+        row = QHBoxLayout(container)
+        row.setContentsMargins(12, 0, 0, 0)  # 项左内边距（与旧单标签 12px 左内边距一致）
+        row.setSpacing(4)
+
+        icon_label = QLabel(container)
+        icon_label.setObjectName(f"statusIcon_{suffix}")
+        icon_label.setVisible(False)  # 图标未就绪前隐藏，避免留空白占位
+        # 去掉 QSS 给子 label 的左右内边距，图标紧贴容器左内边距、右侧只留 4px 间距
+        icon_label.setStyleSheet(f"QLabel#statusIcon_{suffix} {{ padding: 0; }}")
+
+        text_label = QLabel(text, container)
+        text_label.setObjectName(f"statusText_{suffix}")
+        # 文案保留右侧 12px 项内边距；左侧去掉（由容器左内边距 + 4px 间距接管）
+        text_label.setStyleSheet(f"QLabel#statusText_{suffix} {{ padding: 0 12px 0 0; }}")
+
+        row.addWidget(icon_label)
+        row.addWidget(text_label)
+        self.status_bar.addWidget(container)
+        self._status_icon_labels[key] = icon_label
+        return text_label
+
     def _setup_status_bar(self) -> None:
         """构建状态栏。v10.15: API 状态通过 refresh_api_status() 统一刷新。
 
-        v2.1(V21-08/I-3): 三个 QLabel 图标化（矢量优先；字体不可用回落纯文本）。
+        v2.1(V21-08/I-3): 三个状态项图标化（矢量优先；字体不可用回落纯文本）。
+        v2.1.1: 图标与文案拆成两个 QLabel（见 :meth:`_make_status_item`）——
+        ``QLabel`` 单次只能显示 pixmap 或 text，共用一个 label 会互相覆盖。
+        ``self.status_theme`` / ``status_mode`` / ``status_api`` **仍指向文案
+        label**，故所有 ``.text()`` / ``setText()`` 调用点语义不变。
         """
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
 
-        self.status_theme = QLabel("主题: 现代极简")
-        self.status_bar.addWidget(self.status_theme)
-
-        self.status_mode = QLabel("模式: 标准")
-        self.status_bar.addWidget(self.status_mode)
-
-        self.status_api = QLabel("API: 未配置")
-        self.status_bar.addWidget(self.status_api)
-
-        # v2.1(V21-08): 三标签矢量图标（不可用时不加图标，文本原样保留）
+        # v2.1(V21-08): 状态项图标名（不可用时不设图标，文案原样保留）
         self._status_icon_specs = (
             ("status_theme", "palette"),
             ("status_mode", "mode"),
             ("status_api", "api"),
         )
+        # key → 图标 QLabel（与 _status_icon_specs 的 attr 对齐）
+        self._status_icon_labels: Dict[str, QLabel] = {}
+
+        self.status_theme = self._make_status_item("status_theme", "主题: 现代极简")
+        self.status_mode = self._make_status_item("status_mode", "模式: 标准")
+        self.status_api = self._make_status_item("status_api", "API: 未配置")
+
         self._refresh_status_icons()
 
         # v10.15: 初始化时调用 refresh_api_status()，由它判断已配置/未配置
         self.refresh_api_status()
 
     def _refresh_status_icons(self) -> None:
-        """V21-08/I-3: 状态栏三图标化（换肤后按新色重渲染）。
+        """V21-08/I-3: 状态项图标化（换肤后按新色重渲染）。
 
-        ``icons.available()`` 为假时不设图标（回落纯文本，绝不空白/崩）。
+        图标一律落在**独立的图标 QLabel**（``self._status_icon_labels``）上，
+        **绝不**设到文案 label —— 否则会清掉文案（``QLabel`` pixmap/text 互斥，
+        见 :meth:`_make_status_item`）。
+
+        ``icons`` 为 None / ``available()`` 为假 / 渲染失败 / 渲染为空时：清空并
+        **隐藏**该图标 label（隐藏而非留空白，避免状态栏出现莫名空隙），文案原样
+        保留，绝不空白 / 崩。
         """
-        if icons is None:
-            return
-        try:
-            if not icons.available():
-                return
-            color = theme_color(self.app_ctx, "text_secondary", "#8A8A8A")
-        except Exception:
-            return
+        labels = getattr(self, "_status_icon_labels", None) or {}
         for attr, name in getattr(self, "_status_icon_specs", ()):
-            label = getattr(self, attr, None)
-            if label is None:
+            icon_label = labels.get(attr)
+            if icon_label is None:
                 continue
+
+            rendered = None
+            if icons is not None:
+                try:
+                    if icons.available():
+                        color = theme_color(self.app_ctx, "text_secondary", "#8A8A8A")
+                        rendered = icons.icon(name, 14, color)
+                except Exception:
+                    logger.debug("静默降级：状态栏图标渲染失败", exc_info=True)
+                    rendered = None
+
             try:
-                rendered = icons.icon(name, 14, color)
                 if rendered is not None and not rendered.isNull():
-                    label.setPixmap(rendered.pixmap(14, 14))
+                    icon_label.setPixmap(rendered.pixmap(14, 14))
+                    icon_label.setVisible(True)
+                else:
+                    icon_label.setPixmap(QPixmap())
+                    icon_label.setVisible(False)
             except Exception:
-                continue
+                logger.debug("静默降级：状态栏图标应用失败", exc_info=True)
 
     def refresh_api_status(self) -> None:
         """v10.15: 统一刷新底部 API 状态栏。
@@ -448,6 +582,13 @@ class MainWindow(QMainWindow):
         project_page = self.pages.get("project")
         if isinstance(project_page, PageProject):
             project_page.file_opened.connect(self._on_project_file_opened)
+
+        # v2.1(修复 #279 续): 首页「最近会话」点击 → 切到该会话。此前
+        # `PageHome.session_selected` 全仓零消费者（点了没反应）；范式与上面
+        # `project_page.file_opened` 一致（页面发信号 → 主窗消费）。
+        home_page = self.pages.get("home")
+        if isinstance(home_page, PageHome):
+            home_page.session_selected.connect(self._on_home_session_selected)
 
         # v10.14: 好感度等级变化 → 状态栏可见提示
         chat_service = getattr(self.app_ctx, "chat_service", None)
@@ -776,6 +917,52 @@ class MainWindow(QMainWindow):
         self.app_ctx.current_file_path = file_path
         if self.page_manager is not None:
             self.page_manager.navigate("file")
+
+    def _on_home_session_selected(self, session_id: str) -> None:
+        """v2.1(修复 #279 续): 首页「最近会话」点击 → 复用既有切换路径切到该会话。
+
+        - 复用 ``ChatPanelWidget._switch_to_session``（会话列表点击 / 标签页切换的
+          同一入口），不另造切换逻辑；切换后回聊天主屏。
+        - 目标会话不存在 / 会话管理器缺失 / 面板未就绪 → **不崩**，用状态栏给出
+          克制提示并 ``logger.debug`` 收口（沿用 ``_on_intimacy_changed`` 的提示方式）。
+        """
+        panel = getattr(self, "chat_panel", None)
+        switch = getattr(panel, "_switch_to_session", None) if panel is not None else None
+        if not callable(switch):
+            self._notify_home_switch_failed("聊天面板未就绪，暂不能切换会话")
+            return
+        # 存在性校验（用面板自带的 session_manager，即切换的权威数据源）
+        session_manager = getattr(panel, "session_manager", None)
+        getter = getattr(session_manager, "get_session", None)
+        exists = True
+        if callable(getter):
+            try:
+                exists = getter(session_id) is not None
+            except Exception:
+                logger.debug("静默降级：会话存在性检查失败 id=%s", session_id, exc_info=True)
+                exists = True
+        if not exists:
+            self._notify_home_switch_failed("那条会话已经找不到了~")
+            logger.debug("首页切换会话：目标不存在 id=%s", session_id)
+            return
+        try:
+            switch(session_id)
+        except Exception:
+            logger.debug("首页切换会话失败 id=%s", session_id, exc_info=True)
+            self._notify_home_switch_failed("切换会话时出了点小问题，请到聊天页重试")
+            return
+        try:
+            if self.page_manager is not None:
+                self.page_manager.navigate("chat")
+        except Exception:
+            logger.debug("静默降级：切换会话后导航失败", exc_info=True)
+
+    def _notify_home_switch_failed(self, message: str) -> None:
+        """首页切换会话失败/不可用的克制提示（状态栏，短时；失败静默）。"""
+        try:
+            self.status_bar.showMessage(message, 4000)
+        except Exception:
+            logger.debug("静默降级：状态栏提示失败", exc_info=True)
 
     def save_window_state(self) -> None:
         """持久化窗口几何/侧栏可见性（closeEvent 与托盘退出共用的单一保存点）。"""

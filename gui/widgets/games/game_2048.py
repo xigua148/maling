@@ -128,11 +128,14 @@ class Game2048(QWidget):
             f"QWidget#g2048Board {{ background: {bg_card}; border: 1px solid {divider};"
             f" border-radius: 14px; }}"
             f"QLabel#g2048Hint {{ color: {text_secondary}; font-size: 12px; background: transparent; }}"
-            f"QLabel#g2048Score {{ color: {accent}; font-size: 14px; font-weight: bold;"
+            # 对比度修复：得分/hover 字落在 bg_light 实底上 —— accent 为「填充用」强调色，
+            # 四风格实测仅 2.783/1.931/5.317/2.814（三套浅色 <4.5），改用文字色 text
+            # （14.492/11.556/12.503/11.980，四套全达标）。
+            f"QLabel#g2048Score {{ color: {text}; font-size: 14px; font-weight: bold;"
             f" background: {bg_light}; border-radius: 8px; padding: 6px 10px; }}"
             f"QPushButton#g2048Restart {{ background: {accent}; color: #FFFFFF; border: none;"
             f" border-radius: 8px; padding: 6px 12px; font-size: 12px; }}"
-            f"QPushButton#g2048Restart:hover {{ background: {bg_light}; color: {accent};"
+            f"QPushButton#g2048Restart:hover {{ background: {bg_light}; color: {text};"
             f" border: 1px solid {accent}; }}"
             f"QLabel#g2048MaidLine {{ color: {text_secondary}; font-size: 12px; background: transparent; }}"
         )

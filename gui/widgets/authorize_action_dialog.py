@@ -19,6 +19,7 @@ from gui.qt_compat import (
     QFrame,
 )
 from gui.utils import theme_color
+from gui.widgets.card_import_preview import resolve_theme_source
 from gui import icons
 
 logger = logging.getLogger("maid_coder.gui.authorize_action")
@@ -57,9 +58,15 @@ def detect_sensitive(text: str) -> Optional[str]:
 class AuthorizeActionDialog(QDialog):
     """GUI 单步操作授权弹窗（modal）。exec_() 返回 Accepted 视为「允许这一次」。"""
 
-    def __init__(self, action: dict, preview: Optional[QPixmap] = None, parent=None):
+    def __init__(self, action: dict, preview: Optional[QPixmap] = None, parent=None,
+                 app_context=None):
         super().__init__(parent)
         self._action = action or {}
+        # v2.2(缺陷3)：接上取色链路。此前所有 theme_color 都传的是 **self**（QDialog
+        #   没有 theme_engine）→ 全部回落硬编码 #4A4A4A，深色主题下 2.12 近不可见。
+        #   本弹窗由 computer_use 以「无 parent」构造，故除 parent 链外还退到顶层窗口，
+        #   最后回落调色板兜底源（永不为 None）。
+        self._theme_src = resolve_theme_source(app_context or self)
         self.setWindowTitle("码铃 · 操作授权（仅这一次）")
         self.setModal(True)
         self.setMinimumWidth(440)
@@ -67,11 +74,18 @@ class AuthorizeActionDialog(QDialog):
 
     # ------------------------------------------------------------------
     def _build_ui(self, preview: Optional[QPixmap]) -> None:
-        accent = theme_color(self, "accent", "#FF6B9D")
-        text_main = theme_color(self, "text", "#4A4A4A")
-        text_sec = theme_color(self, "text_secondary", "#8A8A8A")
-        warn = theme_color(self, "state_warn", "#E5A02E")
-        danger = theme_color(self, "state_danger", "#D9534F")
+        accent = theme_color(self._theme_src, "accent", "#FF6B9D")
+        # 强调**文字**用 accent_text（浅底上的强调文字令牌）：ui_cream 的 accent
+        #   (#FF8FA3) / ui_whale 的 accent (#2E9BB5) 当文字用时只有 2.06 / 2.97。
+        accent_text = theme_color(self._theme_src, "accent_text", "#B45073")
+        text_main = theme_color(self._theme_src, "text", "#4A4A4A")
+        text_sec = theme_color(self._theme_src, "text_secondary", "#8A8A8A")
+        warn = theme_color(self._theme_src, "state_warn", "#E5A02E")
+        danger = theme_color(self._theme_src, "state_danger", "#C0392B")
+        bg_light = theme_color(self._theme_src, "bg_light", "#FFF0F3")
+        border = theme_color(self._theme_src, "border", "#FFE4E1")
+        surface_muted = theme_color(self._theme_src, "surface_muted", "#FFF9FA")
+        on_accent = theme_color(self._theme_src, "text_on_accent", "#FFFFFF")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -89,7 +103,7 @@ class AuthorizeActionDialog(QDialog):
         action_label = QLabel(self._action_summary())
         action_label.setWordWrap(True)
         action_label.setStyleSheet(
-            f"QLabel {{ color: {accent}; font-size: 13px; font-weight: bold; }}"
+            f"QLabel {{ color: {accent_text}; font-size: 13px; font-weight: bold; }}"
         )
         layout.addWidget(action_label)
 
@@ -103,8 +117,8 @@ class AuthorizeActionDialog(QDialog):
             img_lbl.setPixmap(sc)
             img_lbl.setAlignment(Qt.AlignCenter)
             img_lbl.setStyleSheet(
-                f"border: 1px solid {theme_color(self, 'border', '#FFE4E1')};"
-                f"border-radius: 8px; background: {theme_color(self, 'surface_muted', '#FFF9FA')};"
+                f"border: 1px solid {border};"
+                f"border-radius: 8px; background: {surface_muted};"
             )
             layout.addWidget(img_lbl)
         else:
@@ -113,7 +127,7 @@ class AuthorizeActionDialog(QDialog):
             placeholder.setMinimumHeight(120)
             placeholder.setStyleSheet(
                 f"color: {text_sec}; font-size: 11px;"
-                f"border: 1px dashed {theme_color(self, 'border', '#FFE4E1')}; border-radius: 8px;"
+                f"border: 1px dashed {border}; border-radius: 8px;"
             )
             layout.addWidget(placeholder)
 
@@ -134,7 +148,7 @@ class AuthorizeActionDialog(QDialog):
             layout.addWidget(type_title)
             box = QFrame()
             box.setStyleSheet(
-                f"QFrame {{ background: {theme_color(self, 'bg_light', '#FFF0F3')};"
+                f"QFrame {{ background: {bg_light};"
                 f" border-radius: 6px; }}"
             )
             box_l = QVBoxLayout(box)
@@ -174,9 +188,9 @@ class AuthorizeActionDialog(QDialog):
         allow = QPushButton(f"{icons.text_glyph('check', '✅')} 允许这一次")
         allow.setCursor(Qt.PointingHandCursor)
         allow.setStyleSheet(
-            f"QPushButton {{ background: {accent}; color: {theme_color(self, 'text_on_accent', '#FFFFFF')};"
+            f"QPushButton {{ background: {accent}; color: {on_accent};"
             f" border: none; border-radius: 10px; padding: 6px 18px; font-size: 12px; }}"
-            f"QPushButton:hover {{ background: {theme_color(self, 'accent_light', '#FFB6C1')}; }}"
+            f"QPushButton:hover {{ background: {bg_light}; }}"
         )
         allow.clicked.connect(self.accept)
         reject = QPushButton("拒绝")
@@ -184,7 +198,7 @@ class AuthorizeActionDialog(QDialog):
         reject.setStyleSheet(
             f"QPushButton {{ background: transparent; color: {danger};"
             f" border: 1px solid {danger}; border-radius: 10px; padding: 6px 18px; font-size: 12px; }}"
-            f"QPushButton:hover {{ background: {theme_color(self, 'bg_light', '#FFF0F3')}; }}"
+            f"QPushButton:hover {{ background: {bg_light}; }}"
         )
         reject.clicked.connect(self.reject)
         btn_row.addWidget(allow)

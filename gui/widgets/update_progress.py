@@ -126,6 +126,8 @@ class UpdateProgressDialog(QDialog):
     def _apply_theme(self) -> None:
         bg = theme_color(self.app_ctx, "bg_card", "#FFFFFF")
         accent = theme_color(self.app_ctx, "accent", "#FF6B9D")
+        # v2.1(UI-P1)：按钮文字用 accent_text（「文字用」强调色）；填充/描边仍 accent。
+        accent_text = theme_color(self.app_ctx, "accent_text", "#B45073")
         primary = theme_color(self.app_ctx, "primary", "#FFB6C1")
         text = theme_color(self.app_ctx, "text", "#5D4037")
         secondary = theme_color(self.app_ctx, "text_secondary", "#8A8A8A")
@@ -139,7 +141,7 @@ class UpdateProgressDialog(QDialog):
             f"QProgressBar#updBar {{ border: 1px solid {divider}; border-radius: 7px;"
             f" background: #F5F5F5; height: 14px; text-align: center; }}"
             f"QProgressBar#updBar::chunk {{ background: {accent}; border-radius: 6px; }}"
-            f"QPushButton#updBtn {{ background: transparent; color: {accent};"
+            f"QPushButton#updBtn {{ background: transparent; color: {accent_text};"
             f" border: 1px solid {primary}; border-radius: 8px; padding: 6px 14px; }}"
             f"QPushButton#updBtn:hover {{ background: {primary}; color: #FFFFFF; }}"
             f"QPushButton#updBtnPrimary {{ background: {accent}; color: #FFFFFF;"

@@ -33,10 +33,12 @@ from gui.qt_compat import (
 ROOT = Path(__file__).resolve().parents[1]
 
 # 改动前基线（key, label）序列（design §4.5：语义零变更）
+# + v2.2 新增 tavern（批 3）——既有 (key,label) 对**零变更、零重排**；本守卫本义不变。
 _NAV_BASELINE = [
     ("chat", "聊天"), ("home", "首页"), ("memories", "回忆"),
     ("memory_book", "记忆中心"), ("project", "项目"), ("file", "文件"),
-    ("plan", "计划"), ("agent", "角色"), ("tools", "工具"), ("settings", "设置"),
+    ("plan", "计划"), ("tavern", "酒馆"), ("agent", "角色"),
+    ("tools", "工具"), ("settings", "设置"),
 ]
 
 
@@ -311,7 +313,13 @@ def test_page_switch_rapid_same_page_no_crash(main_window, qapp):
 # V21-08 · 状态栏图标化（I-3）
 # ---------------------------------------------------------------------------
 def test_status_bar_icons_applied_when_available(main_window, monkeypatch):
-    """图标可用时三个状态标签设上 pixmap。"""
+    """图标可用时三个状态项**图标 label 设上 pixmap、文案 label 仍保留文字**。
+
+    旧断言（三个文案 label 的 pixmap 非空）写死了错误设计：Qt 的 ``QLabel`` 只能
+    显示 pixmap 或 text 之一，给文案 label 设图标会清空文案。修复后图标落在独立
+    的 ``_status_icon_labels`` 上，故改为对「图标 label 有 pixmap」与「文案 label
+    有文字」双向断言 —— 任一被清空都会红。
+    """
     import gui.main_window as mw
 
     class _FakeIcons:
@@ -327,8 +335,68 @@ def test_status_bar_icons_applied_when_available(main_window, monkeypatch):
     win = main_window
     win._refresh_status_icons()
     for attr in ("status_theme", "status_mode", "status_api"):
-        label = getattr(win, attr)
-        assert not label.pixmap().isNull()
+        icon_label = win._status_icon_labels[attr]
+        text_label = getattr(win, attr)
+        assert not icon_label.pixmap().isNull(), f"{attr} 图标缺失"
+        assert icon_label.isVisibleTo(win.status_bar), f"{attr} 图标未显示"
+        assert text_label.text().strip(), f"{attr} 文案被清空"
+
+
+def test_status_bar_icon_and_text_coexist_after_startup_sequence(main_window, monkeypatch):
+    """回归（缺陷不变量）：复刻生产启动序列后三项**同时**有文案 + 有图标。
+
+    生产启动序列 = ``_refresh_status_icons()``（设图标）→ ``refresh_api_status()``
+    （设文案）。旧实现里前者清空 theme/mode 文案、后者清空 api 图标 —— 本用例把
+    「文案与图标并存」这条**被违反的不变量**锁死。
+    """
+    import gui.main_window as mw
+
+    class _FakeIcons:
+        def available(self):
+            return True
+
+        def icon(self, name, size=16, color=None):
+            pix = QPixmap(size, size)
+            pix.fill(Qt.black)
+            return QIcon(pix)
+
+    monkeypatch.setattr(mw, "icons", _FakeIcons())
+    win = main_window
+
+    # 复刻 _setup_status_bar 的真实调用顺序
+    win._refresh_status_icons()
+    win.refresh_api_status()
+
+    for attr in ("status_theme", "status_mode", "status_api"):
+        text_label = getattr(win, attr)
+        icon_label = win._status_icon_labels[attr]
+        assert text_label.text().strip(), f"{attr} 文案被清空"
+        assert not icon_label.pixmap().isNull(), f"{attr} 图标缺失"
+        assert icon_label.isVisibleTo(win.status_bar), f"{attr} 图标未显示"
+
+
+def test_status_bar_text_intact_and_icons_hidden_when_unavailable(main_window, monkeypatch):
+    """降级路径：``icons`` 不可用时三项文案完整、图标 label **隐藏**（不留空白占位）。"""
+    import gui.main_window as mw
+
+    class _UnavailableIcons:
+        def available(self):
+            return False
+
+        def icon(self, name, size=16, color=None):
+            return QIcon()
+
+    monkeypatch.setattr(mw, "icons", _UnavailableIcons())
+    win = main_window
+    win._refresh_status_icons()
+    win.refresh_api_status()
+
+    for attr in ("status_theme", "status_mode", "status_api"):
+        text_label = getattr(win, attr)
+        icon_label = win._status_icon_labels[attr]
+        assert text_label.text().strip(), f"{attr} 文案缺失"
+        assert icon_label.pixmap().isNull(), f"{attr} 图标应被清空"
+        assert not icon_label.isVisibleTo(win.status_bar), f"{attr} 图标未隐藏"
 
 
 # ---------------------------------------------------------------------------
@@ -339,7 +407,7 @@ def test_nav_items_are_four_tuples_key_label_unchanged():
     from gui.widgets.sidebar import SidebarWidget
 
     items = SidebarWidget.NAV_ITEMS
-    assert len(items) == 10
+    assert len(items) == 11
     for item in items:
         assert len(item) == 4, f"NAV_ITEMS 项非 4 元组：{item!r}"
         assert item[3], f"回退文本为空：{item!r}"
@@ -357,7 +425,7 @@ def test_sidebar_fallback_text_non_empty_when_icons_unavailable(qapp, monkeypatc
     """④ 图标不可用 → 回退 emoji 文本（不空白、不崩）。"""
     monkeypatch.setattr(sidebar_mod, "_icons", None)
     side = sidebar_mod.SidebarWidget(_bare_ctx())
-    assert side.list_widget.count() == 10
+    assert side.list_widget.count() == 11
     for i, (_key, label, _name, fallback) in enumerate(sidebar_mod.SidebarWidget.NAV_ITEMS):
         text = side.list_widget.item(i).text()
         assert text, "导航项文本为空"
@@ -384,19 +452,41 @@ def test_sidebar_set_active_page_no_recursive_emit(qapp, monkeypatch):
     side.item_clicked.connect(got.append)
     side.set_active_page("settings")
     assert got == []
-    assert side.list_widget.currentRow() == 9
+    assert side.list_widget.currentRow() == 10
 
 
 # ---------------------------------------------------------------------------
 # 回归 · 主窗 theme_changed 既有行为
 # ---------------------------------------------------------------------------
 def test_theme_changed_updates_status_label_regression(main_window, glass_stub, monkeypatch):
-    """主题变更仍更新状态栏文案，且追加的毛玻璃订户不破坏既有行为。"""
+    """主题变更仍更新状态栏文案，且换肤重渲染图标**不会**清空文案（真实保护）。
+
+    必须**先**注册可用图标再换肤：测试环境未加载 ``remixicon`` 字体，图标默认
+    ``available()→False``，若先换肤则图标压根不设、文案「侥幸」保住，断言在生产
+    已坏时也会通过（虚假保护）。此处用 ``available()→True`` 的桩复刻生产环境。
+    """
+    import gui.main_window as mw
+
+    class _FakeIcons:
+        def available(self):
+            return True
+
+        def icon(self, name, size=16, color=None):
+            pix = QPixmap(size, size)
+            pix.fill(Qt.black)
+            return QIcon(pix)
+
+    monkeypatch.setattr(mw, "icons", _FakeIcons())
     glass, _calls = glass_stub
     monkeypatch.setattr(glass, "is_supported", lambda: False)
     win = main_window
     win.theme_engine.theme_changed.emit("ui_night")
     assert win.status_theme.text() == "主题: 深色夜间"
+    # 换肤 → _refresh_status_icons() 重渲染后，主题图标落在独立 label 上且可见，
+    # 文案仍完整（旧实现：图标设到文案 label 上会清空文案）。
+    icon_label = win._status_icon_labels["status_theme"]
+    assert not icon_label.pixmap().isNull()
+    assert icon_label.isVisibleTo(win.status_bar)
 
 
 # ---------------------------------------------------------------------------

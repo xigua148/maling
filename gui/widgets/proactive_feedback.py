@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from gui.qt_compat import QWidget, QHBoxLayout, QLabel, QPushButton, QSize, Qt
+from gui.qt_compat import QWidget, QHBoxLayout, QLabel, QPushButton, QSize, Qt, QIcon
 from gui.utils import theme_color
 from gui import icons
 
@@ -136,14 +136,18 @@ class ProactiveFeedbackBar(QWidget):
 
     # -- 主题 --
     def _apply_style(self) -> None:
-        accent = theme_color(self.app_ctx_color(), "accent", "#FF6B9D")
+        # v2.1(UI-P1)：按钮文字用 accent_text（「文字用」强调色），非 accent。
+        accent_text = theme_color(self.app_ctx_color(), "accent_text", "#B45073")
         secondary = theme_color(self.app_ctx_color(), "text_secondary", "#8A8A8A")
         border = theme_color(self.app_ctx_color(), "divider", "#EFE0E2")
+        text = theme_color(self.app_ctx_color(), "text", "#5D4037")
         self.setStyleSheet(
-            f"QPushButton#feedbackBtn {{ background: transparent; color: {accent};"
+            f"QPushButton#feedbackBtn {{ background: transparent; color: {accent_text};"
             f" border: 1px solid {border}; border-radius: 8px; font-size: 11px;"
             f" padding: 2px 8px; }}"
-            f"QPushButton#feedbackBtn:hover {{ background: {border}; }}"
+            # v2.1(UI-P1)：hover 会换成 divider 实底 → 必须显式声明 color，
+            # 否则回落 accent_text（vs divider 仅 3.9~4.3）。
+            f"QPushButton#feedbackBtn:hover {{ background: {border}; color: {text}; }}"
             f"QPushButton#feedbackSpark {{ background: transparent; color: {secondary};"
             f" border: none; font-size: 12px; }}"
             f"QLabel#feedbackHint {{ color: {secondary}; font-size: 11px;"
@@ -157,7 +161,51 @@ class ProactiveFeedbackBar(QWidget):
             return ctx
         return self.parent()
 
+    def update_theme(self) -> None:
+        """换肤刷新：重刷样式 + 按新主题色重挂 ✨ 火花矢量图标（任务 #291）。
+
+        火花图标此前只在构造期由 ``icons.icon(..., None)`` 挂一次（取色烤死），
+        换肤不跟随；这里用同一入口重生成（尺寸/字形不变；字体不可用回落 emoji）。
+        """
+        try:
+            self._apply_style()
+            if self._spark is None:
+                return
+            icon = None
+            try:
+                if icons.available():
+                    icon = icons.icon("auto_awesome", 14, None)
+            except Exception:
+                icon = None
+            if icon is not None and not icon.isNull():
+                self._spark.setIcon(icon)
+                self._spark.setIconSize(QSize(14, 14))
+                self._spark.setText("")
+            else:
+                self._spark.setIcon(QIcon())
+                self._spark.setText("✨")
+        except Exception:
+            logger.debug("静默降级：反馈行换肤刷新失败", exc_info=True)
+
     def set_app_ctx(self, app_ctx) -> None:
         """挂载方注入 app_ctx（theme_color 取色用），注入后刷新配色。"""
         self._app_ctx = app_ctx
         self._apply_style()
+        self._subscribe_theme(app_ctx)
+
+    def _subscribe_theme(self, app_ctx) -> None:
+        """订阅换肤 → 重挂 ✨ 火花图标（矢量图标颜色不会自动跟随）。
+
+        绑到 bound method（非 lambda）→ 本行控件析构时 Qt 自动断开连接。
+        """
+        if getattr(self, "_theme_subscribed", False):
+            return
+        engine = getattr(app_ctx, "theme_engine", None) if app_ctx is not None else None
+        signal = getattr(engine, "theme_changed", None)
+        if signal is None or not hasattr(signal, "connect"):
+            return
+        try:
+            signal.connect(self.update_theme)
+            self._theme_subscribed = True
+        except Exception:
+            logger.debug("静默降级：反馈行换肤订阅失败", exc_info=True)

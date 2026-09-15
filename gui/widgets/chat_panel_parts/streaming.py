@@ -219,17 +219,23 @@ class ChatStreamingMixin:
             try:
                 from gui.utils import theme_color
                 _accent = theme_color(self.app_ctx, "accent", "#FF6B9D")
+                # v2.1(UI-P1)：按钮文字用 accent_text（「文字用」强调色）；描边仍 accent。
+                _accent_text = theme_color(self.app_ctx, "accent_text", "#B45073")
                 _bg_l = theme_color(self.app_ctx, "bg_light", "#FFF0F3")
+                _text = theme_color(self.app_ctx, "text", "#5D4037")
             except Exception:
-                _accent, _bg_l = "#FF6B9D", "#FFF0F3"
+                _accent, _accent_text, _bg_l = "#FF6B9D", "#B45073", "#FFF0F3"
+                _text = "#5D4037"
             _btn_ss = (
                 "QPushButton {"
-                f"  background: transparent; color: {_accent};"
+                f"  background: transparent; color: {_accent_text};"
                 f"  border: 1px solid {_accent}; border-radius: 12px;"
                 "  font-size: 12px; padding: 3px 12px;"
                 "}"
                 "QPushButton:hover {"
-                f"  background: {_bg_l};"
+                # v2.1(UI-P1)：hover 换 bg_light 实底 → 显式声明 color，
+                # 否则回落 accent_text（vs bg_light 仅 4.1~4.4，三套浅色不过）。
+                f"  background: {_bg_l}; color: {_text};"
                 "}"
             )
             retry_btn = QPushButton(f"{icons.text_glyph('retry', '🔄')} 重试")

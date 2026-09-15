@@ -484,6 +484,29 @@ class PagePlan(QWidget):
 
             ms_item.setExpanded(True)
 
+    def _refresh_milestone_icons(self) -> None:
+        """换肤后按新主题色重挂里程碑树图标（任务 #291）。
+
+        里程碑图标此前只在 ``_refresh_milestone_tree`` 构造期挂一次，换肤不跟随；
+        这里只重设图标（不重建树），保留用户展开/选中态。尺寸/字形不变。
+        """
+        tree = getattr(self, "milestone_tree", None)
+        if tree is None:
+            return
+        ic = _vector_icon(self.app_ctx, "bookmark", _MILESTONE_ICON_SIZE,
+                          theme_color(self.app_ctx, "accent", "#FF6B9D"))
+        for i in range(tree.topLevelItemCount()):
+            item = tree.topLevelItem(i)
+            if item is None:
+                continue
+            if ic is not None:
+                item.setIcon(0, ic)
+            else:
+                # 图标字体不可用 → 与构造期一致的 emoji 前缀回退（不空白）
+                txt = item.text(0)
+                if not txt.startswith("📌 "):
+                    item.setText(0, f"📌 {txt}")
+
     def _update_progress(self, plan: Plan) -> None:
         progress = plan.progress
         self.overall_progress.setValue(progress)
@@ -697,6 +720,15 @@ class PagePlan(QWidget):
         secondary = theme_engine.get_color("text_secondary", "#888888")
         border = theme_engine.get_color("border", "#FFE4EC")
         card_bg = theme_engine.get_color("bg_card", "#FFFFFF")
+        # v2.1(UI-Fix-listsel)：列表选中/悬停底改用「Qt 能正确解析」的写法。
+        # 原写法是把 2 位透明度直接追加在 6 位 primary 色值之后，
+        # 但 Qt 的 QSS 是按 AARRGGBB 解析的 -> 实测渲染色是橄榄绿（如 #96AB54），
+        # 且越「淡」的主题越不透明（ui_cream 首字节 FF → 完全不透明 #8FA322）。
+        # 选中底落既有令牌 bg_light（四套主题的「淡强调底」），悬停底用显式 rgba
+        # 保留原设计「悬停(≈6.7%) 比选中更淡」的层次。
+        bg_light = theme_engine.get_color("bg_light", bg)
+        _r, _g, _b = (int(primary.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+        hover_bg = "rgba(%d,%d,%d,0.067)" % (_r, _g, _b)
 
         self.setStyleSheet(f"""
             QWidget#planPage {{
@@ -720,13 +752,16 @@ class PagePlan(QWidget):
                 padding: 8px 12px;
                 border-radius: 8px;
             }}
-            QListWidget#planList::item:selected {{
-                background: {primary}22;
-                color: {primary};
-                font-weight: 500;
-            }}
+            /* :hover 必须写在 :selected 之前 —— 两条规则特异性相同，QSS 里
+               后写者胜；否则鼠标划过已选中行时悬停底会盖掉选中底（选中高亮
+               短暂消失）。顺序调整实测见 _verify_contrast/（Part F）。 */
             QListWidget#planList::item:hover {{
-                background: {primary}11;
+                background: {hover_bg};
+            }}
+            QListWidget#planList::item:selected {{
+                background: {bg_light};
+                color: {text};
+                font-weight: 500;
             }}
             QFrame#planSection {{
                 background: {card_bg};
@@ -764,3 +799,8 @@ class PagePlan(QWidget):
 
     def _on_theme_changed(self, theme_name: str) -> None:
         self._apply_theme()
+        # v2.1(#291): 换肤后里程碑树矢量图标按新主题色重挂（否则停留构造期旧色）
+        try:
+            self._refresh_milestone_icons()
+        except Exception:
+            logger.debug("静默降级：计划页换肤图标重建失败", exc_info=True)

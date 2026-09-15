@@ -18,8 +18,9 @@ from typing import Optional, Tuple
 
 from gui.qt_compat import (
     Qt, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTextEdit, QThread, Signal, QSizePolicy,
+    QTextEdit, Signal, QSizePolicy,
 )
+from gui.qt_exit_guard import ExitSafeQThread
 from gui.utils import theme_color
 from gui import icons
 
@@ -65,8 +66,14 @@ def diagnose_voice_input() -> Tuple[bool, bool, str]:
     return True, True, "语音识别后端与麦克风均就绪"
 
 
-class _RecognitionWorker(QThread):
-    """R3: 录音 + 识别在独立线程执行，避免同步阻塞 GUI 线程（此前最长 8.8s 冻结）。"""
+class _RecognitionWorker(ExitSafeQThread):
+    """R3: 录音 + 识别在独立线程执行，避免同步阻塞 GUI 线程（此前最长 8.8s 冻结）。
+
+    退出自我收口（继承 :class:`gui.qt_exit_guard.ExitSafeQThread`）：录音/识别最长 8s，
+    若承载对话框（或 ``voice_conversation``）在识别期间被销毁，父控件析构会**连坐析构
+    仍在运行的 ``QThread``** → ``0xC0000409`` fail-fast。基类自挂
+    ``aboutToQuit`` + 父控件 ``destroyed`` → 幂等有界 ``stop()``。
+    """
 
     recognized = Signal(str)     # 识别成功（最终文本）
     failed = Signal(str)         # 识别失败（错误描述）

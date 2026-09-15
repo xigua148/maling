@@ -270,3 +270,334 @@ def test_role_info_edits_refresh_theme_colors(qapp, monkeypatch, tmp_path):
             assert color in night_qss
     finally:
         QApplication.instance().setStyleSheet("")
+
+
+# ---------------------------------------------------------------------------
+# ⑥ 任务 #278：矢量图标颜色随主题（真实 ThemeEngine，非构造期烤死）
+# ---------------------------------------------------------------------------
+def _solid_icon_hex(btn) -> str:
+    """读按钮 QIcon 的实心像素色（测试桩图标为实心单色）。"""
+    img = btn.icon().pixmap(14, 14).toImage()
+    c = img.pixelColor(0, 0)
+    return "#{:02x}{:02x}{:02x}".format(c.red(), c.green(), c.blue())
+
+
+def _role_page_with_engine(monkeypatch, tmp_path, theme="ui_minimal"):
+    from gui.theme_engine import ThemeEngine
+    from gui.pages.page_role import PageRole
+
+    _patch_storage_dirs(monkeypatch, tmp_path)
+    _enable_icons(monkeypatch)
+    engine = ThemeEngine()
+    engine.load_theme(theme)
+    ctx = _ctx(tmp_path)
+    ctx.theme_engine = engine
+    return engine, PageRole(ctx)
+
+
+def test_role_icons_recolor_follows_theme_switch(qapp, monkeypatch, tmp_path):
+    """#278：切主题后角色页矢量图标颜色 = 新主题 accent（不再停留构造期旧色）。"""
+    from gui.qt_compat import QApplication
+
+    engine, page = _role_page_with_engine(monkeypatch, tmp_path, "ui_minimal")
+    try:
+        min_accent = engine.get_color("accent").lower()
+        # 构造期即用当前主题色
+        for btn in (page.new_btn, page.preset_new_btn,
+                    page.export_card_btn, page.import_card_btn):
+            assert _solid_icon_hex(btn) == min_accent
+
+        engine.load_theme("ui_night")
+        night_accent = engine.get_color("accent").lower()
+        assert night_accent != min_accent, "两主题 accent 相同，断言无意义"
+        # 切主题后图标必须用新主题色重建
+        for btn in (page.new_btn, page.preset_new_btn,
+                    page.export_card_btn, page.import_card_btn):
+            assert _solid_icon_hex(btn) == night_accent, "切主题后图标仍是旧主题色"
+    finally:
+        QApplication.instance().setStyleSheet("")
+
+
+def test_role_avatar_vector_icon_recolors_with_theme(qapp, monkeypatch, tmp_path):
+    """#278：无图角色的矢量 ✨ 头像图标随 text_secondary 换肤刷新（非烤死）。"""
+    from gui.qt_compat import QApplication
+    from types import SimpleNamespace
+
+    engine, page = _role_page_with_engine(monkeypatch, tmp_path, "ui_minimal")
+    try:
+        # 强制走「无头像资源 → 矢量 ✨」分支（随机 id 必无 assets）
+        import gui.maid_avatar as ma
+        monkeypatch.setattr(ma, "role_assets", lambda _rid: None)
+        fake = SimpleNamespace(id="__probe_no_assets__", avatar=None)
+        page._set_avatar_icon(fake)
+        assert _solid_icon_hex(page.avatar_btn) == engine.get_color("text_secondary").lower()
+
+        # 让刷新路径针对该无图角色重跑
+        page._current_role_id = "__probe_no_assets__"
+        monkeypatch.setattr(page.role_manager, "get_role", lambda _rid: fake)
+        engine.load_theme("ui_night")
+        assert _solid_icon_hex(page.avatar_btn) == engine.get_color("text_secondary").lower()
+    finally:
+        QApplication.instance().setStyleSheet("")
+
+
+def test_theme_refresh_does_not_touch_foreign_icons(qapp, monkeypatch, tmp_path):
+    """#278：换肤重刷只作用于本页已知图标，绝不误改『外部/固定色』图标。"""
+    from gui.qt_compat import QApplication, QPushButton
+    from gui import icons
+
+    engine, page = _role_page_with_engine(monkeypatch, tmp_path, "ui_minimal")
+    try:
+        # 一个不属于角色页刷新名单、且颜色固定（非主题驱动）的按钮
+        foreign = QPushButton(page)
+        foreign.setIcon(icons.icon("star", 14, "#010203"))
+        fixed_before = _solid_icon_hex(foreign)
+
+        engine.load_theme("ui_night")
+        assert _solid_icon_hex(foreign) == fixed_before == "#010203"
+    finally:
+        QApplication.instance().setStyleSheet("")
+
+
+def test_role_avatar_style_uses_theme_keys(qapp, monkeypatch, tmp_path):
+    """#278：头像按钮配色不再硬编码，改取主题语义键并随换肤刷新。"""
+    from gui.qt_compat import QApplication
+
+    engine, page = _role_page_with_engine(monkeypatch, tmp_path, "ui_minimal")
+    try:
+        qss = page.avatar_btn.styleSheet()
+        # 旧硬编码粉系色值必须消失
+        for stale in ("#FFF0F5", "#C48A9C", "#FFB6C1", "#FFE4EC"):
+            assert stale not in qss, f"头像按钮仍残留硬编码色 {stale}"
+        assert engine.get_color("accent_light") in qss
+        assert engine.get_color("accent_text") in qss
+        assert engine.get_color("accent") in qss
+
+        engine.load_theme("ui_night")
+        night_qss = page.avatar_btn.styleSheet()
+        assert night_qss != qss
+        assert engine.get_color("accent_light") in night_qss
+        assert engine.get_color("accent_text") in night_qss
+    finally:
+        QApplication.instance().setStyleSheet("")
+
+
+# ---------------------------------------------------------------------------
+# ⑦ 任务 #291：8 处图标换肤统一收口（真实 ThemeEngine + 实心单色桩图标）
+# ---------------------------------------------------------------------------
+def _stub_icons_engine(monkeypatch, engine):
+    """桩图标：``color=None`` 时按引擎 ``text`` **动态**取色（复现真实 ``icons.icon``
+    语义，使 ``color=None`` 的落点也能被观测）。实心单色、零字体依赖、确定性。"""
+    from gui import icons
+    from gui.qt_compat import QColor, QIcon, QPixmap
+
+    def fake_icon(name, size=16, color=None):
+        c = color
+        if c is None:
+            c = engine.get_color("text", "#000000")
+        px = max(1, int(size))
+        pm = QPixmap(px, px)
+        pm.fill(QColor(c or "#000000"))
+        return QIcon(pm)
+
+    monkeypatch.setattr(icons, "available", lambda: True)
+    monkeypatch.setattr(icons, "has", lambda name: True)
+    monkeypatch.setattr(icons, "icon", fake_icon)
+
+
+def _icon_hex(icon, size=16) -> str:
+    """读 QIcon 的实心像素色（桩图标为实心单色）。"""
+    img = icon.pixmap(size, size).toImage()
+    c = img.pixelColor(0, 0)
+    return "#{:02x}{:02x}{:02x}".format(c.red(), c.green(), c.blue())
+
+
+def _pixmap_hex(pm) -> str:
+    img = pm.toImage()
+    c = img.pixelColor(0, 0)
+    return "#{:02x}{:02x}{:02x}".format(c.red(), c.green(), c.blue())
+
+
+def _engine_ctx(engine, **kw):
+    ctx = SimpleNamespace(theme_engine=engine)
+    for k, v in kw.items():
+        setattr(ctx, k, v)
+    return ctx
+
+
+def test_memories_clear_btn_icon_recolors(qapp, monkeypatch, tmp_path):
+    """#291 page_memories：清除按钮图标随换肤重刷（text_secondary）。"""
+    from gui.qt_compat import QApplication
+    from gui.theme_engine import ThemeEngine
+    from gui.pages.page_memories import PageMemories
+    from highlights import HighlightsManager
+
+    engine = ThemeEngine()
+    engine.load_theme("ui_minimal")
+    _stub_icons_engine(monkeypatch, engine)
+    ctx = _engine_ctx(engine, highlights=HighlightsManager(filepath=str(tmp_path / "h.json")))
+    page = PageMemories(ctx)
+    try:
+        assert _icon_hex(page.clear_btn.icon(), 14) == engine.get_color("text_secondary").lower()
+        engine.load_theme("ui_night")
+        assert _icon_hex(page.clear_btn.icon(), 14) == engine.get_color("text_secondary").lower()
+    finally:
+        QApplication.instance().setStyleSheet("")
+
+
+def test_memory_book_tab_buttons_recolor(qapp, monkeypatch, tmp_path):
+    """#291 page_memory_book：各分区操作按钮图标随换肤重刷（accent）。"""
+    from gui.qt_compat import QApplication, QPushButton
+    from gui.theme_engine import ThemeEngine
+    from gui.pages.page_memory_book import PageMemoryBook
+
+    engine = ThemeEngine()
+    engine.load_theme("ui_minimal")
+    _stub_icons_engine(monkeypatch, engine)
+    ctx = _engine_ctx(engine, session=None, diary=None, weekly=None, highlights=None)
+    page = PageMemoryBook(ctx)
+    add_btn = page.pref_tab.findChild(QPushButton, "memoryBookBtn")
+    try:
+        assert add_btn is not None
+        assert _icon_hex(add_btn.icon(), 14) == engine.get_color("accent").lower()
+        engine.load_theme("ui_night")
+        assert _icon_hex(add_btn.icon(), 14) == engine.get_color("accent").lower()
+    finally:
+        QApplication.instance().setStyleSheet("")
+
+
+def test_plan_milestone_icon_recolors(qapp, monkeypatch, tmp_path):
+    """#291 page_plan：里程碑树图标随换肤重刷（accent）。"""
+    from gui.qt_compat import QApplication
+    from gui.theme_engine import ThemeEngine
+    import gui.pages.page_plan as pp
+
+    monkeypatch.setattr(pp, "DEFAULT_PLANS_DIR", tmp_path / "plans")
+    engine = ThemeEngine()
+    engine.load_theme("ui_minimal")
+    _stub_icons_engine(monkeypatch, engine)
+    page = pp.PagePlan(_engine_ctx(engine))
+    plan = page.plan_manager.create_plan("探针")
+    plan.milestones.append(pp.Milestone(id="m1", name="M1", tasks=[]))
+    page._load_plans()
+    try:
+        it = page.milestone_tree.topLevelItem(0)
+        assert it is not None
+        assert _icon_hex(it.icon(0), 16) == engine.get_color("accent").lower()
+        engine.load_theme("ui_night")
+        assert _icon_hex(page.milestone_tree.topLevelItem(0).icon(0), 16) == engine.get_color("accent").lower()
+    finally:
+        QApplication.instance().setStyleSheet("")
+
+
+def test_toolbox_category_icon_recolors(qapp, monkeypatch, tmp_path):
+    """#291 page_toolbox：左侧分类图标随换肤重刷（text）。"""
+    from gui.qt_compat import QApplication
+    from gui.theme_engine import ThemeEngine
+    from gui.pages.page_toolbox import PageToolbox
+
+    engine = ThemeEngine()
+    engine.load_theme("ui_minimal")
+    _stub_icons_engine(monkeypatch, engine)
+    page = PageToolbox(_engine_ctx(engine))
+    try:
+        assert _icon_hex(page.tool_list.item(0).icon(), 16) == engine.get_color("text").lower()
+        engine.load_theme("ui_night")
+        assert _icon_hex(page.tool_list.item(0).icon(), 16) == engine.get_color("text").lower()
+    finally:
+        QApplication.instance().setStyleSheet("")
+
+
+def test_help_title_icon_recolors(qapp, monkeypatch, tmp_path):
+    """#291 page_help：标题图标随换肤重刷（text）—— 本页此前无换肤订阅。"""
+    from gui.qt_compat import QApplication
+    from gui.theme_engine import ThemeEngine
+    from gui.pages.page_help import PageHelp
+
+    engine = ThemeEngine()
+    engine.load_theme("ui_minimal")
+    _stub_icons_engine(monkeypatch, engine)
+    page = PageHelp(_engine_ctx(engine))
+    label = page._title_icon_label
+    try:
+        assert label is not None, "标题图标 label 未创建"
+        assert _pixmap_hex(label.pixmap()) == engine.get_color("text").lower()
+        engine.load_theme("ui_night")
+        assert _pixmap_hex(page._title_icon_label.pixmap()) == engine.get_color("text").lower()
+    finally:
+        QApplication.instance().setStyleSheet("")
+
+
+def test_proactive_feedback_spark_recolors(qapp, monkeypatch, tmp_path):
+    """#291 proactive_feedback：✨ 火花图标随换肤重刷（text，color=None 路径）。"""
+    from gui.qt_compat import QApplication
+    from gui.theme_engine import ThemeEngine
+    from gui.widgets.proactive_feedback import ProactiveFeedbackBar
+
+    engine = ThemeEngine()
+    engine.load_theme("ui_minimal")
+    _stub_icons_engine(monkeypatch, engine)
+    bar = ProactiveFeedbackBar("主题", "idle_hello", None)
+    bar.set_app_ctx(_engine_ctx(engine))
+    try:
+        assert _icon_hex(bar._spark.icon(), 14) == engine.get_color("text").lower()
+        engine.load_theme("ui_night")
+        assert _icon_hex(bar._spark.icon(), 14) == engine.get_color("text").lower()
+    finally:
+        QApplication.instance().setStyleSheet("")
+
+
+def test_sidebar_nav_icon_follows_theme_guard(qapp, monkeypatch, tmp_path):
+    """回归守卫：sidebar 导航图标在 #291 清单中判为『已跟随』—— 钉死该行为防退化。"""
+    from gui.qt_compat import QApplication
+    from gui.theme_engine import ThemeEngine
+    from gui.widgets.sidebar import SidebarWidget
+
+    _patch_storage_dirs(monkeypatch, tmp_path)
+    engine = ThemeEngine()
+    engine.load_theme("ui_minimal")
+    _stub_icons_engine(monkeypatch, engine)
+    side = SidebarWidget(_engine_ctx(engine, cfg=None))
+    try:
+        assert _icon_hex(side.list_widget.item(1).icon(), 16) == engine.get_color("text").lower()
+        engine.load_theme("ui_night")
+        assert _icon_hex(side.list_widget.item(1).icon(), 16) == engine.get_color("text").lower()
+    finally:
+        QApplication.instance().setStyleSheet("")
+
+
+def test_chat_panel_title_icon_follows_theme_guard(qapp, monkeypatch, tmp_path):
+    """回归守卫：chat_panel 顶栏图标在 #291 清单中判为『已跟随』—— 钉死防退化。"""
+    from gui.qt_compat import QApplication
+    from gui.theme_engine import ThemeEngine
+    from gui.widgets.chat_panel import ChatPanelWidget
+    import gui.motion as motion
+
+    old_level = motion.level()
+    try:
+        motion.configure("off")
+    except Exception:
+        pass
+    engine = ThemeEngine()
+    engine.load_theme("ui_minimal")
+    _stub_icons_engine(monkeypatch, engine)
+    ctx = _engine_ctx(
+        engine, config=SimpleNamespace(glass_popups_enabled=True),
+        chat_service=None, session_manager=None, companion_bridge=None,
+        companion=None, tts=None, gui_session=None, glass=None,
+        session=SimpleNamespace(history=[]),
+    )
+    panel = ChatPanelWidget(ctx)
+    btns = list(getattr(panel, "_icon_buttons", {}).keys())
+    try:
+        assert btns, "顶栏无矢量图标按钮"
+        b = btns[0]
+        assert _icon_hex(b.icon(), 16) == engine.get_color("text").lower()
+        engine.load_theme("ui_night")
+        assert _icon_hex(b.icon(), 16) == engine.get_color("text").lower()
+    finally:
+        QApplication.instance().setStyleSheet("")
+        try:
+            motion.configure(old_level)
+        except Exception:
+            pass

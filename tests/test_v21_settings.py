@@ -720,3 +720,202 @@ class TestSemanticStateDanger:
                 eng._dark = dark
                 assert "state_danger" in eng._active_palette(
                     ThemeEngine.THEME_DEFINITIONS[tid], tid)
+
+
+# ===========================================================================
+# 任务#290：换肤后语义警示色丢失
+#   page_settings._apply_theme 原「按 11px 样式签名重刷」把所有命中标签一律套回
+#   hint 弱化色，于是构建期用 state_warn 着色的标签（自动更新「上次安装」、
+#   TTS 降级说明）换肤后丢掉琥珀警示色。修复后须「按色值反查语义键」，
+#   保留语义色且色值随新主题更新。
+# ===========================================================================
+class TestSemanticColorPreservedOnThemeSwitch:
+    """换肤刷新必须保留 11px 标签的语义色（且色值随主题更新）。"""
+
+    @staticmethod
+    def _color(label) -> str:
+        from gui.pages.page_settings import PageSettings
+        return PageSettings._extract_color(label.styleSheet())
+
+    @staticmethod
+    def _warn_page(monkeypatch, tmp_path, engine):
+        """构造含 state_warn 11px 标签的 PageSettings（确定性，不依赖墙钟）。
+
+        - tts 缺失 → ``_refresh_tts_hint`` 走降级分支 → ``tts_hint_label`` = state_warn；
+        - last_install=failed → ``update_last_install_label`` 可见且 = state_warn。
+        """
+        import gui.config as config_mod
+        monkeypatch.setattr(config_mod, "get_user_data_dir", lambda: tmp_path)
+        monkeypatch.setattr("gui.update_checker.load_update_state",
+                            lambda: {"last_install": {"result": "failed"}})
+        from gui.pages.page_settings import PageSettings
+        ctx = SimpleNamespace(config=GuiConfig(), cfg=None, theme_engine=engine)
+        return PageSettings(ctx)
+
+    def test_warn_labels_keep_semantic_color_on_switch(
+            self, monkeypatch, tmp_path, qapp):
+        from gui.utils import theme_color
+        engine = ThemeEngine()
+        engine.load_theme("ui_minimal")
+        saved_qss = qapp.styleSheet()
+        try:
+            page = self._warn_page(monkeypatch, tmp_path, engine)
+            ctx = page.app_ctx
+            back = page.update_last_install_label
+            tts = page.tts_hint_label
+
+            warn_before = theme_color(ctx, "state_warn", "#X").lower()
+            hint_before = theme_color(ctx, "text_secondary", "#X").lower()
+            assert warn_before != hint_before
+            # 构建末尾 _apply_theme 后仍应是语义色（历史缺陷：此刻已被刷成 hint）
+            assert self._color(back) == warn_before
+            assert self._color(tts) == warn_before
+            # 该标签确为「可见的失败提示行」（未 show 父窗，故查 isHidden 而非 isVisible）
+            assert back.isHidden() is False
+            assert back.text().strip()
+
+            # 真实换肤链路：load_theme 内部 emit theme_changed → 页面 _apply_theme
+            engine.load_theme("ui_night")
+            warn_after = theme_color(ctx, "state_warn", "#X").lower()
+            hint_after = theme_color(ctx, "text_secondary", "#X").lower()
+            assert warn_after != warn_before       # 色值确实随新主题更新
+            assert warn_after != hint_after
+            assert self._color(back) == warn_after
+            assert self._color(tts) == warn_after
+            assert self._color(back) != hint_after
+        finally:
+            qapp.setStyleSheet(saved_qss)
+
+    def test_plain_hint_label_still_gets_hint_color(
+            self, monkeypatch, tmp_path, qapp):
+        from gui.utils import theme_color
+        engine = ThemeEngine()
+        engine.load_theme("ui_minimal")
+        saved_qss = qapp.styleSheet()
+        try:
+            page, _ = _make_page(monkeypatch, tmp_path, engine=engine)
+            ctx = page.app_ctx
+            hint_label = page._glass_hint   # 无语义色的普通 11px 提示
+            assert self._color(hint_label) == theme_color(
+                ctx, "text_secondary", "#X").lower()
+
+            engine.load_theme("ui_night")
+            assert self._color(hint_label) == theme_color(
+                ctx, "text_secondary", "#X").lower()
+            assert self._color(hint_label) != theme_color(
+                ctx, "state_warn", "#X").lower()
+        finally:
+            qapp.setStyleSheet(saved_qss)
+
+    def test_non_11px_style_untouched(self, monkeypatch, tmp_path, qapp):
+        from gui.qt_compat import QLabel
+        page, _ = _make_page(monkeypatch, tmp_path)
+        extra = QLabel("probe", page)
+        custom = "QLabel { color: #123456; font-size: 13px; }"
+        extra.setStyleSheet(custom)
+        page._apply_theme()
+        assert extra.styleSheet() == custom
+
+    def test_semantic_value_sets_disjoint_from_hint(self):
+        """按色值反查的前提：语义键历史色值不得与 text_secondary 历史色值相交。
+
+        否则某主题的 hint 标签会被误判成语义色（或反之）。此守卫在任何主题调色
+        后立刻报警，是「按色值反查」这一机制的可靠性护栏。
+        """
+        from gui.pages.page_settings import _SEMANTIC_11PX_KEYS
+        semantic: set = set()
+        hints: set = set()
+        for tid in ThemeEngine.THEME_DEFINITIONS:
+            td = ThemeEngine.THEME_DEFINITIONS[tid]
+            for pal_name in ("colors", "colors_dark"):
+                pal = td.get(pal_name) or {}
+                for key in _SEMANTIC_11PX_KEYS:
+                    if pal.get(key):
+                        semantic.add(str(pal[key]).lower())
+                if pal.get("text_secondary"):
+                    hints.add(str(pal["text_secondary"]).lower())
+        assert semantic.isdisjoint(hints), (semantic & hints)
+
+    def test_semantic_value_set_covers_all_palettes(self):
+        """``_semantic_value_set`` 必须覆盖全部主题 × 明暗的该键色值（含兜底）。"""
+        from gui.pages.page_settings import PageSettings, _SEMANTIC_11PX_KEYS
+        for key, fallback in _SEMANTIC_11PX_KEYS.items():
+            values = PageSettings._semantic_value_set(key, fallback)
+            assert str(fallback).lower() in values
+            for tid in ThemeEngine.THEME_DEFINITIONS:
+                td = ThemeEngine.THEME_DEFINITIONS[tid]
+                for pal_name in ("colors", "colors_dark"):
+                    val = (td.get(pal_name) or {}).get(key)
+                    if val:
+                        assert str(val).lower() in values, (tid, pal_name, key)
+
+
+# ===========================================================================
+# v2.1(P1/D-V21-01)：滚轮守卫开关（设置页接线 + 持久化往返 + 即时生效）
+#   缺陷背景：gui/wheel_guard.py 有 set_enabled() 但全仓无配置键 / 无 UI 开关。
+#   本组守卫补全后的「真设置项」：默认 True / 持久化往返 / 即时生效。
+# ===========================================================================
+class TestWheelGuardSetting:
+    @staticmethod
+    def _reset_guard():
+        """把 wheel_guard 总开关复位为「未显式设置 + 默认开」，隔离跨用例外泄。"""
+        from gui import wheel_guard
+        wheel_guard._EXPLICIT = False
+        wheel_guard.ENABLED = True
+
+    def test_default_key_true(self):
+        """默认值 True（保持既有行为：守卫默认开启）。"""
+        assert GuiConfig().wheel_guard_enabled is True
+
+    def test_checkbox_exists_visible_and_default_checked(
+            self, monkeypatch, tmp_path, qapp):
+        self._reset_guard()
+        page, _ = _make_page(monkeypatch, tmp_path)
+        assert page.wheel_guard_check.isHidden() is False
+        assert page.wheel_guard_check.isChecked() is True
+
+    def test_toggle_writes_config_and_persists(
+            self, monkeypatch, tmp_path, qapp):
+        """改开关 → save() → 重新加载 config → 值仍在（持久化往返）。"""
+        self._reset_guard()
+        page, cfg = _make_page(monkeypatch, tmp_path)
+        page.wheel_guard_check.setChecked(False)
+        assert cfg.wheel_guard_enabled is False
+        assert GuiConfig.load().wheel_guard_enabled is False
+
+    def test_toggle_immediate_effect(self, monkeypatch, tmp_path, qapp):
+        """切换即时生效（写 wheel_guard.set_enabled，无需重启）。"""
+        from gui import wheel_guard
+        self._reset_guard()
+        page, _ = _make_page(monkeypatch, tmp_path)
+        page.wheel_guard_check.setChecked(False)
+        assert wheel_guard.ENABLED is False
+        page.wheel_guard_check.setChecked(True)
+        assert wheel_guard.ENABLED is True
+
+    def test_save_all_persists(self, monkeypatch, tmp_path, qapp):
+        """「保存所有设置」也落盘该键（与其它通用区项一致）。"""
+        from gui.pages import page_settings as ps_mod
+
+        class _NoModal:
+            @staticmethod
+            def information(*_a, **_k):
+                return None
+
+        # 屏蔽 save-all 末尾的成功弹窗（offscreen 下模态框会卡死事件循环）
+        monkeypatch.setattr(ps_mod, "QMessageBox", _NoModal)
+        self._reset_guard()
+        page, _ = _make_page(monkeypatch, tmp_path)
+        page.wheel_guard_check.setChecked(False)
+        page._on_save_all()
+        assert GuiConfig.load().wheel_guard_enabled is False
+        assert page.wheel_guard_check.isChecked() is False
+
+    def test_saved_json_contains_key(self, monkeypatch, tmp_path):
+        """防 save() 漏改陷阱：新增键必须出现在落盘 JSON 中。"""
+        _isolate_config(monkeypatch, tmp_path)
+        GuiConfig().save()
+        data = json.loads((tmp_path / "gui_config.json").read_text(encoding="utf-8"))
+        assert "wheel_guard_enabled" in data
+
+

@@ -114,6 +114,7 @@ class SidebarWidget(QWidget):
         ("project",     "项目",     None,           "\U0001F4C1"),  # 📁  沿用文件夹降级链
         ("file",        "文件",     "edit",         "\u270E"),      # ✎
         ("plan",        "计划",     "list",         "\u2630"),      # ☰
+        ("tavern",      "酒馆",     "glass",        "\U0001F377"),  # 🍷  v2.2(V22-09)
         ("agent",       "角色",     "person",       "\u263A"),      # ☺
         ("tools",       "工具",     "settings",     "\u2699"),      # ⚙
         ("settings",    "设置",     "tune",         "\u2691"),      # ⚑
@@ -636,8 +637,11 @@ class SidebarWidget(QWidget):
             f"  border-radius: 12px; padding: 2px 8px;"
             f"  text-align: left; color: {text}; font-size: 12px;"
             f"}}"
+            # 对比度修复（仅 hover 态）：字落在 bg_light 实底上，原用 accent 仅
+            # 2.783/1.931/5.317/2.814（三套浅色 <4.5）→ 改用文字色 text
+            # （14.492/11.556/12.503/11.980）。基态本就是 text，不动。
             f"QPushButton#sidebarMaidChip:hover {{"
-            f"  background: {bg_light}; border-color: {accent}; color: {accent};"
+            f"  background: {bg_light}; border-color: {accent}; color: {text};"
             f"}}"
         )
 

@@ -104,13 +104,13 @@ SidebarWidget QListWidget::item {
     color: ${text};
     font-size: 13px;
 }
+SidebarWidget QListWidget::item:hover {
+    background-color: ${surface_muted};
+}
 SidebarWidget QListWidget::item:selected {
     background-color: ${bg_light};
     color: ${primary_dark};
     font-weight: bold;
-}
-SidebarWidget QListWidget::item:hover {
-    background-color: ${surface_muted};
 }
 QLabel#sidebarMaidChip {
     color: ${text_secondary};
@@ -416,16 +416,16 @@ QTabBar::tab {
     font-size: 12px;
     min-width: 80px;
 }
+QTabBar::tab:hover {
+    background-color: ${surface_muted};
+    color: ${text};
+}
 QTabBar::tab:selected {
     background-color: ${bg_card};
     color: ${text};
     border: 1px solid ${border};
     border-bottom: 2px solid ${primary};
     margin-bottom: -1px;
-}
-QTabBar::tab:hover {
-    background-color: ${surface_muted};
-    color: ${text};
 }
 QTabBar::close-button {
     subcontrol-position: right;
@@ -481,12 +481,12 @@ QTreeView#projectTreeView::item {
     padding: 4px 8px;
     border-radius: ${radius_sm};
 }
+QTreeView#projectTreeView::item:hover {
+    background-color: ${surface_muted};
+}
 QTreeView#projectTreeView::item:selected {
     background-color: ${primary};
     color: ${text_on_accent};
-}
-QTreeView#projectTreeView::item:hover {
-    background-color: ${surface_muted};
 }
 
 /* ---------- 会话列表（聊天页侧栏） ---------- */
@@ -506,13 +506,13 @@ QListWidget#sessionList::item {
     color: ${text};
     font-size: 13px;
 }
+QListWidget#sessionList::item:hover {
+    background-color: ${surface_muted};
+}
 QListWidget#sessionList::item:selected {
     background-color: ${bg_light};
     color: ${primary_dark};
     font-weight: bold;
-}
-QListWidget#sessionList::item:hover {
-    background-color: ${surface_muted};
 }
 
 /* ---------- 快捷回复 / 快捷动作 chip ---------- */

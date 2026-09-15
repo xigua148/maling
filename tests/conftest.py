@@ -7,7 +7,6 @@ import logging
 import os
 import sys
 import tempfile
-import weakref
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -75,18 +74,10 @@ def logger():
 # **全部**存活控件 —— 越跑越慢（v21 尾部 164 例单跑约 75s，其中构造一次主窗约 60s），
 # 全量套件因此超出单命令时限而被中断。
 #
-# 处置：每例收尾销毁「本用例新建、无父窗口、且未被 protect」的顶层控件，并 flush
-# 延迟删除。module/class 级 fixture 复用的控件须先 ``protect_qt_widget()`` 豁免。
-_QT_PROTECTED: "weakref.WeakSet" = weakref.WeakSet()
-
-
-def protect_qt_widget(widget):
-    """登记一个跨用例复用的控件（module/class 级 fixture 产出），清理时豁免。"""
-    if widget is not None:
-        _QT_PROTECTED.add(widget)
-    return widget
-
-
+# 处置：每例收尾销毁「本用例新建、无父窗口」的顶层控件，并 flush 延迟删除。
+# module/class 级 fixture 产出的控件天然豁免：其作用域高于本 function 级 fixture，
+# 在下面 ``before`` 快照建立**之前**就已创建（pytest 先装配高作用域 fixture），
+# 故其 id 恒在 ``before`` 中、必被跳过 —— 无需任何显式登记。
 @pytest.fixture(autouse=True)
 def _qt_widget_cleanup():
     """每例收尾销毁本用例新建的顶层控件，抑制跨用例累积（详见本节注释）。"""
@@ -107,7 +98,7 @@ def _qt_widget_cleanup():
     finally:
         try:
             for w in list(app.topLevelWidgets()):
-                if id(w) in before or w in _QT_PROTECTED:
+                if id(w) in before:
                     continue
                 if w.parent() is not None:
                     # 弹出层等子窗口：随宿主控件一起销毁；单独删会留下悬空指针
@@ -121,4 +112,5 @@ def _qt_widget_cleanup():
             QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         except Exception:
             pass
+
 

@@ -85,6 +85,9 @@ class ChatWindow(QWidget):
 
         self._setup_window_geometry()
         self._init_ui()
+        # v2.2(缺陷1)：构造期即对齐主题。此前 _apply_theme 只在 _on_theme_changed 里被调用，
+        #   首帧停在 _init_ui 的浅色取值上；UI 建好后补一次，保证「首次启动 + 换肤」同源。
+        self._apply_theme()
         self._setup_tray()
         self._connect_signals()
         self._load_history()
@@ -178,7 +181,15 @@ class ChatWindow(QWidget):
         return dialog.exec_()
 
     def _init_ui(self) -> None:
-        """构建窗口 UI：阴影容器 + 标题栏 + 消息区 + 输入区。"""
+        """构建窗口 UI：阴影容器 + 标题栏 + 消息区 + 输入区。
+
+        v2.2(缺陷1)：本方法内所有配色一律经 ``_tc``(=theme_color) 取主题令牌，
+        不再硬编码浅色；否则深色主题下「标题栏白底 + 文字取主题浅色」= 近不可见。
+        注意：此处只做初值，``_apply_theme`` 负责换肤期重刷（两处同源）。
+        """
+        def _tc(key: str, fallback: str) -> str:
+            return theme_color(self.app_ctx, key, fallback)
+
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(10, 10, 10, 10)
         outer_layout.setSpacing(0)
@@ -187,8 +198,8 @@ class ChatWindow(QWidget):
         self.main_container.setObjectName("chatWindowContainer")
         self.main_container.setStyleSheet(
             "QWidget#chatWindowContainer {"
-            "  background: #FFF8FA;"
-            "  border: 1px solid #FFE4EC;"
+            f"  background: {_tc('chat_bg', '#FFF8FA')};"
+            f"  border: 1px solid {_tc('chat_border', '#FFE4EC')};"
             "  border-radius: 16px;"
             "}"
         )
@@ -206,16 +217,18 @@ class ChatWindow(QWidget):
         main_layout.setSpacing(0)
 
         # --- 标题栏 ---
+        # v2.2(缺陷1)：底色改 bg_card、分隔线改 border —— 跟随主题而非硬编码白。
         title_bar = QWidget()
         title_bar.setObjectName("chatTitleBar")
         title_bar.setStyleSheet(
             "QWidget#chatTitleBar {"
-            "  background: #FFFFFF;"
-            "  border-bottom: 1px solid #FFE4EC;"
+            f"  background: {_tc('bg_card', '#FFFFFF')};"
+            f"  border-bottom: 1px solid {_tc('border', '#FFE4EC')};"
             "  border-top-left-radius: 16px;"
             "  border-top-right-radius: 16px;"
             "}"
         )
+        self.title_bar = title_bar
         title_bar.setFixedHeight(48)
         title_bar.setCursor(Qt.OpenHandCursor)
 
@@ -224,18 +237,24 @@ class ChatWindow(QWidget):
         title_layout.setSpacing(8)
 
         icon_label = QLabel(icons.text_glyph("chat", "💬"))
-        icon_label.setStyleSheet("font-size: 16px;")
+        icon_label.setStyleSheet(
+            f"font-size: 16px; color: {_tc('accent_text', '#FF6B9D')};")
+        self.icon_label = icon_label
         title_layout.addWidget(icon_label)
 
+        # 标题用 accent_text（「浅底上的强调文字」专用令牌）：四个主题下均 ≥4.5，
+        # 而 primary/accent 这类「实底用色」在浅色主题上只有 ~2.1。
         self.title_label = QLabel("与女仆的对话")
         self.title_label.setStyleSheet(
-            "QLabel { color: #FF6B9D; font-size: 15px; font-weight: 600; }"
+            f"QLabel {{ color: {_tc('accent_text', '#FF6B9D')};"
+            " font-size: 15px; font-weight: 600; }"
         )
         title_layout.addWidget(self.title_label)
 
         self.subtitle_label = QLabel("在线")
         self.subtitle_label.setStyleSheet(
-            "QLabel { color: #BBBBBB; font-size: 11px; margin-left: 4px; }"
+            f"QLabel {{ color: {_tc('text_secondary', '#BBBBBB')};"
+            " font-size: 11px; margin-left: 4px; }"
         )
         title_layout.addWidget(self.subtitle_label)
         title_layout.addStretch()
@@ -246,11 +265,8 @@ class ChatWindow(QWidget):
         self.pin_btn = QPushButton(icons.text_glyph("anchor", "📌"))
         self.pin_btn.setFixedSize(28, 28)
         self.pin_btn.setCursor(Qt.PointingHandCursor)
-        self.pin_btn.setStyleSheet(
-            "QPushButton { background: transparent; border: none; border-radius: 6px;"
-            " color: #888888; font-size: 12px; }"
-            "QPushButton:hover { background: #F5F5F5; color: #FF6B9D; }"
-        )
+        self.pin_btn.setStyleSheet(self._idle_tool_button_qss("accent_text"))
+
         self.pin_btn.setToolTip("窗口置顶")
         self.pin_btn.clicked.connect(self._on_toggle_pin)
         title_layout.addWidget(self.pin_btn)
@@ -259,11 +275,7 @@ class ChatWindow(QWidget):
         self.attach_btn = QPushButton(icons.text_glyph("link", "🔗"))
         self.attach_btn.setFixedSize(28, 28)
         self.attach_btn.setCursor(Qt.PointingHandCursor)
-        self.attach_btn.setStyleSheet(
-            "QPushButton { background: transparent; border: none; border-radius: 6px;"
-            " color: #888888; font-size: 12px; }"
-            "QPushButton:hover { background: #F5F5F5; color: #4A90D9; }"
-        )
+        self.attach_btn.setStyleSheet(self._idle_tool_button_qss("info"))
         self.attach_btn.setToolTip("合并到主窗口")
         self.attach_btn.clicked.connect(self._on_attach)
         title_layout.addWidget(self.attach_btn)
@@ -290,10 +302,11 @@ class ChatWindow(QWidget):
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroll_area.setFrameShape(QFrame.NoFrame)
-        self.scroll_area.setStyleSheet("QScrollArea { background: #FFF8FA; border: none; }")
+        self.scroll_area.setStyleSheet(
+            f"QScrollArea {{ background: {_tc('chat_bg', '#FFF8FA')}; border: none; }}")
 
         self.messages_container = QWidget()
-        self.messages_container.setStyleSheet("background: #FFF8FA;")
+        self.messages_container.setStyleSheet(f"background: {_tc('chat_bg', '#FFF8FA')};")
         self.messages_layout = QVBoxLayout(self.messages_container)
         self.messages_layout.setContentsMargins(12, 12, 12, 12)
         self.messages_layout.setSpacing(4)
@@ -317,12 +330,13 @@ class ChatWindow(QWidget):
         input_container.setObjectName("chatInputArea")
         input_container.setStyleSheet(
             "QWidget#chatInputArea {"
-            "  background: #FFFFFF;"
-            "  border-top: 1px solid #FFE4EC;"
+            f"  background: {_tc('bg_card', '#FFFFFF')};"
+            f"  border-top: 1px solid {_tc('border', '#FFE4EC')};"
             "  border-bottom-left-radius: 16px;"
             "  border-bottom-right-radius: 16px;"
             "}"
         )
+        self.input_container = input_container
         input_layout = QVBoxLayout(input_container)
         input_layout.setContentsMargins(16, 12, 16, 16)
         input_layout.setSpacing(8)
@@ -331,7 +345,8 @@ class ChatWindow(QWidget):
         self.emoji_panel = QWidget()
         self.emoji_panel.setObjectName("emojiPanel")
         self.emoji_panel.setVisible(False)
-        self.emoji_panel.setStyleSheet("QWidget#emojiPanel { background: #FFFFFF; border-radius: 12px; }")
+        self.emoji_panel.setStyleSheet(
+            f"QWidget#emojiPanel {{ background: {_tc('bg_card', '#FFFFFF')}; border-radius: 12px; }}")
         emoji_layout = QGridLayout(self.emoji_panel)
         emoji_layout.setContentsMargins(8, 8, 8, 8)
         emoji_layout.setSpacing(6)
@@ -340,9 +355,10 @@ class ChatWindow(QWidget):
             btn.setFixedSize(44, 36)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setStyleSheet(
-                "QPushButton { background: #FFF0F5; border: 1px solid #FFB6C1;"
-                " border-radius: 8px; font-size: 14px; }"
-                "QPushButton:hover { background: #FFB6C1; }"
+                f"QPushButton {{ background: {_tc('bg_light', '#FFF0F5')};"
+                f" border: 1px solid {_tc('accent_light', '#FFB6C1')};"
+                f" border-radius: 8px; font-size: 14px; color: {_tc('text', '#4A4A4A')}; }}"
+                f"QPushButton:hover {{ background: {_tc('accent_light', '#FFB6C1')}; }}"
             )
             btn.clicked.connect(lambda checked, e=emoji: self._on_emoji_clicked(e))
             emoji_layout.addWidget(btn, idx // 4, idx % 4)
@@ -359,10 +375,12 @@ class ChatWindow(QWidget):
             btn.setCursor(Qt.PointingHandCursor)
             btn.setFixedHeight(26)
             btn.setStyleSheet(
-                "QPushButton#quickReplyBtn { background: #FFF0F5; color: #FF69B4;"
-                " border: 1px solid #FFB6C1; border-radius: 10px;"
-                " font-size: 11px; padding: 2px 10px; }"
-                "QPushButton#quickReplyBtn:hover { background: #FFB6C1; color: white; }"
+                f"QPushButton#quickReplyBtn {{ background: {_tc('bg_light', '#FFF0F5')};"
+                f" color: {_tc('accent_text', '#FF69B4')};"
+                f" border: 1px solid {_tc('accent_light', '#FFB6C1')}; border-radius: 10px;"
+                f" font-size: 11px; padding: 2px 10px; }}"
+                f"QPushButton#quickReplyBtn:hover {{ background: {_tc('accent_light', '#FFB6C1')};"
+                f" color: {_tc('text', '#FFFFFF')}; }}"
             )
             btn.clicked.connect(lambda checked, t=reply_text: self._on_quick_reply(t))
             quick_reply_layout.addWidget(btn)
@@ -387,18 +405,18 @@ class ChatWindow(QWidget):
         self.input_edit.setAcceptDrops(False)  # 透传拖拽事件到 ChatWindow 自身
         self.input_edit.setStyleSheet(
             "QTextEdit#chatInput {"
-            "  background: #FFF5F7;"
-            "  border: 1px solid #FFD6E0;"
+            f"  background: {_tc('bg_light', '#FFF5F7')};"
+            f"  border: 1px solid {_tc('border', '#FFD6E0')};"
             "  border-radius: 20px;"
             "  padding: 10px 16px;"
             "  font-size: 14px;"
-            "  color: #4A4A4A;"
+            f"  color: {_tc('text', '#4A4A4A')};"
             "  line-height: 1.5;"
-            "  selection-background-color: #FFB6C1;"
+            f"  selection-background-color: {_tc('accent_light', '#FFB6C1')};"
             "}"
             "QTextEdit#chatInput:focus {"
-            "  border-color: #FF9EB5;"
-            "  background: #FFFFFF;"
+            f"  border-color: {_tc('accent', '#FF9EB5')};"
+            f"  background: {_tc('bg_card', '#FFFFFF')};"
             "}"
         )
         # 安装事件过滤器捕获 Enter / Shift+Enter
@@ -413,7 +431,12 @@ class ChatWindow(QWidget):
         self.stop_btn.setStyleSheet(
             "QPushButton#chatStopBtn {"
             "  background: #FF6B6B;"
-            "  color: #FFFFFF;"
+            # v2.2(补修·悬停态取色同类): 原为裸 "color: #FFFFFF"，在 #FF6B6B 实底上
+            #   四套主题一致只有 2.775（hover #FF5252 为 3.191）→ 图形字近不可辨。
+            #   改走 text_on_accent（实底上的文字令牌，四套均 ≥4.5：6.131/4.664/
+            #   6.3x/5.1x）。⚠ 底色 #FF6B6B 仍是裸硬编码值，属 QSS/令牌治理线，
+            #   不在本次取色修复范围（见回传「残留」）。
+            f"  color: {_tc('text_on_accent', '#1C1C1E')};"
             "  border: none;"
             "  border-radius: 20px;"
             "  font-size: 14px;"
@@ -430,16 +453,16 @@ class ChatWindow(QWidget):
         self.send_btn.setCursor(Qt.PointingHandCursor)
         self.send_btn.setStyleSheet(
             "QPushButton#chatSendBtn {"
-            "  background: #FF9EB5;"
-            "  color: #FFFFFF;"
+            f"  background: {_tc('primary', '#FF9EB5')};"
+            f"  color: {_tc('text_on_accent', '#FFFFFF')};"
             "  border: none;"
             "  border-radius: 20px;"
             "  font-size: 16px;"
             "  font-weight: bold;"
             "}"
-            "QPushButton#chatSendBtn:hover { background: #FF8AA5; }"
-            "QPushButton#chatSendBtn:pressed { background: #FF6B8A; }"
-            "QPushButton#chatSendBtn:disabled { background: #FFD6E0; }"
+            f"QPushButton#chatSendBtn:hover {{ background: {_tc('primary_dark', '#FF8AA5')}; }}"
+            f"QPushButton#chatSendBtn:pressed {{ background: {_tc('primary_dark', '#FF6B8A')}; }}"
+            f"QPushButton#chatSendBtn:disabled {{ background: {_tc('disabled_bg', '#FFD6E0')}; }}"
         )
         self.send_btn.clicked.connect(self._on_send)
         input_row.addWidget(self.send_btn, alignment=Qt.AlignBottom)
@@ -450,20 +473,15 @@ class ChatWindow(QWidget):
         bottom_row = QHBoxLayout()
         self.emoji_btn = QPushButton(f"{icons.text_glyph('emoji', '😊')} 表情")
         self.emoji_btn.setFixedHeight(24)
-        self.emoji_btn.setStyleSheet(
-            "QPushButton { background: transparent; border: none; color: #FF9EB5; font-size: 12px; }"
-            "QPushButton:hover { color: #FF69B4; }"
-        )
+        self.emoji_btn.setStyleSheet(self._flat_text_button_qss("accent_text", "accent_text"))
         self.emoji_btn.setCursor(Qt.PointingHandCursor)
         self.emoji_btn.clicked.connect(self._on_toggle_emoji_panel)
         bottom_row.addWidget(self.emoji_btn)
 
+        # 导出按钮沿用 info（功能蓝）语义色，随主题令牌取值而非硬编码。
         self.export_btn = QPushButton(f"{icons.text_glyph('export', '📤')} 导出")
         self.export_btn.setFixedHeight(24)
-        self.export_btn.setStyleSheet(
-            "QPushButton { background: transparent; border: none; color: #4A90D9; font-size: 12px; }"
-            "QPushButton:hover { color: #2D6FB5; }"
-        )
+        self.export_btn.setStyleSheet(self._flat_text_button_qss("info", "info"))
         self.export_btn.setCursor(Qt.PointingHandCursor)
         self.export_btn.setToolTip("导出聊天记录（Markdown / TXT / JSON）")
         self.export_btn.clicked.connect(self._on_export_chat)
@@ -472,10 +490,7 @@ class ChatWindow(QWidget):
         # 第四阶段：语音输入入口
         self.voice_btn = QPushButton(f"{icons.text_glyph('voice', '🎤')} 语音")
         self.voice_btn.setFixedHeight(24)
-        self.voice_btn.setStyleSheet(
-            "QPushButton { background: transparent; border: none; color: #FF6B9D; font-size: 12px; }"
-            "QPushButton:hover { color: #FF1493; }"
-        )
+        self.voice_btn.setStyleSheet(self._flat_text_button_qss("accent_text", "accent_text"))
         self.voice_btn.setCursor(Qt.PointingHandCursor)
         self.voice_btn.setToolTip("语音输入（依赖 SpeechRecognition + 麦克风）")
         self.voice_btn.clicked.connect(self._on_voice_input)
@@ -556,22 +571,126 @@ class ChatWindow(QWidget):
         except Exception:
             logger.debug("静默降级：_adjust_input_height 中忽略异常", exc_info=True)
 
+    # ------------------------------------------------------------------
+    # v2.2(缺陷1)：配色基因（QSS 串只在此处生成，换肤期重新生成即生效）
+    # ------------------------------------------------------------------
+    def _flat_text_button_qss(self, color_key: str, hover_key: str) -> str:
+        """无底文字按钮（表情/导出/语音）的 QSS。
+
+        前景取「浅底上的强调文字」类令牌（``accent_text`` / ``info``），
+        **不能**用 ``accent_light``：那是浅色主题下的**底色**令牌，
+        当文字色用时对比度只有 ~1.1。
+        v2.2(补修·悬停态取色同类)：``hover_key`` 同样**不能**用 ``accent`` /
+        ``primary`` —— 它们是「实底用色」，当文字色压在浅色容器底（bg_card）上，
+        ui_cream 实测只有 2.163、ui_minimal 3.267、ui_whale 3.245（仅 ui_night 因
+        卡片底本身是深色才达标）。故悬停字色一律改取 ``accent_text``：四套主题
+        4.844 / 4.924 / 6.507 / 4.935，全部 ≥4.5。
+        代价：悬停时不再「变浅」（旧行为恰是把对比度变差的那一步），悬停反馈由
+        指针形状承担；若日后需要更强的悬停反馈，正解是加 ``bg_light`` 浅底 chip，
+        但那会引入 padding → 影响工具栏几何，需单独评审（见回传「残留」）。
+        """
+        fg = theme_color(self.app_ctx, color_key, "#FF9EB5")
+        fg_hover = theme_color(self.app_ctx, hover_key, "#FF69B4")
+        return (
+            "QPushButton { background: transparent; border: none;"
+            f" color: {fg}; font-size: 12px; }}"
+            f"QPushButton:hover {{ color: {fg_hover}; }}"
+        )
+
+    def _idle_tool_button_qss(self, hover_color_key: str) -> str:
+        """标题栏小图标按钮（置顶/合并）常态 QSS：次要文字色 + 悬停实底。"""
+        idle = theme_color(self.app_ctx, "text_secondary", "#888888")
+        hover_bg = theme_color(self.app_ctx, "bg_light", "#F5F5F5")
+        hover_fg = theme_color(self.app_ctx, hover_color_key, "#FF6B9D")
+        return (
+            "QPushButton { background: transparent; border: none; border-radius: 6px;"
+            f" color: {idle}; font-size: 12px; }}"
+            f"QPushButton:hover {{ background: {hover_bg}; color: {hover_fg}; }}"
+        )
+
+    def _pinned_tool_button_qss(self) -> str:
+        """置顶生效态的按钮 QSS（强调底 + 强调文字）。"""
+        bg = theme_color(self.app_ctx, "bg_light", "#FFF0F3")
+        fg = theme_color(self.app_ctx, "accent_text", "#FF6B9D")
+        hover_bg = theme_color(self.app_ctx, "accent_light", "#FFE4EC")
+        return (
+            "QPushButton { border: none; border-radius: 6px;"
+            f" background: {bg}; color: {fg}; font-size: 12px; }}"
+            f"QPushButton:hover {{ background: {hover_bg}; color: {fg}; }}"
+        )
+
+    def _apply_title_bar_theme(self) -> None:
+        """重刷标题栏 / 输入区容器与其中的文字、按钮配色（换肤期调用）。
+
+        v2.2(缺陷1)：``_apply_theme`` 此前只刷 main_container / 消息区 / 输入框，
+        标题栏与输入区容器**没有重刷点** → 换肤后仍停在旧色（深色主题下即白底
+        浅字，对比度 1.139）。
+        """
+        def _c(key: str, fallback: str) -> str:
+            return theme_color(self.app_ctx, key, fallback)
+
+        cursor_bg = _c("bg_card", "#FFFFFF")
+        cursor_border = _c("border", "#FFE4EC")
+        accent_text = _c("accent_text", "#FF6B9D")
+        text_secondary = _c("text_secondary", "#BBBBBB")
+
+        if getattr(self, "title_bar", None) is not None:
+            self.title_bar.setStyleSheet(
+                "QWidget#chatTitleBar {"
+                f"  background: {cursor_bg};"
+                f"  border-bottom: 1px solid {cursor_border};"
+                "  border-top-left-radius: 16px;"
+                "  border-top-right-radius: 16px;"
+                "}"
+            )
+        if getattr(self, "icon_label", None) is not None:
+            self.icon_label.setStyleSheet(f"font-size: 16px; color: {accent_text};")
+        if getattr(self, "title_label", None) is not None:
+            self.title_label.setStyleSheet(
+                f"QLabel {{ color: {accent_text}; font-size: 15px; font-weight: 600; }}")
+        if getattr(self, "subtitle_label", None) is not None:
+            self.subtitle_label.setStyleSheet(
+                f"QLabel {{ color: {text_secondary}; font-size: 11px; margin-left: 4px; }}")
+        if getattr(self, "pin_btn", None) is not None:
+            self.pin_btn.setStyleSheet(
+                self._pinned_tool_button_qss() if self._is_pinned
+                else self._idle_tool_button_qss("accent_text"))
+        if getattr(self, "attach_btn", None) is not None:
+            self.attach_btn.setStyleSheet(self._idle_tool_button_qss("info"))
+        if getattr(self, "input_container", None) is not None:
+            self.input_container.setStyleSheet(
+                "QWidget#chatInputArea {"
+                f"  background: {cursor_bg};"
+                f"  border-top: 1px solid {cursor_border};"
+                "  border-bottom-left-radius: 16px;"
+                "  border-bottom-right-radius: 16px;"
+                "}"
+            )
+
     def _apply_title_button_theme(self) -> None:
         """给自绘标题栏的窗口控制按钮上符号 / 中文 tooltip / 主题色 hover 态。
 
         取色一律走 theme_color（禁裸硬编码色），随主题切换即时生效。
         v1.4.3 加强可见性：常态用正文主色（text）+ 加粗符号，确保浅/深标题栏上都
-        清晰可辨；hover 改为「实底色块」加强对比（最小/最大=主色粉底白字，
-        关闭键保持警示色 hover）。
+        清晰可辨；hover 改为「实底色块」加强对比（最小/最大=主色实底，
+        关闭键=警示色实底）。
+        v2.2(补修·悬停态取色)：实底上的字色此前误用 ``bg_card``（浅色主题=白、
+        深色主题=卡片深色），既非「落实底的文字」语义键，实测四套主题里
+        最小/最大化 3.267 / 2.163 / 6.485 / 3.245、关闭键 2.273 / 2.273 / 8.886 /
+        2.273 —— 半数以上不达标。正解是 ``text_on_accent``（"强调实底上的文字"
+        令牌，四套均已注册）：换键后最小/最大化 5.208 / 5.984 / 6.485 / 5.192、
+        关闭键 7.484 / 5.693 / 8.886 / 7.411，全部 ≥4.5。
+        注意**不能**改用 ``text``：ui_night 的 ``text`` 是浅色（#F2EFF5），压在
+        警示实底上只剩 1.716。
         """
         # 常态：正文主色（两主题均足够对比）；加粗符号已随 _TITLE_BUTTONS 字号放大。
         idle = theme_color(self.app_ctx, "text", "#4A4A4A")
-        # hover 实底：最小/最大用主色粉底 + 卡片色（白）字，强对比。
+        # hover 实底：最小/最大用主色实底 + 「强调实底上的文字」色。
         hover_bg = theme_color(self.app_ctx, "primary", "#FFB6C1")
-        hover_fg = theme_color(self.app_ctx, "bg_card", "#FFFFFF")
-        # 关闭键 hover 保持警示语义色（底）+ 白字。
+        hover_fg = theme_color(self.app_ctx, "text_on_accent", "#1C1C1E")
+        # 关闭键 hover 保持警示语义色（底）+ 同一「实底文字」色。
         close_hover_bg = theme_color(self.app_ctx, "state_warn", "#E5A02E")
-        close_hover_fg = theme_color(self.app_ctx, "bg_card", "#FFFFFF")
+        close_hover_fg = theme_color(self.app_ctx, "text_on_accent", "#1C1C1E")
 
         for btn, (_symbol, tooltip, font_size) in zip(
             (self.min_btn, self.max_btn, self.close_btn), _TITLE_BUTTONS
@@ -619,7 +738,7 @@ class ChatWindow(QWidget):
                 logger.debug("静默降级：_on_theme_changed 中忽略异常", exc_info=True)
 
     def _apply_theme(self) -> None:
-        """应用当前主题到聊天窗口容器。"""
+        """应用当前主题到聊天窗口容器（构造期与换肤期同源）。"""
         theme_engine = getattr(self.app_ctx, "theme_engine", None)
         if theme_engine is None:
             return
@@ -633,6 +752,8 @@ class ChatWindow(QWidget):
             f"}}"
         )
         self.messages_container.setStyleSheet(f"background: {bg};")
+        # v2.2(缺陷1)：补标题栏 / 输入区容器的重刷点（此前无，换肤后残留旧色）。
+        self._apply_title_bar_theme()
         self._update_hint_theme()
 
         # v2.1(UI-Fix-0913) 输入区主题化：输入框 + 发送按钮。
@@ -667,11 +788,12 @@ class ChatWindow(QWidget):
             _primary = theme_engine.get_color("primary", "#FF9EB5")
             _primary_d = theme_engine.get_color("primary_dark", "#FF8AA5")
             _disabled = theme_engine.get_color("disabled_bg", "#FFD6E0")
+            _on_accent = theme_engine.get_color("text_on_accent", "#FFFFFF")
             if getattr(self, "send_btn", None) is not None:
                 self.send_btn.setStyleSheet(
                     f"QPushButton#chatSendBtn {{"
                     f"  background: {_primary};"
-                    f"  color: #FFFFFF;"
+                    f"  color: {_on_accent};"
                     f"  border: none;"
                     f"  border-radius: 20px;"
                     f"  font-size: 16px;"
@@ -688,7 +810,10 @@ class ChatWindow(QWidget):
         try:
             _e_bg = theme_engine.get_color("bg_card", "#FFFFFF")
             _e_bg_l = theme_engine.get_color("bg_light", "#FFF0F5")
-            _e_ac = theme_engine.get_color("accent", "#FF69B4")
+            _e_txt = theme_engine.get_color("text", "#4A4A4A")
+            # v2.2(缺陷1)：文字色用 accent_text（浅底强调文字令牌），
+            #   原 accent/primary 在浅色主题的浅底上只有 ~2.8，仍 <3。
+            _e_ac_txt = theme_engine.get_color("accent_text", "#FF69B4")
             _e_ac_l = theme_engine.get_color("accent_light", "#FFB6C1")
             if getattr(self, "emoji_panel", None) is not None:
                 self.emoji_panel.setStyleSheet(
@@ -696,26 +821,25 @@ class ChatWindow(QWidget):
                 for _b in self.emoji_panel.findChildren(QPushButton):
                     _b.setStyleSheet(
                         f"QPushButton {{ background: {_e_bg_l}; border: 1px solid {_e_ac_l};"
-                        f" border-radius: 8px; font-size: 14px; }}"
+                        f" border-radius: 8px; font-size: 14px; color: {_e_txt}; }}"
                         f"QPushButton:hover {{ background: {_e_ac_l}; }}")
             for _b in self.findChildren(QPushButton, "quickReplyBtn"):
                 _b.setStyleSheet(
-                    f"QPushButton#quickReplyBtn {{ background: {_e_bg_l}; color: {_e_ac};"
+                    f"QPushButton#quickReplyBtn {{ background: {_e_bg_l}; color: {_e_ac_txt};"
                     f" border: 1px solid {_e_ac_l}; border-radius: 10px;"
                     f" font-size: 11px; padding: 2px 10px; }}"
-                    f"QPushButton#quickReplyBtn:hover {{ background: {_e_ac_l}; color: white; }}")
+                    f"QPushButton#quickReplyBtn:hover {{ background: {_e_ac_l};"
+                    f" color: {_e_txt}; }}")
         except Exception:
             logger.debug("静默降级：_apply_theme 中忽略异常", exc_info=True)
-        # 底部图标按钮（表情 / 语音）—— 导出按钮 #4A90D9 为功能色，刻意保留
+        # 底部文字按钮（表情 / 语音）与导出按钮 —— 均改走主题令牌生成器。
         try:
-            _i_ac = theme_engine.get_color("accent_light", "#FF9EB5")
-            _i_ac_h = theme_engine.get_color("accent", "#FF69B4")
-            for _b in (getattr(self, "emoji_btn", None), getattr(self, "voice_btn", None)):
-                if _b is not None:
-                    _b.setStyleSheet(
-                        f"QPushButton {{ background: transparent; border: none;"
-                        f" color: {_i_ac}; font-size: 12px; }}"
-                        f"QPushButton:hover {{ color: {_i_ac_h}; }}")
+            if getattr(self, "emoji_btn", None) is not None:
+                self.emoji_btn.setStyleSheet(self._flat_text_button_qss("accent_text", "accent_text"))
+            if getattr(self, "voice_btn", None) is not None:
+                self.voice_btn.setStyleSheet(self._flat_text_button_qss("accent_text", "accent_text"))
+            if getattr(self, "export_btn", None) is not None:
+                self.export_btn.setStyleSheet(self._flat_text_button_qss("info", "info"))
         except Exception:
             logger.debug("静默降级：_apply_theme 中忽略异常", exc_info=True)
 
@@ -1061,19 +1185,11 @@ class ChatWindow(QWidget):
         flags = self.windowFlags()
         if self._is_pinned:
             self.setWindowFlags(flags | Qt.WindowStaysOnTopHint)
-            self.pin_btn.setStyleSheet(
-                "QPushButton { background: #FFF0F3; border: none; border-radius: 6px;"
-                " color: #FF6B9D; font-size: 12px; }"
-                "QPushButton:hover { background: #FFE4EC; color: #FF6B9D; }"
-            )
+            self.pin_btn.setStyleSheet(self._pinned_tool_button_qss())
             self.pin_btn.setToolTip("取消置顶")
         else:
             self.setWindowFlags(flags & ~Qt.WindowStaysOnTopHint)
-            self.pin_btn.setStyleSheet(
-                "QPushButton { background: transparent; border: none; border-radius: 6px;"
-                " color: #888888; font-size: 12px; }"
-                "QPushButton:hover { background: #F5F5F5; color: #FF6B9D; }"
-            )
+            self.pin_btn.setStyleSheet(self._idle_tool_button_qss("accent_text"))
             self.pin_btn.setToolTip("窗口置顶")
         self.show()
 

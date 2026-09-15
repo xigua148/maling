@@ -1,6 +1,7 @@
 """消息气泡控件 —— 支持头像、昵称、时间戳、Markdown 渲染、代码块复制、语法高亮、附件展示、消息编辑/重新生成。"""
 from __future__ import annotations
 
+import logging
 import os
 import re
 from datetime import datetime
@@ -16,6 +17,10 @@ from gui.syntax_highlighter import SimpleSyntaxHighlighter
 from gui.utils import theme_color
 from gui import icons
 from gui.widgets.attachment_bar import attachment_icon, human_size
+
+# v2.1(UI-Fix-0915): 静默降级收敛用日志器 —— update_text 快路径重算高度的失败
+#   仅记录、不重抛（不打断流式渲染）。
+logger = logging.getLogger("maid_coder.gui.message_bubble")
 
 # v1.2 A-10 (B3): AI 气泡旁 Q 版头像 —— 复用 MaidAssets 主形象（圆形裁剪）。
 # 防御式接入：companion/资产缺失时 _BUBBLE_MAID_OK=False，_MaidAvatarView 不实例化，
@@ -393,18 +398,27 @@ class MessageBubble(QWidget):
                 "ai_bubble": "#FFFFFF",
                 "user_text": "#FFFFFF",
                 "ai_text": "#4A4A4A",
-                "accent": "#FF6B9D",
-                "accent_light": "#FFB6C1",
-                "bg_light": "#FFF0F3",
-            }
+            "accent": "#FF6B9D",
+            "accent_text": "#B45073",
+            "accent_light": "#FFB6C1",
+            "bg_light": "#FFF0F3",
+            # v2.2(UI-Fix): 正文装饰线（<hr> / 引用块左边框）用。原取 accent_light，但
+            # 四套主题 accent_light ≡ bg_light → 落在气泡底上 ≈1.1，线**几乎不可见**。
+            "border": "#FFE4EC",
+        }
         return {
             "user_bubble": theme_engine.get_color("bubble_user_bg", "#FF9EB5"),
             "ai_bubble": theme_engine.get_color("bubble_ai_bg", "#FFFFFF"),
             "user_text": theme_engine.get_color("bubble_user_text", "#FFFFFF"),
             "ai_text": theme_engine.get_color("bubble_ai_text", "#4A4A4A"),
             "accent": theme_engine.get_color("accent", "#FF6B9D"),
+            # v2.2(UI-Fix): accent_text =「文字用」强调色。气泡正文里的行内代码 / 粗体 /
+            # 斜体是**文字**（落在 bubble_ai_bg 上），必须用它而非 accent（填充用）。
+            "accent_text": theme_engine.get_color("accent_text", "#B45073"),
             "accent_light": theme_engine.get_color("accent_light", "#FFB6C1"),
             "bg_light": theme_engine.get_color("bg_light", "#FFF0F3"),
+            # v2.2(UI-Fix): 正文装饰线（<hr> / 引用块左边框）用，同上「裸兜底」口径。
+            "border": theme_engine.get_color("border", "#FFE4EC"),
         }
 
     def _apply_theme(self) -> None:
@@ -456,30 +470,30 @@ class MessageBubble(QWidget):
             )
         # 刷新内容
         self.update_text(self.raw_content)
-        # 刷新附件 widget 颜色（仅 AI 角色使用了主题色；user 角色文字色为白，硬编码即可）
-        # R12: 清理死代码（空循环体）并改用 != 写法
-        if self.role != "user":
-            att_widget = self.findChild(QWidget, "bubbleAttachments")
-            if att_widget is not None:
-                bg_overlay = theme_color(self.app_ctx, "bg_light", "#FFF0F3")
-                att_widget.setStyleSheet(
-                    f"QWidget#bubbleAttachments {{"
-                    f"  background: {bg_overlay};"
-                    f"  border-radius: 8px; padding: 2px;"
-                    f"}}"
-                )
-                text_color = theme_color(self.app_ctx, "text", "#4A4A4A")
-                # 找到容器内 QLabel 一并刷新（图标标签保留默认 font-size 即可）
-                for lab in att_widget.findChildren(QLabel):
-                    current = lab.styleSheet() or ""
-                    if "font-size: 12px;" in current:
-                        lab.setStyleSheet(
-                            f"QLabel {{ color: {text_color}; font-size: 12px; }}"
-                        )
-                    elif "font-size: 10px;" in current:
-                        lab.setStyleSheet(
-                            f"QLabel {{ color: {text_color}; font-size: 10px; opacity: 0.8; }}"
-                        )
+        # 刷新附件 widget 颜色（**两种角色都刷**）
+        # v2.2(UI-Fix): 原守卫 `if self.role != "user"` 与其「user 文字色为白，硬编码即可」
+        # 的注释同属一个错误前提（用户气泡≠亮底）。若只改取色不改此守卫，用户气泡的附件
+        # 面板会停在建气泡那一刻的主题快照上 —— 换肤后仍是旧主题色，等于没修。
+        att_widget = self.findChild(QWidget, "bubbleAttachments")
+        if att_widget is not None:
+            bg_overlay, text_color = self._attachments_colors()
+            att_widget.setStyleSheet(
+                f"QWidget#bubbleAttachments {{"
+                f"  background: {bg_overlay};"
+                f"  border-radius: 8px; padding: 2px;"
+                f"}}"
+            )
+            # 找到容器内 QLabel 一并刷新（图标标签保留默认 font-size 即可）
+            for lab in att_widget.findChildren(QLabel):
+                current = lab.styleSheet() or ""
+                if "font-size: 12px;" in current:
+                    lab.setStyleSheet(
+                        f"QLabel {{ color: {text_color}; font-size: 12px; }}"
+                    )
+                elif "font-size: 10px;" in current:
+                    lab.setStyleSheet(
+                        f"QLabel {{ color: {text_color}; font-size: 10px; opacity: 0.8; }}"
+                    )
         # 重新生成按钮（仅 AI 消息）
         regen_btn = self.findChild(QPushButton, "regenBtn")
         if regen_btn is not None:
@@ -559,9 +573,18 @@ class MessageBubble(QWidget):
                 avatar.setFixedSize(36, 36)
                 avatar.setAlignment(Qt.AlignCenter)
                 avatar.setObjectName("avatarLabel")
+                # v2.2(UI-Fix): 原写死裸色 #FFF0F3 圆底 / #FFB6C1 描边 → 换肤不跟随
+                # （实测底 vs 主题卡底 = 1.105 三套浅色几乎不可见；ui_night 深色界面里是
+                # 一块 15.72 的刺眼白块）。底改 bg_light（ui_night 不再刺眼）；
+                # 描边**不能**用 accent_light —— 四套主题 accent_light ≡ bg_light，
+                # 描边会与底同色（1.000 不可见）。也不能用 accent：实测 accent vs
+                # bg_light = 2.783 / 1.931 / 5.317 / 2.814，三套 < 3:1（ui_cream 仅 1.931）；
+                # 故取 accent_text = 4.125 / 4.397 / 5.335 / 4.280（四套 ≥3:1，且保色相）。
                 avatar.setStyleSheet(
-                    "QLabel { background-color: #FFF0F3; border-radius: 18px;"
-                    " border: 2px solid #FFB6C1; font-size: 16px; }"
+                    f"QLabel {{ background-color: {theme_color(self.app_ctx, 'bg_light', '#FFF0F3')};"
+                    f" border-radius: 18px;"
+                    f" border: 2px solid {theme_color(self.app_ctx, 'accent_text', '#B45073')};"
+                    f" font-size: 16px; }}"
                 )
         else:
             avatar = None
@@ -595,9 +618,9 @@ class MessageBubble(QWidget):
             time_str = self.timestamp.strftime("%H:%M")
             time_label = QLabel(time_str)
             time_label.setObjectName("timeLabel")
-            time_label.setStyleSheet(
-                "QLabel { font-size: 10px; color: #BBBBBB; padding-left: 8px; }"
-            )
+            # v2.2(UI-Fix): 裸色 #BBBBBB 内联样式已移除 —— 配色改由
+            # gui/themes/base.qss 的 `QLabel#timeLabel` 规则给（${text_hint}），
+            # 随主题换肤；内联样式优先级高于 app 级 qss，留着则新规则永不生效。
             meta_layout.addWidget(time_label)
             meta_layout.addStretch()
             content_layout.addLayout(meta_layout)
@@ -673,11 +696,11 @@ class MessageBubble(QWidget):
             copy_btn.setObjectName("actionBtn")
             copy_btn.setFixedSize(48, 24)
             copy_btn.setCursor(Qt.PointingHandCursor)
-            copy_btn.setStyleSheet(
-                "QPushButton { background: transparent; border: 1px solid #FFE4EC;"
-                " border-radius: 6px; color: #BBBBBB; font-size: 11px; padding: 2px 8px; }"
-                "QPushButton:hover { background: #FFF0F3; border-color: #FFB6C1; color: #FF6B9D; }"
-            )
+            # v2.2(UI-Fix): 裸色内联样式（#FFE4EC/#BBBBBB/#FFF0F3/#FFB6C1/#FF6B9D）
+            # 已移除 —— 配色/字号改由 gui/themes/base.qss 的 `QPushButton#actionBtn`
+            # 系列规则给（${border}/${text_secondary}；hover 底 ${bg_light} + 文字
+            # ${text}），随四风格换肤；内联样式优先级高于 app 级 qss，留着则新规则
+            # 永不生效。
             copy_btn.clicked.connect(self._copy_content)
             action_row.addWidget(copy_btn)
 
@@ -762,7 +785,8 @@ class MessageBubble(QWidget):
         # v2.1(UI-Fix-0914): 暴露高度重算入口 —— update_text 走「原地 setHtml」快路径
         # 时必须显式调它，否则高度停在旧值（内容变短 → 气泡下方留大片空白）。
         browser._adjust_height = _adjust  # type: ignore[attr-defined]
-        from PySide6.QtCore import QTimer
+        # v2.1(UI-Fix-0915): 复用模块级 QTimer（gui.qt_compat 已导出）——移除此处
+        #   重复的局部 import，保持「QTimer 单一来源」，无循环导入风险。
         QTimer.singleShot(0, _adjust)  # 布局完成后再算一次（宽度就位）
         return browser
 
@@ -812,16 +836,27 @@ class MessageBubble(QWidget):
         html = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
         # 水平分隔线 --- / *** / ___
+        # v2.2(UI-Fix): 原取 c["accent_light"]，但四套主题 accent_light ≡ bg_light →
+        # 这条 1px 线落在气泡底上对比度 ≈1.10，**几乎不可见**。改取 ${border}
+        # （改后 1.189 / 1.218 / 1.165 / 1.263）。
+        # 裁决（team-lead）：**保持 ${border}，不提到可见档**。分隔线是**装饰件**，WCAG 的
+        # 3:1 非文本对比度针对「有语义的 UI 组件」，不针对装饰性分隔线；${border} 与气泡底
+        # 的 ≈1.19 正是该令牌「极弱分隔线」的设计档位。若改用 ${text_hint}（≈3.2）或
+        # ${text_secondary}（≈4.5），等于在正文里横一道明显的灰线，观感更差 —— 本项目对
+        # 「视觉融入度」的权重高于这条可读性收益。故属**弱分隔线档，非可读性缺陷**。
         html = re.sub(
             r"^([\-*_])\s*\1\s*\1\s*$",
-            '<hr style="border:none;border-top:1px solid ' + c["accent_light"] + ';margin:12px 0;">',
+            '<hr style="border:none;border-top:1px solid ' + c["border"] + ';margin:12px 0;">',
             html,
             flags=re.MULTILINE,
         )
 
         # 行内代码 `code`
+        # v2.2(UI-Fix): 代码文字原取 c["accent"]（填充用色）—— 实测 accent vs
+        # bubble_ai_bg = 3.267 / 2.163 / 2.678 / 3.245，13px 正文字号**四套全不达标**；
+        # 改取 accent_text（文字用色）后四套全 ≥4.5。背景 tint 仍用 accent 的低透明度。
         code_bg = "rgba(255,255,255,0.15)" if is_user else self._hex_to_rgba(c["accent"], 0.12)
-        code_color = c["user_text"] if is_user else c["accent"]
+        code_color = c["user_text"] if is_user else c["accent_text"]
         html = re.sub(
             r"`([^`]+?)`",
             rf'<span style="background:{code_bg};color:{code_color};'
@@ -829,8 +864,8 @@ class MessageBubble(QWidget):
             html,
         )
 
-        # 粗体 **text**
-        bold_color = c["user_text"] if is_user else c["accent"]
+        # 粗体 **text**（斜体复用同一文字色，见下）
+        bold_color = c["user_text"] if is_user else c["accent_text"]
         html = re.sub(
             r"\*\*([^*]+?)\*\*",
             rf'<b style="color:{bold_color};font-weight:600;">\1</b>',
@@ -921,7 +956,11 @@ class MessageBubble(QWidget):
         q_bg_user = "rgba(255,255,255,0.1)"
         q_bg_ai = self._hex_to_rgba(c["accent_light"], 0.08)
         q_border_user = c["user_text"]
-        q_border_ai = c["accent_light"]
+        # v2.2(UI-Fix): AI 引用块左边框原取 accent_light（≡ bg_light）→ 白底上 ≈1.10
+        # 不可见；改取 ${border}（同 <hr> 口径，1.189 / 1.218 / 1.165 / 1.263）。
+        # 同 <hr> 的裁决：装饰件，保持弱分隔线档，不提到 3:1（理由见 _markdown_to_html
+        # 中 <hr> 处的注释）。用户气泡仍用其正文色（落在实底上）。
+        q_border_ai = c["border"]
 
         for line in lines:
             stripped = line.strip()
@@ -1045,6 +1084,11 @@ class MessageBubble(QWidget):
         v2.1(UI-P2)：纯文本路径走「原地 setHtml」—— 不销毁重建内容 widget，
         零布局抖动、逐字平滑（vs. 上版 40ms 合批的「一段一段」）。出现/消失代码块
         （```）或 widget 结构变更时自动切到完整重建路径（一次性小幅抖动，可接受）。
+
+        v2.1(UI-Fix-0915)：**快路径必须重算高度**。内容 browser 是
+        ``Expanding×Fixed`` + ``setFixedHeight``（见 :meth:`_make_adaptive_browser`），
+        原地 ``setHtml`` 不会自动重排尺寸；若不显式调用 ``_adjust_height``，
+        高度会冻结在首个短分片的值 → 长回复被裁剪（下方空白/看不全）。
         """
         self.raw_content = new_content
         bubble = self.findChild(QWidget, "bubbleFrame")
@@ -1055,9 +1099,20 @@ class MessageBubble(QWidget):
         if not has_code_block and old_widget is not None and hasattr(old_widget, "setHtml"):
             try:
                 old_widget.setHtml(self._markdown_to_html(new_content, self.role == "user"))
-                return
             except Exception:
-                pass
+                pass  # setHtml 失败 → 落到下方「完整重建」兜底（既有回退语义不变）
+            else:
+                # v2.1(UI-Fix-0915): 快路径成功 → 显式重算高度。
+                #   同步一次 + 事件循环后再补一次（文档布局在当前轮次之后才落定）。
+                #   调整调用与 setHtml 解耦：adjust 自身异常**绝不**触发完整重建。
+                adjust = getattr(old_widget, "_adjust_height", None)
+                if callable(adjust):
+                    try:
+                        adjust()
+                        QTimer.singleShot(0, adjust)
+                    except Exception:
+                        logger.debug("静默降级：update_text 重算气泡高度失败", exc_info=True)
+                return
         # 含代码块 / 结构变更 → 完整重建
         if old_widget is not None:
             bubble.layout().removeWidget(old_widget)
@@ -1085,33 +1140,67 @@ class MessageBubble(QWidget):
         border = theme_color(self.app_ctx, "border", "#FFE4EC")
         text = theme_color(self.app_ctx, "text_secondary", "#8A8A8A")
         bg_light = theme_color(self.app_ctx, "bg_light", "#FFF0F3")
-        accent_light = theme_color(self.app_ctx, "accent_light", "#FFB6C1")
-        accent = theme_color(self.app_ctx, "accent", "#FF6B9D")
+        # v2.2(UI-Fix): hover 描边**不能用 accent_light** —— 四套主题 accent_light ≡ bg_light
+        # （逐字节相同），而 hover 底正是 bg_light → 描边与底同色，对比度 1.000 完全不可见。
+        # 改取 accent_text（vs bg_light = 4.125 / 4.397 / 5.335 / 4.280，四套 ≥3:1）。
+        # 与同动作行的 #actionBtn:hover（base.qss §12）同键，避免同排 hover 描边一个有一个没有。
+        accent_text = theme_color(self.app_ctx, "accent_text", "#B45073")
+        # v2.2(UI-Fix): hover 文字落在 bg_light（**随主题翻转的淡填充**：浅色主题是浅底、
+        # ui_night 是深底 #3A2430）上。实测候选令牌 vs bg_light 四风格对比度：
+        #   text            14.492 / 11.556 / 12.503 / 11.980  ← 唯一四套全 ≥4.5
+        #   accent_text      4.125 /  4.397 /  5.335 /  4.280  （三套浅色 <4.5，属"边缘值"）
+        #   text_on_accent  14.492 / 11.556 /  1.220 / 14.612  （ui_night 崩！它配的是
+        #                    「亮强调实底」，实底永远亮 → 其文字永远深，落在深色 bg_light 上不可读）
+        #   accent/primary_dark/text_secondary/text_hint  < 3.9 全不合格
+        # 故选 ${text}（=「落在主题淡填充上的正文文字色」，与 bg_light 同步翻转）；
+        # 强调感由 border-color 保留。见 base.qss §12 同口径说明。
+        hover_text = theme_color(self.app_ctx, "text", "#4A4A4A")
         return (
             f"QPushButton#regenBtn {{"
             f"  background: transparent; border: 1px solid {border};"
             f"  border-radius: 6px; color: {text}; font-size: 11px; padding: 2px 8px;"
             f"}}"
             f"QPushButton#regenBtn:hover {{"
-            f"  background: {bg_light}; border-color: {accent_light}; color: {accent};"
+            f"  background: {bg_light}; border-color: {accent_text}; color: {hover_text};"
             f"}}"
         )
 
     # ---- v1.3(P1-1): 朗读按钮样式与状态 ----
     def _read_btn_style(self, active: bool = False) -> str:
-        """朗读按钮：待朗读 = 描边灰字（同复制键）；朗读中 = 主题色实底白字。"""
+        """朗读按钮：待朗读 = 描边灰字（同复制键）；朗读中 = 主题色实底 + 落在其上的专用文字色。"""
         border = theme_color(self.app_ctx, "border", "#FFE4EC")
         text = theme_color(self.app_ctx, "text_secondary", "#8A8A8A")
         bg_light = theme_color(self.app_ctx, "bg_light", "#FFF0F3")
         accent_light = theme_color(self.app_ctx, "accent_light", "#FFB6C1")
         accent = theme_color(self.app_ctx, "accent", "#FF6B9D")
+        # v2.2(UI-Fix): 朗读按钮三个状态的文字色各按自己的底选键，不能串用：
+        # ① 激活态实底（background: accent）—— 原写死 #FFFFFF，实测 #FFFFFF vs accent
+        #    = 3.267 / 2.163 / 2.678 / 3.245，四套**全部不达标**（ui_cream / ui_night
+        #    连 3:1 都不到）；改用「落在强调实底上的文字」专用键 text_on_accent，
+        #    对 accent = 5.208 / 5.984 / 6.485 / 5.192，四套全达标。
+        # ② 激活态 :hover 会把底换成 accent_light —— 该键**随主题翻转**（浅色主题浅、
+        #    ui_night 深 #3A2430），故此处必须用会翻转的 ${text}，**不能用** text_on_accent：
+        #    实测白字（原实现）落 accent_light = 1.174 / 1.120 / 14.238 / 1.153（三套浅色废），
+        #    text_on_accent = 14.492 / 11.556 / 1.220 / 14.612（ui_night 废），
+        #    ${text} = 14.492 / 11.556 / 12.503 / 11.980（四套全 ≥4.5）。
+        # ③ 待朗读态 hover 落在 bg_light —— 同 ② 的底，同取 ${text}
+        #    （原取 accent = 2.783 / 1.931 / 5.317 / 2.814，三套浅色不合格）。
+        on_accent = theme_color(self.app_ctx, "text_on_accent", "#1C1C1E")
+        hover_text = theme_color(self.app_ctx, "text", "#4A4A4A")
+        # v2.2(UI-Fix): 「待朗读」态 hover 的描边同理不能取 accent_light（≡ bg_light，
+        # 落在 bg_light 底上 = 1.000 不可见），改取 accent_text（4.125 / 4.397 / 5.335 / 4.280）。
+        # 激活态 hover 的 background 与 border-color 同为 accent_light（那是**填充**，不是描边），
+        # 描边与填充同色属预期，故保持不动。
+        accent_text = theme_color(self.app_ctx, "accent_text", "#B45073")
         if active:
             return (
                 f"QPushButton#readAloudBtn {{"
                 f"  background: {accent}; border: 1px solid {accent};"
-                f"  border-radius: 6px; color: #FFFFFF; font-size: 11px; padding: 2px 8px;"
+                f"  border-radius: 6px; color: {on_accent}; font-size: 11px; padding: 2px 8px;"
                 f"}}"
-                f"QPushButton#readAloudBtn:hover {{ background: {accent_light}; border-color: {accent_light}; }}"
+                f"QPushButton#readAloudBtn:hover {{"
+                f"  background: {accent_light}; border-color: {accent_light}; color: {hover_text};"
+                f"}}"
             )
         return (
             f"QPushButton#readAloudBtn {{"
@@ -1119,7 +1208,7 @@ class MessageBubble(QWidget):
             f"  border-radius: 6px; color: {text}; font-size: 11px; padding: 2px 8px;"
             f"}}"
             f"QPushButton#readAloudBtn:hover {{"
-            f"  background: {bg_light}; border-color: {accent_light}; color: {accent};"
+            f"  background: {bg_light}; border-color: {accent_text}; color: {hover_text};"
             f"}}"
         )
 
@@ -1145,17 +1234,36 @@ class MessageBubble(QWidget):
     def is_reading(self) -> bool:
         return self._tts_reading
 
+    def _attachments_colors(self) -> tuple:
+        """附件面板的（底色, 文字色）——两种角色各自取配对主题令牌。
+
+        v2.2(UI-Fix): 原实现在 `role == "user"` 分支写死 `rgba(255,255,255,0.18)` +
+        `#FFFFFF`，依据是「用户气泡实底恒为亮强调色」。该前提**不成立**：
+        `bubble_user_bg` 四套主题实测 = #F0F0F3(浅灰) / #FFE8EF / #2B2130 / #DFF0F8，
+        ui_minimal 的用户气泡根本是**浅灰底**（其配对文字色 #1C1C1E）。
+        故白字落在真实面板底上 = **1.108 / 1.133 / 8.628 / 1.134**（三套浅色等于隐形，
+        而附件名是 12px 小字，需 ≥4.5）。改法与 AI 分支同纪律：文字取该气泡**配对的**
+        文字令牌 `bubble_user_text`（四套 vs 气泡底 = 14.959 / 11.118 / 13.530 / 11.812）。
+        面板底色不再复用「白 18%」—— 实测它叠在浅色气泡底上 = 1.026 / 1.027 / 1.031
+        （等于没有面板，只有 ui_night 的 1.786 看得见）；改为**气泡文字色 10% 叠加**，
+        因文字与其底本就是对比配对，该 tint 在四套主题下都稳定可见：
+        面板 vs 气泡底 = 1.215 / 1.194 / 1.337 / 1.195，
+        新文字落其上 = 12.315 / 9.310 / 10.118 / 9.883（四套全 ≥4.5）。
+        """
+        if self.role == "user":
+            text_color = theme_color(self.app_ctx, "bubble_user_text", "#1C1C1E")
+            return self._hex_to_rgba(text_color, 0.10), text_color
+        return (
+            theme_color(self.app_ctx, "bg_light", "#FFF0F3"),
+            theme_color(self.app_ctx, "text", "#4A4A4A"),
+        )
+
     def _build_attachments_widget(self) -> QWidget:
         """构建附件列表展示控件。"""
         container = QWidget()
         container.setObjectName("bubbleAttachments")
-        # 半透明 overlay 风格
-        if self.role == "user":
-            bg_overlay = "rgba(255,255,255,0.18)"
-            text_color = "#FFFFFF"
-        else:
-            bg_overlay = theme_color(self.app_ctx, "bg_light", "#FFF0F3")
-            text_color = theme_color(self.app_ctx, "text", "#4A4A4A")
+        # 半透明 overlay 风格（两种角色同一来源，见 _attachments_colors）
+        bg_overlay, text_color = self._attachments_colors()
 
         container.setStyleSheet(
             f"QWidget#bubbleAttachments {{"

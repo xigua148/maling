@@ -92,6 +92,20 @@ def _decorate_action_label(label: str):
             return name, rest
     return None, label
 
+
+def _in_entry_card(widget: QWidget) -> bool:
+    """``widget`` 是否位于 ``_EntryCard`` 内。
+
+    v2.1(UI-P1)：卡片内 ``#memoryBookBtn`` 由卡片自身样式表统管（已用 ``accent_text``），
+    页面层的逐按钮补色必须跳过它们，否则会覆盖卡片 hover 的文字色。
+    """
+    w = widget.parentWidget()
+    while w is not None:
+        if w.objectName() == "memoryBookCard":
+            return True
+        w = w.parentWidget()
+    return False
+
 # 来源角标（Q-B1）：legacy 显示「早期记忆」——绝不把机器提取误标为「你告诉我的」
 _SOURCE_LABELS = {
     "auto": "自动记下",
@@ -222,7 +236,8 @@ class _EntryCard(QFrame):
         border = theme_color(self.app_ctx, "divider", "#EFE0E2")
         text = theme_color(self.app_ctx, "text", "#5D4037")
         secondary = theme_color(self.app_ctx, "text_secondary", "#8A8A8A")
-        accent = theme_color(self.app_ctx, "accent", "#FF6B9D")
+        # v2.1(UI-P1)：按钮文字用 accent_text（「文字用」强调色），非 accent。
+        accent_text = theme_color(self.app_ctx, "accent_text", "#B45073")
         self.setStyleSheet(
             f"QFrame#memoryBookCard {{ background: {bg}; border: 1px solid {border};"
             f" border-radius: 10px; }}"
@@ -230,10 +245,11 @@ class _EntryCard(QFrame):
             f" background: transparent; }}"
             f"QLabel#memoryBookBadge {{ color: {secondary}; font-size: 11px;"
             f" background: transparent; }}"
-            f"QPushButton#memoryBookBtn {{ background: transparent; color: {accent};"
+            f"QPushButton#memoryBookBtn {{ background: transparent; color: {accent_text};"
             f" border: 1px solid {border}; border-radius: 6px; font-size: 11px;"
             f" padding: 3px 10px; }}"
-            f"QPushButton#memoryBookBtn:hover {{ background: {border}; }}"
+            f"QPushButton#memoryBookBtn:hover {{ background: {border};"
+            f" color: {text}; }}"
         )
 
 
@@ -260,10 +276,23 @@ class PageMemoryBook(QWidget):
         """换肤刷新：本页样式 + 所有已渲染条目卡（条目样式亦为构造期取色）。"""
         try:
             self._apply_style()
+            self._refresh_tab_buttons()
             for card in self.findChildren(_EntryCard):
                 card._apply_style()
         except Exception:
             logger.debug("静默降级：page_memory_book._apply_theme 中忽略异常", exc_info=True)
+
+    def _refresh_tab_buttons(self) -> None:
+        """换肤后按新主题色重挂各分区操作按钮图标（任务 #291）。
+
+        （Tab 图标本已由 ``_apply_style → _color_tabs`` 随换肤重挂，此处只补各分区
+        操作按钮 —— 它们的图标此前仅在构造期由 ``_decorate_button`` 挂一次。）
+        """
+        for btn, name, clean, fallback in getattr(self, "_tab_btn_decorations", ()):
+            try:
+                _decorate_button(btn, self.app_ctx, name, clean, fallback)
+            except Exception:
+                logger.debug("静默降级：记忆中心分区按钮换肤重挂失败", exc_info=True)
 
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
@@ -293,6 +322,8 @@ class PageMemoryBook(QWidget):
         # v1.8(D-V18-09/Q-D2): 8 Tab 平铺 + 分组着色（本批补齐「回应约定」满 8）。
         # 既有五 Tab 数据链零改动（R-D）。
         self._timeline_months = 6   # F3 时间线回看窗口（「展开更早」+6 递增）
+        # v2.1(#291): 记录各分区操作按钮（图标名 / 文案），换肤后按新主题色重挂图标
+        self._tab_btn_decorations: List[tuple] = []
         self._build_pref_tab()
         self._build_topic_tab()
         self._build_emotion_tab()
@@ -336,6 +367,7 @@ class PageMemoryBook(QWidget):
         add_btn.setToolTip("告诉码铃一件关于你的事（例如：叫我小远）")
         add_btn.clicked.connect(self._on_add_preference)
         _decorate_button(add_btn, self.app_ctx, "add", "添加偏好", "➕ 添加偏好")
+        self._tab_btn_decorations.append((add_btn, "add", "添加偏好", "➕ 添加偏好"))
         add_row.addWidget(add_btn)
         add_row.addStretch()
         idx = max(0, tab._lay.count() - 1)  # type: ignore[attr-defined]
@@ -366,6 +398,8 @@ class PageMemoryBook(QWidget):
         add_btn.clicked.connect(self._on_add_entity)
         _decorate_button(add_btn, self.app_ctx, "user_add", "记下一位重要的人",
                          "➕ 记下一位重要的人")
+        self._tab_btn_decorations.append(
+            (add_btn, "user_add", "记下一位重要的人", "➕ 记下一位重要的人"))
         add_row.addWidget(add_btn)
         add_row.addStretch()
         idx = max(0, tab._lay.count() - 1)  # type: ignore[attr-defined]
@@ -383,6 +417,7 @@ class PageMemoryBook(QWidget):
         add_btn.setToolTip("告诉码铃一条小约定（例如：以后我说「上线了」你要说「辛苦了」）")
         add_btn.clicked.connect(self._on_add_rule)
         _decorate_button(add_btn, self.app_ctx, "add", "添加约定", "➕ 添加约定")
+        self._tab_btn_decorations.append((add_btn, "add", "添加约定", "➕ 添加约定"))
         add_row.addWidget(add_btn)
         add_row.addStretch()
         idx = max(0, tab._lay.count() - 1)  # type: ignore[attr-defined]
@@ -400,6 +435,7 @@ class PageMemoryBook(QWidget):
         expand_btn.setToolTip("再多看半年的共同经历")
         expand_btn.clicked.connect(self._on_expand_timeline)
         _decorate_button(expand_btn, self.app_ctx, "history", "展开更早", "⏪ 展开更早")
+        self._tab_btn_decorations.append((expand_btn, "history", "展开更早", "⏪ 展开更早"))
         op_row.addWidget(expand_btn)
         op_row.addStretch()
         idx = max(0, tab._lay.count() - 1)  # type: ignore[attr-defined]
@@ -422,6 +458,8 @@ class PageMemoryBook(QWidget):
         export_btn.setToolTip("把日记导出为 Markdown 文件（自选目录）")
         export_btn.clicked.connect(self._on_export_diary)
         _decorate_button(export_btn, self.app_ctx, "export", "导出 Markdown", "📄 导出 Markdown")
+        self._tab_btn_decorations.append(
+            (export_btn, "export", "导出 Markdown", "📄 导出 Markdown"))
         op_row.addWidget(export_btn)
         op_row.addStretch()
         idx = max(0, tab._lay.count() - 1)  # type: ignore[attr-defined]
@@ -1354,13 +1392,39 @@ class PageMemoryBook(QWidget):
             if lab is not None:
                 lab.setStyleSheet(f"QLabel#{name} {{ color: {secondary}; font-size: 12px; }}")
         add_btn = self.pref_tab.findChild(QPushButton, "memoryBookBtn")
+        accent = theme_color(self.app_ctx, "accent", "#FF6B9D")
+        accent_text = theme_color(self.app_ctx, "accent_text", "#B45073")
         if add_btn is not None:
-            accent = theme_color(self.app_ctx, "accent", "#FF6B9D")
             add_btn.setStyleSheet(
-                f"QPushButton#memoryBookBtn {{ background: transparent; color: {accent};"
+                f"QPushButton#memoryBookBtn {{ background: transparent; color: {accent_text};"
                 f" border: 1px solid {divider}; border-radius: 8px; font-size: 12px;"
                 f" padding: 6px 14px; }}"
-                f"QPushButton#memoryBookBtn:hover {{ border-color: {accent}; }}"
+                # v2.1(UI-P1)：hover 态显式声明 color，不依赖常态回落。
+                f"QPushButton#memoryBookBtn:hover {{ border-color: {accent}; color: {text}; }}"
+                # 按下态同上：控件级样式表会盖过 app 级的 base.qss :pressed，故一并声明。
+                # 只给 color（不动 border-color —— 动它会引入 accent 描边像素，非文字图形另议）。
+                f"QPushButton#memoryBookBtn:pressed {{ color: {text}; }}"
+            )
+        # v2.1(UI-P1)：本页另有 4 个 #memoryBookBtn（导出 Markdown / 展开更早 / 添加约定 /
+        # 记下一位重要的人）**无控件级样式表** → 落 base.qss 的
+        # `QPushButton#memoryBookBtn { color: ${accent_text} }`（基线已订正；v2.2.1 前为
+        # ${accent}，浅色三套 vs 页面 bg 仅 2.1~3.1，AA 4.5 不达）。
+        # 此处补两条：①常态 color（与 base 基线一致，双保险）；②**hover 的 color** ——
+        # base 的 :hover 只改 background-color 不给 color，会沿用小字 accent_text 落在
+        # ${surface_muted} 上（浅色不达），故显式声明。**不动 padding / 圆角 / 字号**
+        # → 版式零位移；卡片内按钮由 _EntryCard 自带样式表统管 → 跳过（避免覆盖其 hover 文字色）。
+        for _btn in self.findChildren(QPushButton, "memoryBookBtn"):
+            if _btn is add_btn or _in_entry_card(_btn):
+                continue
+            _btn.setStyleSheet(
+                f"QPushButton#memoryBookBtn {{ color: {accent_text}; }}"
+                f"QPushButton#memoryBookBtn:hover {{ color: {text}; }}"
+                # 按下态：base.qss 的 `:pressed { background-color: ${bg_light} }` 会命中这四个
+                # 实例（其内联只声明 color，未声明背景），若这里不给 color，控件级常态
+                # `color: accent_text` 会**盖过** app 级的 `:pressed { color: ${text} }`
+                # （实测 State_Sunken 单独重绘仍渲染 accent_text 416/192/192/320 像素）
+                # → accent_text 落 ${bg_light} 上仅 4.125/4.397/5.335/4.280。故同补一行。
+                f"QPushButton#memoryBookBtn:pressed {{ color: {text}; }}"
             )
         self.tabs.setStyleSheet(
             f"QTabWidget#memoryBookTabs::pane {{ border: 1px solid {divider};"
@@ -1384,6 +1448,9 @@ class PageMemoryBook(QWidget):
             "story": theme_color(self.app_ctx, "info", "#5B9BD5"),
             "diary": theme_color(self.app_ctx, "warning", "#E6A23C"),
         }
+        # v2.1(UI-P1) 复核撤回：Tab 文字曾试图改取 accent_text，实测**不上屏** ——
+        # 主题 QSS 的 `QTabBar::tab { color: ... }` 会压制 setTabTextColor（4 主题逐 Tab
+        # 取色证实字形恒为 text_secondary）。故此处保持原分组色，不做无效改动。
         self.tabs.setIconSize(QSize(_TAB_ICON_SIZE, _TAB_ICON_SIZE))
         for i in range(self.tabs.count()):
             if i >= len(_TAB_DEFS):

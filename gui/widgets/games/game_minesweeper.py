@@ -138,17 +138,21 @@ class GameMinesweeper(QWidget):
         bg_card = theme_color(self.app_ctx, "bg_card", "#FFFFFF")
         bg_light = theme_color(self.app_ctx, "bg_light", "#FFF0F3")
         accent = theme_color(self.app_ctx, "accent", "#FF6B9D")
+        text = theme_color(self.app_ctx, "text", "#5D4037")
         text_secondary = theme_color(self.app_ctx, "text_secondary", "#8A8A8A")
         divider = theme_color(self.app_ctx, "divider", "#EFE0E2")
         self.setStyleSheet(
             f"QWidget#msBoard {{ background: {bg_card}; border: 1px solid {divider};"
             f" border-radius: 12px; }}"
-            f"QLabel#msLeft {{ color: {accent}; font-size: 14px; font-weight: bold;"
+            # 对比度修复：剩余雷数/hover 字落在 bg_light 实底上 —— accent 实测
+            # 2.783/1.931/5.317/2.814（三套浅色 <4.5），改用文字色 text
+            # （14.492/11.556/12.503/11.980，四套全达标）。
+            f"QLabel#msLeft {{ color: {text}; font-size: 14px; font-weight: bold;"
             f" background: {bg_light}; border-radius: 8px; padding: 6px 10px; }}"
             f"QLabel#msHint {{ color: {text_secondary}; font-size: 12px; background: transparent; }}"
             f"QPushButton#msRestart {{ background: {accent}; color: #FFFFFF; border: none;"
             f" border-radius: 8px; padding: 6px 12px; font-size: 12px; }}"
-            f"QPushButton#msRestart:hover {{ background: {bg_light}; color: {accent};"
+            f"QPushButton#msRestart:hover {{ background: {bg_light}; color: {text};"
             f" border: 1px solid {accent}; }}"
             f"QLabel#msMaidLine {{ color: {text_secondary}; font-size: 12px; background: transparent; }}"
         )

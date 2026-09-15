@@ -58,30 +58,22 @@ class ChatUiBuildMixin:
         ss_layout.setContentsMargins(8, 8, 8, 8)
         ss_layout.setSpacing(6)
 
-        # v2.1(UI-Fix-0913) 主题化：会话侧栏颜色走 theme_color，避免换肤后残留默认粉色
-        # ⚠ 本方法后续有 `from gui.utils import theme_color` 的局部导入 → theme_color 在本
-        #   方法内被判定为**局部名**，故此处必须先局部导入再调用，否则 UnboundLocalError。
-        from gui.utils import theme_color
-        _txt2 = theme_color(self.app_ctx, "text_secondary", "#5D4037")
-        _ac = theme_color(self.app_ctx, "accent", "#FF6B9D")
-        _ac_l = theme_color(self.app_ctx, "accent_light", "#FF9EB5")
-        _bg_l = theme_color(self.app_ctx, "bg_light", "#FFF0F3")
-        _bg_card = theme_color(self.app_ctx, "bg_card", "#FFE4EC")
+        # v2.2.1(换肤一致性)：本方法不再内联取色 —— 全部主题化内联样式已集中到
+        # `_apply_chat_theme()`（唯一取色入口），由 `_init_ui` 末尾统一调用一次。
+        # 于是「构造期」与「换肤期」共用同一份样式字符串，不再存在两通道写歪的可能
+        # （实锤：search_edit 常态描边在 ui_build 取 border、在 interactions 取
+        #  accent_light；而 accent_light ≡ bg_light ⇒ 一切皮肤描边直接消失）。
 
         ss_header = QHBoxLayout()
-        ss_title = QLabel("会话")
-        ss_title.setStyleSheet(f"QLabel {{ font-size: 12px; font-weight: bold; color: {_txt2}; }}")
-        ss_header.addWidget(ss_title)
+        # v2.2.1(换肤一致性)：改为实例属性 —— 换肤时需重取 text_secondary
+        self.sidebar_title_label = QLabel("会话")
+        ss_header.addWidget(self.sidebar_title_label)
         ss_header.addStretch()
 
         # 新会话圆球：中心显示白色「＋」大号粗体，直观表达「新增会话」（避免空球歧义）。
         self.new_session_btn = QPushButton("＋")
         self.new_session_btn.setFixedSize(24, 24)
         self.new_session_btn.setCursor(Qt.PointingHandCursor)
-        self.new_session_btn.setStyleSheet(
-            f"QPushButton {{ background: {_ac_l}; color: white; border: none; border-radius: 12px; font-size: 16px; font-weight: bold; }}"
-            f"QPushButton:hover {{ background: {_ac}; }}"
-        )
         self.new_session_btn.setToolTip("新建会话")
         self.new_session_btn.clicked.connect(self._on_new_session)
         ss_header.addWidget(self.new_session_btn)
@@ -89,12 +81,6 @@ class ChatUiBuildMixin:
 
         self.session_list = QListWidget()
         self.session_list.setObjectName("sessionList")
-        self.session_list.setStyleSheet(
-            f"QListWidget {{ background: transparent; border: none; outline: none; }}"
-            f"QListWidget::item {{ padding: 6px 8px; border-radius: 6px; color: {_txt2}; }}"
-            f"QListWidget::item:selected {{ background: {_bg_card}; color: {_ac}; font-weight: 500; }}"
-            f"QListWidget::item:hover {{ background: {_bg_l}; }}"
-        )
         self.session_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.session_list.customContextMenuRequested.connect(self._show_session_menu)
         self.session_list.itemClicked.connect(self._on_session_selected)
@@ -104,10 +90,6 @@ class ChatUiBuildMixin:
         self.toggle_sidebar_btn = QPushButton("◀")
         self.toggle_sidebar_btn.setFixedSize(20, 60)
         self.toggle_sidebar_btn.setCursor(Qt.PointingHandCursor)
-        self.toggle_sidebar_btn.setStyleSheet(
-            f"QPushButton {{ background: {_bg_l}; color: {_ac_l}; border: none; border-radius: 4px; font-size: 10px; }}"
-            f"QPushButton:hover {{ background: {_ac_l}; color: white; }}"
-        )
         self.toggle_sidebar_btn.clicked.connect(self._on_toggle_sidebar)
 
         main_layout.addWidget(self.session_sidebar)
@@ -140,24 +122,11 @@ class ChatUiBuildMixin:
         self.search_edit.setPlaceholderText("搜索消息...")
         self.search_edit.setMinimumWidth(60)
         self.search_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        # v2.1(UI-Fix-0913) 主题化：颜色改走 theme_color，避免换肤后残留默认粉色
-        _bg_l = theme_color(self.app_ctx, "bg_light", "#FFF5F7")
-        _bd = theme_color(self.app_ctx, "border", "#FFD6E0")
-        _ac_l = theme_color(self.app_ctx, "accent_light", "#FF9EB5")
-        self.search_edit.setStyleSheet(
-            f"QLineEdit {{ background: {_bg_l}; border: 1px solid {_bd};"
-            f" border-radius: 10px; padding: 2px 8px; font-size: 11px; }}"
-            f"QLineEdit:focus {{ border-color: {_ac_l}; }}"
-        )
         self.search_edit.textChanged.connect(self._on_search_filter)
 
         # 正则模式开关
         self.regex_check = QCheckBox("正则")
         self.regex_check.setToolTip("使用正则表达式搜索")
-        self.regex_check.setStyleSheet(
-            f"QCheckBox {{ color: {_ac_l}; font-size: 11px; spacing: 4px; }}"
-            f"QCheckBox::indicator {{ width: 14px; height: 14px; }}"
-        )
         self.regex_check.toggled.connect(lambda _: self._on_search_filter(self.search_edit.text()))
 
         # 搜索范围切换：当前会话 / 全部会话
@@ -167,12 +136,6 @@ class ChatUiBuildMixin:
         self.scope_combo.setToolTip("搜索范围")
         self.scope_combo.setMinimumContentsLength(4)
         self.scope_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-        # v2.1(UI-Fix-0914): 硬编码粉色 → 主题色（此前换主题后此处仍停在粉色系）
-        self.scope_combo.setStyleSheet(
-            f"QComboBox {{ background: {theme_color(self.app_ctx, 'bg_light', '#FFF5F7')};"
-            f" border: 1px solid {theme_color(self.app_ctx, 'divider', '#FFD6E0')};"
-            " border-radius: 10px; padding: 2px 4px; font-size: 11px; }"
-        )
         self.scope_combo.currentIndexChanged.connect(lambda _: self._on_search_filter(self.search_edit.text()))
 
         title_row.addStretch()
@@ -203,23 +166,6 @@ class ChatUiBuildMixin:
         self.tab_mode_btn.setFixedSize(32, 28)
         self.tab_mode_btn.setCursor(Qt.PointingHandCursor)
         self.tab_mode_btn.setToolTip("切换标签页模式（浏览器式 tab）")
-        self.tab_mode_btn.setStyleSheet(
-            # v2.1(UI-Fix-0914): 硬编码紫色 → 主题色（此前换主题后此处仍是紫色系）
-            "QPushButton#tabModeBtn {"
-            f"  background: transparent; color: {theme_color(self.app_ctx, 'text_secondary', '#8A6D9C')};"
-            f"  border: 1px solid {theme_color(self.app_ctx, 'divider', '#D4B5DC')};"
-            "  border-radius: 12px; font-size: 12px; padding: 0px;"
-            "}"
-            "QPushButton#tabModeBtn:checked {"
-            f"  background: {theme_color(self.app_ctx, 'primary', '#D4B5DC')};"
-            f"  color: {theme_color(self.app_ctx, 'text_on_accent', '#FFFFFF')};"
-            f"  border-color: {theme_color(self.app_ctx, 'primary_dark', '#B58FC2')};"
-            "}"
-            "QPushButton#tabModeBtn:hover {"
-            f"  background: {theme_color(self.app_ctx, 'bg_light', '#E8D5EE')};"
-            f"  color: {theme_color(self.app_ctx, 'primary_dark', '#6D4A85')};"
-            "}"
-        )
         self.tab_mode_btn.toggled.connect(self._on_toggle_tab_mode)
         title_row.addWidget(self.tab_mode_btn)
 
@@ -228,18 +174,6 @@ class ChatUiBuildMixin:
         self.expand_btn.setFixedSize(32, 28)
         self.expand_btn.setCursor(Qt.PointingHandCursor)
         self.expand_btn.setToolTip("展开为独立聊天窗口")
-        self.expand_btn.setStyleSheet(
-            "QPushButton#expandChatBtn {"
-            f"  background: transparent; color: {theme_color(self.app_ctx, 'primary', '#FF6B9D')};"
-            f"  border: 1px solid {theme_color(self.app_ctx, 'divider', '#FFB6C1')};"
-            "  border-radius: 12px; font-size: 12px; padding: 0px;"
-            "}"
-            "QPushButton#expandChatBtn:hover {"
-            f"  background: {theme_color(self.app_ctx, 'primary', '#FF9EB5')};"
-            f"  color: {theme_color(self.app_ctx, 'text_on_accent', '#FFFFFF')};"
-            f"  border-color: {theme_color(self.app_ctx, 'primary', '#FF9EB5')};"
-            "}"
-        )
         self.expand_btn.clicked.connect(self._on_expand_chat)
         title_row.addWidget(self.expand_btn)
 
@@ -355,12 +289,6 @@ class ChatUiBuildMixin:
             btn = QPushButton(emoji)
             btn.setFixedSize(44, 36)
             btn.setCursor(Qt.PointingHandCursor)
-            btn.setStyleSheet(
-                f"QPushButton {{ background: {theme_color(self.app_ctx, 'bg_light', '#FFF0F5')};"
-                f" border: 1px solid {theme_color(self.app_ctx, 'divider', '#FFB6C1')};"
-                " border-radius: 8px; font-size: 14px; }"
-                f"QPushButton:hover {{ background: {theme_color(self.app_ctx, 'divider', '#FFB6C1')}; }}"
-            )
             btn.clicked.connect(lambda checked, e=emoji: self._on_emoji_clicked(e))
             emoji_layout.addWidget(btn, idx // 4, idx % 4)
         input_layout.addWidget(self.emoji_panel)
@@ -384,14 +312,6 @@ class ChatUiBuildMixin:
             btn.setObjectName("quickReplyBtn")
             btn.setCursor(Qt.PointingHandCursor)
             btn.setFixedHeight(26)
-            btn.setStyleSheet(
-                f"QPushButton#quickReplyBtn {{ background: {theme_color(self.app_ctx, 'bg_light', '#FFF0F5')};"
-                f" color: {theme_color(self.app_ctx, 'primary', '#FF69B4')};"
-                f" border: 1px solid {theme_color(self.app_ctx, 'divider', '#FFB6C1')};"
-                " border-radius: 10px; font-size: 11px; padding: 2px 10px; }"
-                f"QPushButton#quickReplyBtn:hover {{ background: {theme_color(self.app_ctx, 'divider', '#FFB6C1')};"
-                f" color: {theme_color(self.app_ctx, 'text_on_accent', 'white')}; }}"
-            )
             btn.setMinimumWidth(btn.sizeHint().width())
             btn.clicked.connect(lambda checked, t=reply_text: self._on_quick_reply(t))
             quick_reply_layout.addWidget(btn)
@@ -426,15 +346,6 @@ class ChatUiBuildMixin:
         self._cmd_popup.setFocusPolicy(Qt.NoFocus)
         self._cmd_popup.setFixedWidth(280)
         self._cmd_popup.setMaximumHeight(220)
-        self._cmd_popup.setStyleSheet(
-            f"QListWidget#commandPopup {{ background: {theme_color(self.app_ctx, 'bg_card', '#FFFFFF')};"
-            f" border: 1px solid {theme_color(self.app_ctx, 'divider', '#FFB6C1')};"
-            " border-radius: 8px; padding: 4px; font-size: 12px; }"
-            "QListWidget#commandPopup::item { padding: 6px 8px; border-radius: 6px; }"
-            f"QListWidget#commandPopup::item:selected {{"
-            f" background: {theme_color(self.app_ctx, 'bg_light', '#FFE4EC')};"
-            f" color: {theme_color(self.app_ctx, 'primary', '#FF6B9D')}; }}"
-        )
         self._cmd_popup.itemDoubleClicked.connect(lambda _: self._accept_command())
         self._cmd_popup.hide()
 
@@ -445,15 +356,6 @@ class ChatUiBuildMixin:
         self._mention_popup.setFocusPolicy(Qt.NoFocus)
         self._mention_popup.setFixedWidth(220)
         self._mention_popup.setMaximumHeight(180)
-        self._mention_popup.setStyleSheet(
-            f"QListWidget#mentionPopup {{ background: {theme_color(self.app_ctx, 'bg_card', '#FFFFFF')};"
-            f" border: 1px solid {theme_color(self.app_ctx, 'divider', '#FFB6C1')};"
-            " border-radius: 8px; padding: 4px; font-size: 12px; }"
-            "QListWidget#mentionPopup::item { padding: 6px 8px; border-radius: 6px; }"
-            f"QListWidget#mentionPopup::item:selected {{"
-            f" background: {theme_color(self.app_ctx, 'bg_light', '#FFE4EC')};"
-            f" color: {theme_color(self.app_ctx, 'primary', '#FF6B9D')}; }}"
-        )
         self._mention_popup.itemClicked.connect(
             lambda item: self._accept_mention(item.data(Qt.UserRole))
         )
@@ -480,12 +382,6 @@ class ChatUiBuildMixin:
         btn_row.addWidget(self.stop_btn)
 
         # v1.1(agent): Agent 模式开关 —— 开启后消息走 AgentEngine 工具循环
-        try:
-            from gui.utils import theme_color
-            _agent_on = theme_color(self.app_ctx, "accent", "#FF6B9D")
-            _agent_bg = theme_color(self.app_ctx, "bg_light", "#FFF0F3")
-        except Exception:
-            _agent_on, _agent_bg = "#FF6B9D", "#FFF0F3"
         # v2.1(I-2/D-V21-06): 图标位改矢量字形（text_glyph 缺字体自动回落原 emoji）
         self.agent_btn = QPushButton(f"{icons.text_glyph('agent', '🤖')} Agent")
         self.agent_btn.setObjectName("agentModeBtn")
@@ -497,17 +393,6 @@ class ChatUiBuildMixin:
             "Agent 模式：让女仆自主调用工具完成任务\n"
             "（读文件 / 列目录 / Git / 写文件 / 运行沙箱代码 / 联网搜索）\n"
             "修改类操作会先征求你的授权。关闭后回到普通聊天。"
-        )
-        self.agent_btn.setStyleSheet(
-            f"QPushButton#agentModeBtn {{"
-            f"  background: transparent; color: {_agent_on};"
-            f"  border: 1px solid {_agent_on}; border-radius: 10px;"
-            f"  font-size: 13px; padding: 6px 16px;"
-            f"}}"
-            f"QPushButton#agentModeBtn:checked {{"
-            f"  background: {_agent_on}; color: #FFFFFF; border-color: {_agent_on};"
-            f"}}"
-            f"QPushButton#agentModeBtn:hover {{ background: {_agent_bg}; }}"
         )
         self.agent_btn.toggled.connect(self._on_toggle_agent_mode)
         # v1.1(B1/B3): 启动默认状态读自 AppConfig.agent_enabled（设置页可持久化；
@@ -532,29 +417,12 @@ class ChatUiBuildMixin:
             "适合多步骤复杂任务（如「写一个脚本并测试」）。\n"
             "需要同时开启 Agent 模式。"
         )
-        _task_color = theme_color(self.app_ctx, "accent", "#FF6B9D") if hasattr(self, 'app_ctx') else "#FF6B9D"
-        self.task_btn.setStyleSheet(
-            f"QPushButton#taskModeBtn {{"
-            f"  background: transparent; color: {_task_color};"
-            f"  border: 1px solid {_task_color}; border-radius: 10px;"
-            f"  font-size: 13px; padding: 6px 16px;"
-            f"}}"
-            f"QPushButton#taskModeBtn:checked {{"
-            f"  background: {_task_color}; color: #FFFFFF; border-color: {_task_color};"
-            f"}}"
-            f"QPushButton#taskModeBtn:hover {{ background: {theme_color(self.app_ctx, 'bg_light', '#FFF0F3') if hasattr(self, 'app_ctx') else '#FFF0F3'}; }}"
-        )
         self.task_btn.toggled.connect(self._on_toggle_task_mode)
         btn_row.addWidget(self.task_btn)
 
         # v1.5.0: 「🌐 联网」开关 —— 开启后普通聊天命中检索意图时自动联网搜索并注入上下文
         # （引擎优先级：博查(有key) > cn.bing.com 解析 > ddgs；详见 helpers.WebSearch）。
         # 状态持久化在 GuiConfig.web_search_enabled_gui；Agent 模式不受本开关影响（其自带 web_search 工具）。
-        try:
-            _web_on = theme_color(self.app_ctx, "accent", "#FF6B9D")
-            _web_bg = theme_color(self.app_ctx, "bg_light", "#FFF0F3")
-        except Exception:
-            _web_on, _web_bg = "#FF6B9D", "#FFF0F3"
         self.web_btn = QPushButton(f"{icons.text_glyph('web', '🌐')} 联网")
         self.web_btn.setObjectName("webSearchBtn")
         self.web_btn.setCheckable(True)
@@ -564,17 +432,6 @@ class ChatUiBuildMixin:
             "联网搜索：开启后，普通聊天遇到「最新版本 / 文档 / 报错」等\n"
             "需要最新信息的问题时会自动联网检索并注入回答上下文。\n"
             "默认引擎 cn.bing.com（免费零配置）；配置博查 API Key 后优先使用博查。"
-        )
-        self.web_btn.setStyleSheet(
-            f"QPushButton#webSearchBtn {{"
-            f"  background: transparent; color: {_web_on};"
-            f"  border: 1px solid {_web_on}; border-radius: 10px;"
-            f"  font-size: 13px; padding: 6px 16px;"
-            f"}}"
-            f"QPushButton#webSearchBtn:checked {{"
-            f"  background: {_web_on}; color: #FFFFFF; border-color: {_web_on};"
-            f"}}"
-            f"QPushButton#webSearchBtn:hover {{ background: {_web_bg}; }}"
         )
         self.web_btn.toggled.connect(self._on_toggle_web_search)
         # 启动默认状态读自 GuiConfig.web_search_enabled_gui（持久化）
@@ -603,21 +460,6 @@ class ChatUiBuildMixin:
             "想固定语气时手动选一种 —— 只会影响码铃的回应方式，\n"
             "不会改变消息的正常收发。"
         )
-        try:
-            self.intent_combo.setStyleSheet(
-                f"QComboBox#intentModeCombo {{"
-                f"  background: transparent; color: {_web_on};"
-                f"  border: 1px solid {_web_on}; border-radius: 10px;"
-                f"  font-size: 13px; padding: 6px 10px;"
-                f"}}"
-                f"QComboBox#intentModeCombo::drop-down {{ border: none; width: 18px; }}"
-                f"QComboBox#intentModeCombo QAbstractItemView {{"
-                f"  background: #FFFFFF; color: #4A4A4A; selection-background-color: {_web_bg};"
-                f"  selection-color: #4A4A4A;"
-                f"}}"
-            )
-        except Exception:
-            logger.debug("静默降级：_init_ui 中忽略异常", exc_info=True)
         self.intent_combo.currentIndexChanged.connect(self._on_intent_mode_changed)
         # 启动默认态读自 GuiConfig.chat_intent_mode（持久化）
         try:
@@ -649,21 +491,6 @@ class ChatUiBuildMixin:
             "22:30-次日 6:30 为睡前模式）。手动选定后当日有效、次日自动回落；\n"
             "只影响码铃的语气底色与主动消息频率，不会改变消息的正常收发。"
         )
-        try:
-            self.scene_combo.setStyleSheet(
-                f"QComboBox#sceneModeCombo {{"
-                f"  background: transparent; color: {_web_on};"
-                f"  border: 1px solid {_web_on}; border-radius: 10px;"
-                f"  font-size: 13px; padding: 6px 10px;"
-                f"}}"
-                f"QComboBox#sceneModeCombo::drop-down {{ border: none; width: 18px; }}"
-                f"QComboBox#sceneModeCombo QAbstractItemView {{"
-                f"  background: #FFFFFF; color: #4A4A4A; selection-background-color: {_web_bg};"
-                f"  selection-color: #4A4A4A;"
-                f"}}"
-            )
-        except Exception:
-            logger.debug("静默降级：_init_ui 中忽略异常", exc_info=True)
         self.scene_combo.currentIndexChanged.connect(self._on_scene_mode_changed)
         # 启动默认态：manual_scene 当日有效才回显，否则回落"自动"
         try:
@@ -694,6 +521,258 @@ class ChatUiBuildMixin:
 
         layout.addWidget(input_container)
         main_layout.addWidget(chat_area, 1)
+
+        # v2.2.1(换肤一致性)：全部主题化内联样式在此统一落一次（唯一取色入口）。
+        # 换肤时 `_on_theme_changed` 会再调一次同一方法 —— 构造期与换肤期共用同一份
+        # 样式字符串，不可能出现「构造时一套、换肤后另一套」。
+        self._apply_chat_theme()
+
+    # ==================================================================
+    # v2.2.1(换肤一致性)：聊天面板内联样式的唯一取色入口
+    # ==================================================================
+    def _apply_chat_theme(self) -> None:
+        """按当前主题重写聊天面板的全部内联样式（构造期 / 换肤期共用）。
+
+        为什么收成一处：内联 ``setStyleSheet`` 的颜色在**调用那一刻**求值，换肤不会
+        自动重来。此前这批字符串散落在 ``_init_ui``、``_setup_quick_actions`` 与
+        ``ChatInteractionsMixin._apply_sidebar_theme`` 三处，只要有一处漏改或写歪，
+        就会出现「构造期一套色、换肤后另一套色」。
+
+        实锤（本轮任务 A）：``search_edit`` 常态描边在 ``ui_build`` 取 ``border``、在
+        ``interactions`` 取 ``accent_light``；而四套主题里 ``accent_light ≡ bg_light``
+        ⇒ 一切一次皮肤，描边就与底色同色（对比度 1.000）「凭空消失」。
+
+        幂等：``setStyleSheet`` 是整体覆盖而非追加，且每次都由当前主题重新解析，
+        重复调用不会叠加、不会写回旧值；「已勾选 / 悬停」态由 QSS 伪状态自行决定，
+        不受本方法重复调用影响。
+
+        取色口径（承 v2.2.1 配色收口，实测见 ``_fix_panel/contrast_report.txt``）：
+        · 淡底（``bg_light`` / ``bg_card`` / 页底 ``bg``）上的文字 → ``text`` 或
+          ``accent_text``；``accent`` / ``accent_light`` 是**填充色**，不作文字前景；
+        · ``accent`` 实底上的文字 → ``text_on_accent``；
+        · 常态描边 → ``border``；焦点描边 → ``focus_accent``（与常态必须可区分）。
+        """
+        ctx = getattr(self, "app_ctx", None)
+        if ctx is None:
+            return
+        _txt2 = theme_color(ctx, "text_secondary", "#5D4037")
+        _ac = theme_color(ctx, "accent", "#FF6B9D")
+        _ac_l = theme_color(ctx, "accent_light", "#FFF0F3")
+        _bg_l = theme_color(ctx, "bg_light", "#FFF0F3")
+        _bg_card = theme_color(ctx, "bg_card", "#FFE4EC")
+        _ac_text = theme_color(ctx, "accent_text", "#B45073")
+        _on_ac = theme_color(ctx, "text_on_accent", "#FFFFFF")
+        _txt = theme_color(ctx, "text", "#4A4A4A")
+        _bd = theme_color(ctx, "border", "#FFD6E0")
+        _div = theme_color(ctx, "divider", "#FFB6C1")
+        _primary = theme_color(ctx, "primary", "#FF9EB5")
+        _primary_dark = theme_color(ctx, "primary_dark", "#E0527F")
+        # 任务 A：常态描边与焦点圈必须是两个不同键。四套主题均已注册
+        # focus_accent（#C57792 / #FF8FA3 / #FF6B9D / #2E9BB5），缺键时回落 accent。
+        _focus = theme_color(ctx, "focus_accent", _ac)
+
+        def _ssw(widget, css: str) -> None:
+            """给单个控件覆盖样式；控件为 None / 异常时静默跳过，绝不阻断其余控件换肤。"""
+            if widget is None:
+                return
+            try:
+                widget.setStyleSheet(css)
+            except Exception:
+                logger.debug("静默降级：_apply_chat_theme 中忽略异常", exc_info=True)
+
+        def _ss(name: str, css: str) -> None:
+            _ssw(getattr(self, name, None), css)
+
+        # --- 左侧会话侧栏 ---
+        _ss("sidebar_title_label",
+            f"QLabel {{ font-size: 12px; font-weight: bold; color: {_txt2}; }}")
+
+        _ss("new_session_btn",
+            f"QPushButton {{ background: {_ac_l}; color: {_txt}; border: none;"
+            f" border-radius: 12px; font-size: 16px; font-weight: bold; }}"
+            f"QPushButton:hover {{ background: {_ac}; color: {_on_ac}; }}")
+
+        _ss("session_list",
+            f"QListWidget {{ background: transparent; border: none; outline: none; }}"
+            f"QListWidget::item {{ padding: 6px 8px; border-radius: 6px; color: {_txt2}; }}"
+            f"QListWidget::item:selected {{ background: {_bg_card}; color: {_ac_text}; font-weight: 500; }}"
+            f"QListWidget::item:hover {{ background: {_bg_l}; }}")
+
+        # 折叠钮：常态 bg_light 淡底 + text（11.56~14.49）；悬停 accent 实底 + text_on_accent。
+        # 原 `background: accent_light; color: accent_light` 在四风格下同值恒 1.000。
+        _ss("toggle_sidebar_btn",
+            f"QPushButton {{ background: {_bg_l}; color: {_txt}; border: none;"
+            f" border-radius: 4px; font-size: 10px; }}"
+            f"QPushButton:hover {{ background: {_ac}; color: {_on_ac}; }}")
+
+        # --- 顶栏：搜索区 ---
+        # 任务 A：常态描边与焦点圈分键 —— 切肤后描边不再与底色同色而「消失」，
+        # 键盘 Tab 进来也能看见焦点圈（focus 与常态本身也不同色）。
+        _ss("search_edit",
+            f"QLineEdit {{ background: {_bg_l}; border: 1px solid {_bd};"
+            f" border-radius: 10px; padding: 2px 8px; font-size: 11px; }}"
+            f"QLineEdit:focus {{ border-color: {_focus}; }}")
+
+        # 实测该控件底色是页底 bg（#F7F7F8/#FFF8F3/#131114/#EEF6FA），
+        # 原取 accent_light ≡ bg_light ⇒ 1.05~1.22 近乎不可见；改 accent_text（4.511~7.039）。
+        _ss("regex_check",
+            f"QCheckBox {{ color: {_ac_text}; font-size: 11px; spacing: 4px; }}"
+            f"QCheckBox::indicator {{ width: 14px; height: 14px; }}")
+
+        _ss("scope_combo",
+            f"QComboBox {{ background: {_bg_l}; border: 1px solid {_div};"
+            " border-radius: 10px; padding: 2px 4px; font-size: 11px; }")
+
+        # --- 顶栏：标签页 / 展开 图标按钮 ---
+        _ss("tab_mode_btn",
+            "QPushButton#tabModeBtn {"
+            f"  background: transparent; color: {_txt2};"
+            f"  border: 1px solid {_div};"
+            "  border-radius: 12px; font-size: 12px; padding: 0px;"
+            "}"
+            "QPushButton#tabModeBtn:checked {"
+            f"  background: {_primary}; color: {_on_ac}; border-color: {_primary_dark};"
+            "}"
+            # hover 原取 primary_dark 作文字前景，落 bg_light 四风格 3.144/2.538/3.853/3.841
+            # 全 < 4.5 ⇒ 改 text（11.56~14.49）。
+            "QPushButton#tabModeBtn:hover {"
+            f"  background: {_bg_l}; color: {_txt};"
+            "}")
+
+        _ss("expand_btn",
+            "QPushButton#expandChatBtn {"
+            # 原取 primary（= accent 填充色）作文字前景，落页底 bg 3.051/2.057/7.014/2.966
+            # （三风格 < 4.5）⇒ 改 accent_text。
+            f"  background: transparent; color: {_ac_text};"
+            f"  border: 1px solid {_div};"
+            "  border-radius: 12px; font-size: 12px; padding: 0px;"
+            "}"
+            "QPushButton#expandChatBtn:hover {"
+            f"  background: {_primary}; color: {_on_ac}; border-color: {_primary};"
+            "}")
+
+        # --- 表情面板 / 快捷回复（多控件，逐个覆盖） ---
+        _emoji_css = (
+            f"QPushButton {{ background: {_bg_l}; border: 1px solid {_div};"
+            " border-radius: 8px; font-size: 14px; }"
+            f"QPushButton:hover {{ background: {_div}; }}"
+        )
+        _emoji_panel = getattr(self, "emoji_panel", None)
+        if _emoji_panel is not None:
+            for _b in _emoji_panel.findChildren(QPushButton):
+                _ssw(_b, _emoji_css)
+
+        # 常态 / 悬停底色都是淡底（bg_light / divider）：原字色 primary 落 bg_light 仅
+        # 2.783/1.931/5.317/2.814、悬停 text_on_accent 落 divider 在 ui_night 仅 1.120
+        # （深字落深底）⇒ 淡底统一 text（常态 11.56~14.49 / 悬停 10.24~14.96）。
+        _qr_css = (
+            f"QPushButton#quickReplyBtn {{ background: {_bg_l}; color: {_txt};"
+            f" border: 1px solid {_div};"
+            " border-radius: 10px; font-size: 11px; padding: 2px 10px; }"
+            f"QPushButton#quickReplyBtn:hover {{ background: {_div}; color: {_txt}; }}"
+        )
+        for _b in self.findChildren(QPushButton, "quickReplyBtn"):
+            _ssw(_b, _qr_css)
+            # 构造期是先上样式再算 sizeHint（padding / font-size 会影响宽度），
+            # 样式搬到这里后必须补算一次，否则最小宽会按默认样式偏窄。
+            try:
+                _b.setMinimumWidth(_b.sizeHint().width())
+            except Exception:
+                logger.debug("静默降级：_apply_chat_theme 中忽略异常", exc_info=True)
+
+        # --- 指令 / @ 补全浮层 ---
+        _ss("_cmd_popup",
+            f"QListWidget#commandPopup {{ background: {_bg_card};"
+            f" border: 1px solid {_div};"
+            " border-radius: 8px; padding: 4px; font-size: 12px; }"
+            "QListWidget#commandPopup::item { padding: 6px 8px; border-radius: 6px; }"
+            # 选中行底色是 bg_light 淡底，原取 primary 实测 2.783/1.931/5.317/2.814 ⇒ text。
+            f"QListWidget#commandPopup::item:selected {{"
+            f" background: {_bg_l}; color: {_txt}; }}")
+
+        _ss("_mention_popup",
+            f"QListWidget#mentionPopup {{ background: {_bg_card};"
+            f" border: 1px solid {_div};"
+            " border-radius: 8px; padding: 4px; font-size: 12px; }"
+            "QListWidget#mentionPopup::item { padding: 6px 8px; border-radius: 6px; }"
+            f"QListWidget#mentionPopup::item:selected {{"
+            f" background: {_bg_l}; color: {_txt}; }}")
+
+        # --- 模式开关：Agent / 任务 / 联网 ---
+        # 常态字色原取 accent（填充色），落输入区卡片底（实测 bg_card）3.267/2.163/
+        # 6.485/3.245 ⇒ accent_text；:checked 实底 accent 上的 #FFFFFF 只有 3.267/2.163/
+        # 2.678/3.245 ⇒ text_on_accent；:hover 原先未声明 color，落 bg_light 时回落 accent
+        # （2.783/1.931/5.317/2.814），且「已勾选 + 悬停」白字落 bg_light 仅 1.174/1.120/
+        # 14.238/1.153 ⇒ 显式声明 text。
+        _ss("agent_btn",
+            "QPushButton#agentModeBtn {"
+            f"  background: transparent; color: {_ac_text};"
+            f"  border: 1px solid {_ac}; border-radius: 10px;"
+            "  font-size: 13px; padding: 6px 16px;"
+            "}"
+            "QPushButton#agentModeBtn:checked {"
+            f"  background: {_ac}; color: {_on_ac}; border-color: {_ac};"
+            "}"
+            f"QPushButton#agentModeBtn:hover {{ background: {_bg_l}; color: {_txt}; }}")
+
+        _ss("task_btn",
+            "QPushButton#taskModeBtn {"
+            f"  background: transparent; color: {_ac_text};"
+            f"  border: 1px solid {_ac}; border-radius: 10px;"
+            "  font-size: 13px; padding: 6px 16px;"
+            "}"
+            "QPushButton#taskModeBtn:checked {"
+            f"  background: {_ac}; color: {_on_ac}; border-color: {_ac};"
+            "}"
+            f"QPushButton#taskModeBtn:hover {{ background: {_bg_l}; color: {_txt}; }}")
+
+        _ss("web_btn",
+            "QPushButton#webSearchBtn {"
+            f"  background: transparent; color: {_ac_text};"
+            f"  border: 1px solid {_ac}; border-radius: 10px;"
+            "  font-size: 13px; padding: 6px 16px;"
+            "}"
+            "QPushButton#webSearchBtn:checked {"
+            f"  background: {_ac}; color: {_on_ac}; border-color: {_ac};"
+            "}"
+            f"QPushButton#webSearchBtn:hover {{ background: {_bg_l}; color: {_txt}; }}")
+
+        # --- 意图 / 场景 小型下拉（同款） ---
+        # 下拉列表的 selection-color 原是硬编码 #4A4A4A，而 selection-background 是
+        # bg_light —— ui_night 深底深字仅 1.12 ⇒ 改 text（12.50~14.96）。
+        # （列表底色 #FFFFFF / #4A4A4A 为既有硬编码，本轮只登记不改，见裁决 2。）
+        for _name, _oid in (("intent_combo", "intentModeCombo"),
+                            ("scene_combo", "sceneModeCombo")):
+            _ss(_name,
+                f"QComboBox#{_oid} {{"
+                f"  background: transparent; color: {_ac_text};"
+                f"  border: 1px solid {_ac}; border-radius: 10px;"
+                "  font-size: 13px; padding: 6px 10px;"
+                "}"
+                f"QComboBox#{_oid}::drop-down {{ border: none; width: 18px; }}"
+                f"QComboBox#{_oid} QAbstractItemView {{"
+                "  background: #FFFFFF; color: #4A4A4A;"
+                f"  selection-background-color: {_bg_l}; selection-color: {_txt};"
+                "}")
+
+        # --- 看屏 / 操作 快捷开关 ---
+        # 常态字色原取 accent（填充色），落快捷栏页底（实测 bg）3.051/2.057/7.014/2.966；
+        # :checked 实底 accent 上的 #FFFFFF 仅 3.267/2.163/2.678/3.245 ⇒ text_on_accent。
+        _sw_css = (
+            "QPushButton#watchToggleBtn, QPushButton#computerToggleBtn {"
+            f"  background: transparent; color: {_ac_text};"
+            f"  border: 1px solid {_ac}; border-radius: 12px;"
+            "  font-size: 12px; padding: 2px 12px;"
+            "}"
+            "QPushButton#watchToggleBtn:checked, QPushButton#computerToggleBtn:checked {"
+            f"  background: {_ac}; color: {_on_ac}; border-color: {_ac};"
+            "}"
+            "QPushButton#watchToggleBtn:hover, QPushButton#computerToggleBtn:hover {"
+            f"  background: {_bg_l}; color: {_txt};"
+            "}"
+        )
+        _ss("watch_btn", _sw_css)
+        _ss("computer_btn", _sw_css)
 
     # ==================================================================
     # v2.1(I-2/D-V21-06): 顶栏按钮图标化（矢量图标 + emoji 回退 + hover 重着色）
@@ -866,31 +945,6 @@ class ChatUiBuildMixin:
             "码铃先看清屏幕 → 弹窗给你看目标与预览 → 你「允许这一次 / 拒绝」才执行，绝不擅自乱点"
         )
         quick_layout.addWidget(self.computer_btn)
-
-        # 给两个 checkable 快捷钮上主题色（开启 = 实底强调色，一眼可辨）
-        try:
-            from gui.utils import theme_color
-            _accent = theme_color(self.app_ctx, "accent", "#FF6B9D")
-            _accent_l = theme_color(self.app_ctx, "accent_light", "#FFB6C1")
-            _bg_l = theme_color(self.app_ctx, "bg_light", "#FFF0F3")
-            _txt = theme_color(self.app_ctx, "text", "#4A4A4A")
-            _sw_ss = (
-                f"QPushButton#watchToggleBtn, QPushButton#computerToggleBtn {{"
-                f"  background: transparent; color: {_accent};"
-                f"  border: 1px solid {_accent}; border-radius: 12px;"
-                f"  font-size: 12px; padding: 2px 12px;"
-                f"}}"
-                f"QPushButton#watchToggleBtn:checked, QPushButton#computerToggleBtn:checked {{"
-                f"  background: {_accent}; color: #FFFFFF; border-color: {_accent};"
-                f"}}"
-                f"QPushButton#watchToggleBtn:hover, QPushButton#computerToggleBtn:hover {{"
-                f"  background: {_bg_l}; color: {_txt};"
-                f"}}"
-            )
-            self.watch_btn.setStyleSheet(_sw_ss)
-            self.computer_btn.setStyleSheet(_sw_ss)
-        except Exception:
-            logger.debug("静默降级：_setup_quick_actions 中忽略异常", exc_info=True)
 
         quick_layout.addStretch()
         scroll.setWidget(quick_container)

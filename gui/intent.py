@@ -25,8 +25,8 @@ import re
 from typing import Dict, List, Optional
 
 __all__ = [
-    "INTENT_STATES", "DEFAULT_WORDS", "INTENT_HINTS", "classify_intent",
-    "detect", "reload_words", "current_words",
+    "INTENT_STATES", "DEFAULT_STATE", "DEFAULT_WORDS", "INTENT_HINTS",
+    "classify_intent", "detect", "reload_words", "current_words",
 ]
 
 # 五态全集（chat 为默认/未识别态）

@@ -55,21 +55,23 @@ class ThinkingIndicator(QWidget):
         self._init_ui()
         self.hide()
 
-    def _get_accent_color(self) -> str:
+    def _get_text_color(self) -> str:
+        # v2.1(UI-P1)：文案是**文字**，取 accent_text（「文字用」强调色）；
+        # accent 是填充/描边色，浅色主题下 vs chat_bg 仅 2.1~3.1，不达 AA 4.5。
         te = getattr(self.app_ctx, "theme_engine", None) if self.app_ctx else None
         if te is not None:
-            return te.get_color("accent", "#FF6B9D")
-        return "#FF6B9D"
+            return te.get_color("accent_text", "#B45073")
+        return "#B45073"
 
-    def _style(self, accent: str) -> str:
-        return f"QLabel {{ color: {accent}; font-size: 13px; font-style: italic; }}"
+    def _style(self, color: str) -> str:
+        return f"QLabel {{ color: {color}; font-size: 13px; font-style: italic; }}"
 
     def _init_ui(self) -> None:
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 6, 12, 6)   # 与原实现一致（不改位置/留白）
         layout.setSpacing(4)
 
-        accent = self._get_accent_color()
+        accent = self._get_text_color()
         style = self._style(accent)
 
         # 顺序 = 文案在前、省略号在后（v1.4.9 原版「AI 正在思考...」语序）。
@@ -173,7 +175,7 @@ class ThinkingIndicator(QWidget):
 
     def update_theme(self) -> None:
         """主题变更时刷新颜色（文案 + 省略号）。"""
-        accent = self._get_accent_color()
+        accent = self._get_text_color()
         style = self._style(accent)
         self._label.setStyleSheet(style)
         self._dots.setStyleSheet(style)

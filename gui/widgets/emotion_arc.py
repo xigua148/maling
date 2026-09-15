@@ -11,17 +11,23 @@ get_emotions_history()（只读，memory 层零改动）。展示约定（R-A �
   - 固定说明文案："这只是帮你看见自己，不是给你打分。"
   - **全组件无 int→str 上屏路径**（无分数/百分比/计数/坐标轴/日期数字上屏，
     验收断言见 tests/test_v18_batch1.py）；
-  - 今日格轻呼吸动画（QTimer 交替两种淡色，v1.6 handsfree 呼吸先例），
-    **R-P（v2.x 修复）：按可见性启停 —— 隐藏即停，不再常驻空转**；
+  - 今日格轻呼吸动画（**v2.x：不再自带 QTimer**，统一经 ``gui.motion.loop`` 收口 ——
+    **每周期翻转一次**外圈（半周期 = 1 个 period = 1600ms，贴原实现 1400ms），accent ↔ 透明；
+    ``off`` 档 / 系统关动画**不起循环**、定格静态形态，绝不残留动画），
+    **R-P：按可见性启停 —— 隐藏即停，不再常驻空转**；
   - 点击有记录的日格发 dayClicked(date_iso) 信号（页面侧跳该日条目列表）。
 """
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from gui.qt_compat import QFrame, QLabel, Qt, QTimer, QVBoxLayout, QHBoxLayout, QWidget, Signal
+from gui import motion
+from gui.qt_compat import QFrame, QLabel, Qt, QVBoxLayout, QHBoxLayout, QWidget, Signal
 from gui.utils import theme_color
+
+logger = logging.getLogger("maid_coder.gui.emotion_arc")
 
 __all__ = ["EmotionArcWidget", "emotion_tier_word", "TIER_WORD_OF_EMOTION"]
 
@@ -47,6 +53,13 @@ _TIER_COLOR_KEYS = {
 }
 _EMPTY_COLOR_FALLBACK = "#EFEDED"    # 空日浅灰点
 _TODAY_RING_FALLBACK = "#FF6B9D"     # 今日格外圈（accent）
+
+#: 呼吸「周期」（ms）——经 ``motion.loop_period_ms`` 夹取到 ``[800, 1600]``。
+#: **取夹取上限 1600**：外圈**每个周期翻转一次**（半周期 = 1 个周期）→ 半周期实测
+#: ≈1600ms，与原实现（QTimer 1400ms 取反 → 半周期 1400ms / 整周期 2800ms）观感最接近
+#: （+14%）；优先「保真原节奏」而非字面 1400。若用 ``progress < 0.5`` 会把每周期再劈半
+#: → 半周期仅 800ms，反而更快更违和。
+_BREATH_PERIOD_MS = 1600
 
 
 def emotion_tier_word(emotion: str) -> str:
@@ -106,14 +119,21 @@ class EmotionArcWidget(QFrame):
         self._cells: List[List[_DayCell]] = []
         self._breath_on = False
         self._today_cell: Optional[_DayCell] = None
+        #: 循环句柄（``gui.motion.loop``）；None ⇒ 未启动 / 已停
+        self._breath_handle = None
+        #: 相位回绕计数（每过一个周期 +1，**单调递增**；奇偶决定外圈高亮 —— 自校正、
+        #: 不"读当前值取反"，丢帧不会错位）
+        self._breath_period_n = 0
+        self._last_progress = None
         self._build_ui()
-        self._breath_timer = QTimer(self)
-        self._breath_timer.setInterval(1400)   # 轻呼吸节奏（今日格淡色交替）
-        self._breath_timer.timeout.connect(self._breathe)
-        # R-P（v2.x 修复）：**不在此启动** —— 由 showEvent 按可见性启，hideEvent 停。
-        # 旧实现 __init__ 即 start() 且从不 stop → 组件不可见（隐藏 Tab / 切页）时
-        # 仍每 1.4s 触发一次重绘，属后台空转。首帧静态态由 refresh_arc 的
-        # _breathe(force=True) 保证，无需依赖定时器。
+        # v2.x（修复 D-V21-01 违例）：呼吸**不再自带 QTimer**，统一经 ``gui.motion.loop``
+        # 收口 —— 读 ``enabled()``（``off`` 档不起循环）、走模块级共享驱动器、周期经
+        # ``loop_period_ms`` 夹取。**不在此启动**：由 showEvent 按可见性启、hideEvent 停
+        # （R-P 隐藏即停，防组件不可见时后台空转）。首帧今日格高亮由 refresh_arc →
+        # _breathe(force=True) 保证，无需依赖循环。
+        # 另订阅既有「页面切换」广播（PageManager.page_changed）：切回本页时若已可见
+        # 且档位可动则确保循环在跑（幂等自愈；见 _on_page_changed）。
+        self._connect_pager()
 
     # -- UI 骨架 --
     def _build_ui(self) -> None:
@@ -210,33 +230,125 @@ class EmotionArcWidget(QFrame):
         )
 
     # -- 今日格轻呼吸（两种淡色交替，无文字无数字）--
-    def _breathe(self, force: bool = False) -> None:
+    def _apply_breath(self, on: bool) -> None:
+        """把今日格外圈按 ``on`` 应用（``on`` = accent 高亮 / 否则透明）。
+
+        呼吸与静态形态共用本方法；样式与旧 ``_breathe`` **逐字一致**（零视觉差异）：
+        背景恒为主题淡色 ``divider``，外圈在 accent 与透明间切换。
+        """
         cell = self._today_cell
         if cell is None or not cell._tier_word:
             return
-        self._breath_on = (not self._breath_on) or force
-        base = cell._tier_word
         # 呼吸 = 外圈色在 accent 与透明间交替（零文字变更，零数字上屏）
-        ring = self._ring_color() if self._breath_on else "transparent"
+        ring = self._ring_color() if on else "transparent"
         cell.setStyleSheet(
             f"background: {self._color(('divider', '#F1E4E6'))};"
             f" border: 2px solid {ring}; border-radius: 4px;")
 
+    def _breathe(self, force: bool = False) -> None:
+        """首帧静态高亮（``refresh_arc`` 依赖；保留其能力）。
+
+        ``force=True`` → 今日格定格 accent 高亮（数据刷新后的初始强调）。
+        真正的时间驱动已改由 ``motion.loop`` 的 :meth:`_on_tick` 承担
+        （``_breath_on`` 由**单调周期计数**的奇偶推导，不再"取反翻转"）。
+        """
+        if force:
+            self._breath_on = True
+        self._apply_breath(self._breath_on)
+
+    def _static_breath(self) -> None:
+        """静态形态（R-Q）：外圈透明、``_breath_on=False``，并立即应用样式。"""
+        self._breath_on = False
+        self._apply_breath(False)
+
+    # -- 循环收口：gui.motion.loop / stop_loop（不自带 QTimer，签名即内核契约）--
+    def _on_tick(self, progress: float) -> None:
+        """循环每个 tick：**每过一个周期翻转一次**外圈高亮（半周期 = 1 个 period）。
+
+        周期边界由相位**回绕**推导（``progress`` 较上一帧变小 = 进入新周期）→ 驱动
+        单调递增的周期计数 ``_breath_period_n``，其奇偶决定高亮。这样半周期恰为一个
+        ``period_ms``（1600ms），贴近原实现的 1400ms；且不"读当前值取反"、不因丢帧错位
+        （一次回绕 = 一个周期）。注：共享驱动器 ~16ms/帧，若按帧取反则半周期只剩 ~16ms，
+        故必须按**周期回绕**而非按帧推导。
+        """
+        prev = self._last_progress
+        if prev is not None and progress < prev:
+            self._breath_period_n += 1     # 相位回绕 = 进入下一个周期
+        self._last_progress = progress
+        self._breath_on = (self._breath_period_n % 2 == 0)
+        self._apply_breath(self._breath_on)
+
+    def _on_disabled(self) -> None:
+        """因禁用而停（档位切 ``off`` / 系统关动画 / ``stop_all()``）→ 切静态形态。
+
+        R-Q 硬要求：``off`` 档不得留动画残留。置句柄为空，便于再次可见时重建。
+        """
+        self._breath_handle = None
+        self._static_breath()
+
+    def _resume_breath(self) -> None:
+        """可见时启动呼吸循环；已有句柄 / 当前不可见则不启动（**幂等**）。"""
+        if self._breath_handle is not None:
+            return
+        if not self.isVisible():
+            return
+        try:
+            handle = motion.loop(
+                self, self._on_tick, period_ms=_BREATH_PERIOD_MS,
+                on_disabled=self._on_disabled,
+            )
+        except Exception:
+            logger.debug("情绪弧线呼吸循环启动失败（保持静态）", exc_info=True)
+            return
+        if handle is None:
+            # off 档 / 系统关动画 / 无 QApplication：不启动、不报错 → 定格静态形态
+            self._static_breath()
+            return
+        self._breath_handle = handle
+        self._last_progress = None      # 新循环：相位 / 周期计数归零
+        self._breath_period_n = 0
+        self._on_tick(0.0)    # 首帧高亮（与 refresh_arc 的静态高亮一致）
+
+    def _kill_breath(self) -> None:
+        """显式停循环（隐藏即停）；**幂等**，显式停**不**触发 ``on_disabled``。"""
+        handle = self._breath_handle
+        self._breath_handle = None
+        if handle is None:
+            return
+        try:
+            motion.stop_loop(handle)
+        except Exception:
+            logger.debug("情绪弧线呼吸循环停止异常", exc_info=True)
+
+    # -- 自愈：订阅既有「页面切换」广播（不改 PageManager / motion / 设置页）--
+    def _connect_pager(self) -> None:
+        """订阅 ``app_ctx.page_manager.page_changed``（既有信号）；取不到则静默跳过。
+
+        仅为「切档位后回到本页」这类场景提供一次幂等自愈机会（``page_changed`` 与
+        ``hideEvent``/``showEvent`` 时序相容：切走时先 hide 再广播 → 不可见不启动）。
+        """
+        pm = getattr(self.app_ctx, "page_manager", None) if self.app_ctx is not None else None
+        if pm is None:
+            return
+        sig = getattr(pm, "page_changed", None)
+        if sig is None or not hasattr(sig, "connect"):
+            return
+        try:
+            sig.connect(self._on_page_changed)
+        except Exception:
+            logger.debug("情绪弧线订阅 page_changed 失败（不影响显示）", exc_info=True)
+
+    def _on_page_changed(self, _page_key: str = "") -> None:
+        """页面切换广播：若本控件此刻可见且档位可动，则确保呼吸循环在跑（幂等）。"""
+        self._resume_breath()
+
     # -- R-P：可见性启停（隐藏即停，防后台空转）--
     def showEvent(self, event) -> None:
         super().showEvent(event)
-        try:
-            if not self._breath_timer.isActive():
-                self._breath_timer.start()
-        except Exception:
-            pass
+        self._resume_breath()
 
     def hideEvent(self, event) -> None:
-        try:
-            if self._breath_timer.isActive():
-                self._breath_timer.stop()
-        except Exception:
-            pass
+        self._kill_breath()
         super().hideEvent(event)
 
     # -- R-A 守卫：组件上屏文本恒为零数字（供验收断言复用）--

@@ -1,31 +1,32 @@
 {
-  "version": "2.1.1",
-  "_comment": "v2.1.1 正式发布构建（owner=xigua148）；assets.*.sha256/size 为本次真实打包制品校验值。",
-  "released_at": "2026-09-14",
+  "version": "2.2.0",
+  "_comment": "2.2.0 正式发布构建；assets.*.sha256/size 已由 tools/build_release.py 回填为 dist_v2.2.0 实测值（发布成功前不得推送本文件）。",
+  "released_at": "2026-09-15",
   "min_compatible": "1.0.0",
   "min_updatable": "2.0.0",
-  "release_url": "https://github.com/xigua148/maling/releases/tag/v2.1.1",
+  "release_url": "https://github.com/xigua148/maling/releases/tag/v2.2.0",
   "downloads": {
-    "github": "https://github.com/xigua148/maling/releases/download/v2.1.1/MaLing_v2.1.1_Desktop.zip",
+    "github": "https://github.com/xigua148/maling/releases/download/v2.2.0/MaLing_v2.2.0_Desktop.zip",
     "mirror": ""
   },
   "assets": {
     "onedir": {
-      "url": "https://github.com/xigua148/maling/releases/download/v2.1.1/MaLing_v2.1.1_Desktop.zip",
+      "url": "https://github.com/xigua148/maling/releases/download/v2.2.0/MaLing_v2.2.0_Desktop.zip",
       "mirror": "",
-      "sha256": "c61a788c3ee2821117920c42ec1abdc8f1d4f01b8e9f832a1336a770921f64a4",
-      "size": 301513933,
-      "filename": "MaLing_v2.1.1_Desktop.zip"
+      "sha256": "773edfaa4e4d651f0a7b194fcc1ec2f5c83b882a2b01947bec133e83fdc94c7b",
+      "size": 301713747,
+      "filename": "MaLing_v2.2.0_Desktop.zip"
     },
     "single": {
-      "url": "https://github.com/xigua148/maling/releases/download/v2.1.1/MaLing_v2.1.1_Portable.exe",
+      "url": "https://github.com/xigua148/maling/releases/download/v2.2.0/MaLing_v2.2.0_Portable.exe",
       "mirror": "",
-      "sha256": "b9c901fd57595765d5f81d718c2dabc1c2c8853be144e73304738c1f5cf04c8f",
-      "size": 231497087,
-      "filename": "MaLing_v2.1.1_Portable.exe"
+      "sha256": "7ad6b2e84b6ff1eaba84255503c0a098aba3aeb187df559c0a0294994b103e09",
+      "size": 231675681,
+      "filename": "MaLing_v2.2.0_Portable.exe"
     }
   },
   "notes": [
+    "v2.2.0 酒馆上线：侧栏新增「酒馆」文字叙事冒险（5 页签 / 3 章 / 18 节点 · 76 选项 / 2 终局 / 17 条世界书 / 3 张人物卡），支持自由输入、重掷、改字重发与存档续玩；同批完成 v2.1 收口修复 13 项（含知识库退出崩溃、滚轮误改控件）与酒馆四个 P0 空壳修复。",
     "v2.1.1 体验与可靠性修复：设置滚轮不再误改选项；聊天气泡不再因滚轮留空白；毛玻璃在 Windows 11 可见；全站主题跟随修复；关系等级实时影响口吻/情绪/首页与侧栏；左下角小形象跟随当前角色并显示角色姓名与好感度阶段；设置/角色输入控件可读性修复；第三方组件归属与 NOTICE 补全。",
     "v2.1.0 视觉一致性收口：图标字形体系 · 字体族链修复 · 字号单一收口；三处循环动效回退（ripple/bars/typing→pulse/文字节奏）；侧栏滚动条 hover 才显示；KB 检索/建索引异步化（QThread）；核心层 L0→L1 反向依赖修（path_guard.py）；命令白名单收敛为 ALLOWED_COMMANDS 子集（+子集守卫）；气泡姓名走 given_name（人设≠人名）。",
     "v2.0.0 自动更新与分发：启动/手动检查 + stable/beta 频道 + 后台下载（断点续传/失败降级/强制 SHA-256 校验）+ 退出时自动换包（onedir 整目录 swap / onefile 改名换法）+ 备份与失败回滚；用户数据不受影响",

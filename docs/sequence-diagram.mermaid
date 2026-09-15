@@ -1,0 +1,155 @@
+%% 码铃 v2.2「酒馆」功能域 · 程序调用流程（docs/design-v22.md §4/§5）
+%% 覆盖：开局 / 选项推进 / 自由输入(verbatim) / 自由输入(propose 成功与降级) / reroll / LLM 不可用 / 存档与坏档。
+%% 注：state 与文本分离 —— reroll 只重跑叙述，绝不重跑变换。
+
+sequenceDiagram
+    autonumber
+    participant U as 用户(PageTavern)
+    participant SVC as TavernService(Qt)
+    participant R as IntentRouter(纯逻辑)
+    participant E as Engine(纯逻辑)
+    participant WB as WorldBook(纯逻辑)
+    participant PB as PromptBuilder(纯逻辑)
+    participant SUM as Summarizer(纯逻辑)
+    participant ST as TavernStore(纯逻辑)
+    participant API as api(LLM)
+    participant REL as Companion/Intimacy(只读)
+
+    %% ---------- 1. 开局 ----------
+    rect rgb(235, 245, 255)
+    Note over U,ST: ① 开局 start_play
+    U->>SVC: start_play("lantern")
+    SVC->>ST: load()
+    ST->>ST: merge_defaults / migrate / 坏档恢复(L0..L6)
+    ST-->>SVC: TavernData
+    SVC->>REL: relation_stage_name() / level_name()  %% 只读，Q2
+    REL-->>SVC: RelationCtx{stage_name,self_ref}
+    SVC->>WB: WorldBook(content.entries, budget...)
+    SVC->>PB: build_story_prompt(state, book, play, content, relation_ctx, "normal")
+    PB->>WB: match(recent) ; select_within_budget(matched)
+    WB-->>PB: 命中条目(weight→order→uid 截断)
+    PB-->>SVC: messages[5 段]
+    SVC->>API: chat_stream_chunks(messages)
+    API-->>SVC: 逐 chunk
+    SVC-->>U: narration_chunk / narration_done
+    SVC->>ST: save(data)
+    end
+
+    %% ---------- 2. 选项推进（verbatim，零 token） ----------
+    rect rgb(240, 255, 240)
+    Note over U,ST: ② 选项点击（choice → 直接施加）
+    U->>SVC: submit(choice_id, input_kind="choice")
+    SVC->>R: route(...)  %% 命中 pending 快照 → verbatim
+    R->>E: validate(state, transform, args, content)
+    E->>E: 白名单→args→pre→硬禁区→I1/I2/I3
+    E-->>R: ApplyResult(ok, state', reason)
+    alt ok
+        R-->>SVC: Resolution(mode="verbatim", ok=true)
+        SVC->>SVC: state = state'  (更新 node_id/vars/pending)
+    else pre 不满足
+        R-->>SVC: Resolution(mode="narrate", ok=false, reason="precondition_failed:*")
+    end
+    SVC->>ST: append transcript[turn] + save()
+    SVC->>PB: build_story_prompt(..., mode="normal")
+    SVC->>API: chat_stream_chunks(...)
+    SVC-->>U: 叙述流
+    end
+
+    %% ---------- 3. 自由输入：verbatim 命中 ----------
+    rect rgb(255, 250, 235)
+    Note over U,ST: ③ 自由输入 · 词表命中
+    U->>SVC: submit("我走过去", input_kind="free")
+    SVC->>R: resolve_verbatim(text, content)
+    R-->>SVC: (transform="move_to", args={...})
+    SVC->>E: apply_transform(...)
+    E-->>SVC: ApplyResult(ok=true)
+    SVC->>ST: append transcript(mode="verbatim") + save()
+    end
+
+    %% ---------- 4. 自由输入：propose（成功 / 降级） ----------
+    rect rgb(255, 240, 245)
+    Note over U,ST: ④ 自由输入 · propose 档（Q1 默认开）
+    U->>SVC: submit("我先把那张照片拿起来看看", input_kind="free")
+    SVC->>R: route(..., allow_propose=settings.allow_propose, llm_propose=client)
+    R->>R: resolve_verbatim 未命中
+    alt allow_propose == False
+        R-->>SVC: Resolution(mode="narrate")  %% 不调用 LLM（可断言）
+    else allow_propose == True
+        R->>API: chat(prompt=枚举白名单, max_tokens<=80, strict JSON, timeout)
+        alt 返回合法
+            API-->>R: {"transform":"take","args":{...}}
+            R->>E: validate(...) → pre / 不变量 / 硬禁区 / var 白名单
+            alt 通过
+                E-->>R: ok=true
+                R-->>SVC: Resolution(mode="propose", ok=true, llm_used=true)
+                SVC->>SVC: state = state'
+            else 不通过
+                R-->>SVC: Resolution(mode="propose", ok=false, reason="item_not_in_scene")
+            end
+        else 超时 / 畸形 JSON / LLM 关闭
+            API-->>R: None / TimeoutError / bad json
+            R-->>SVC: Resolution(mode="narrate", llm_used=↔)  %% 与"LLM 关闭"同一路径
+        end
+    end
+    Note over SVC: 降级：状态不变、不弹错误框、degraded 中性提示
+    SVC->>ST: append transcript[turn].resolution + narrated + save()
+    SVC->>API: chat_stream_chunks(叙述)
+    SVC-->>U: 叙述流（无论 ok 与否都叙述）
+    end
+
+    %% ---------- 5. reroll（只重跑叙述） ----------
+    rect rgb(245, 240, 255)
+    Note over U,ST: ⑤ reroll · 状态与文本分离
+    U->>SVC: reroll(turn=7)
+    Note over SVC: 绝不重跑变换；只重跑叙述生成
+    SVC->>PB: build_story_prompt(..., mode="reroll")  %% 不含上一版文本
+    PB-->>SVC: messages(不含上版)
+    SVC->>API: chat_stream_chunks(...)
+    API-->>SVC: 新叙述文本
+    SVC->>ST: 仅覆盖 transcript[7].text  %% 不改 vars/node_id/chapter_id
+    SVC->>ST: save()
+    SVC-->>U: 叙述块 motion.fade() 淡入（≤220ms）
+    end
+
+    %% ---------- 6. LLM 完全不可用 ----------
+    rect rgb(245, 245, 245)
+    Note over U,ST: ⑥ LLM 不可用（完全降级）
+    U->>SVC: submit("...", input_kind="free")
+    SVC->>SVC: _is_demo_mode() == True
+    Note over SVC: propose 与 LLM 叙述都跳过；本地模板叙述
+    SVC->>ST: append transcript(narrated, degraded=true) + save()  %% 离线可玩、进度不丢
+    SVC-->>U: degraded 中性提示（不弹窗）
+    end
+
+    %% ---------- 7. 摘要落盘 ----------
+    rect rgb(235, 255, 250)
+    Note over SUM,ST: ⑦ 摘要（每 8 拍或进章）
+    SVC->>SUM: should_summarize(play, content)
+    SUM-->>SVC: true
+    SVC->>SUM: make_summary(play, llm_summarize?)
+    SUM->>SUM: validate_summary(text) → 非空/长度/不越权
+    alt 校验通过
+        SUM-->>SVC: {up_to_turn, text, verified=true}
+        SVC->>ST: play.summary = ... ; save()
+    else 校验不通过
+        SUM-->>SVC: 拒绝入库（保留旧摘要）
+    end
+    end
+
+    %% ---------- 8. 坏档恢复 ----------
+    rect rgb(255, 245, 245)
+    Note over ST,SVC: ⑧ 坏档恢复矩阵
+    SVC->>ST: load()
+    ST->>ST: JSON 解析失败?
+    alt 可解析，字段缺失/类型错/旧版本
+        ST->>ST: merge_defaults / migrate
+    else 截断
+        ST->>ST: 尝试 tavern.json.bak.1
+        alt 备份可用
+            ST-->>SVC: 回滚数据
+        else 备份也坏
+            ST->>ST: 空档 + 损坏文件改名保留 + 中性提示
+        end
+    end
+    Note over ST: 任何一级都不抛异常（绝不弹错误框）
+    end

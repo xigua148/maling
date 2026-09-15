@@ -580,51 +580,11 @@ class ChatInteractionsMixin:
             self.tool_trace_panel.update_theme()
         except Exception:
             logger.debug("静默降级：_on_theme_changed 中忽略异常", exc_info=True)
-        # v2.1(UI-Fix-0913)：会话侧栏 / 搜索区主题刷新（原本漏了这两块 → 切主题后残留粉色）
+        # v2.2.1(换肤一致性)：面板内联样式的唯一重取入口（定义在 ChatUiBuildMixin）。
+        # 此前这里另有一份 `_apply_sidebar_theme` 与 `ui_build._init_ui` 各写一套字符串，
+        # 两通道一旦写歪就出现「构造期一套色、换肤后另一套色」（search_edit 描边即此因）。
         try:
-            self._apply_sidebar_theme()
+            self._apply_chat_theme()
         except Exception:
             logger.debug("静默降级：_on_theme_changed 中忽略异常", exc_info=True)
-
-    def _apply_sidebar_theme(self) -> None:
-        """会话侧栏 + 搜索区主题刷新（供 _init_ui 与 _on_theme_changed 共用）。
-
-        v2.1(UI-Fix-0913)：这两块虽已改用 ``theme_color``，但那是**构造时**解析的，
-        切主题后不会自动重来；而 ``_on_theme_changed`` 原本只刷气泡 / 顶栏图标 /
-        附件栏 / 标签页，没覆盖这里 → 残留默认粉色。
-        """
-        try:
-            from gui.utils import theme_color
-            _txt2 = theme_color(self.app_ctx, "text_secondary", "#5D4037")
-            _ac = theme_color(self.app_ctx, "accent", "#FF6B9D")
-            _ac_l = theme_color(self.app_ctx, "accent_light", "#FF9EB5")
-            _bg_l = theme_color(self.app_ctx, "bg_light", "#FFF0F3")
-            _bg_card = theme_color(self.app_ctx, "bg_card", "#FFE4EC")
-        except Exception:
-            return
-        try:
-            self.session_list.setStyleSheet(
-                f"QListWidget {{ background: transparent; border: none; outline: none; }}"
-                f"QListWidget::item {{ padding: 6px 8px; border-radius: 6px; color: {_txt2}; }}"
-                f"QListWidget::item:selected {{ background: {_bg_card}; color: {_ac}; font-weight: 500; }}"
-                f"QListWidget::item:hover {{ background: {_bg_l}; }}"
-            )
-        except Exception:
-            logger.debug("静默降级：_apply_sidebar_theme 中忽略异常", exc_info=True)
-        try:
-            self.search_edit.setStyleSheet(
-                f"QLineEdit {{ background: {_bg_l}; border: 1px solid {_ac_l};"
-                f" border-radius: 10px; padding: 2px 8px; font-size: 11px; }}"
-                f"QLineEdit:focus {{ border-color: {_ac_l}; }}"
-            )
-        except Exception:
-            logger.debug("静默降级：_apply_sidebar_theme 中忽略异常", exc_info=True)
-        try:
-            self.toggle_sidebar_btn.setStyleSheet(
-                f"QPushButton {{ background: {_bg_l}; color: {_ac_l}; border: none;"
-                f" border-radius: 4px; font-size: 10px; }}"
-                f"QPushButton:hover {{ background: {_ac_l}; color: white; }}"
-            )
-        except Exception:
-            logger.debug("静默降级：_apply_sidebar_theme 中忽略异常", exc_info=True)
 

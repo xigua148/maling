@@ -24,6 +24,7 @@ v2.x 循环动效（``loop()`` / ``stop_loop()`` / ``loop_period_ms()``，design
 GUI 用例统一 ``QT_QPA_PLATFORM=offscreen``。
 """
 import os
+import re
 import subprocess
 import sys
 import time
@@ -35,7 +36,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 
 import gui.motion as motion
-from gui.qt_compat import QApplication, QEasingCurve, QGraphicsOpacityEffect, QWidget
+from gui.qt_compat import (
+    QApplication, QEasingCurve, QGraphicsOpacityEffect, QObject, Qt, Signal, QWidget,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -615,7 +618,7 @@ def test_loop_without_qapplication_returns_none():
 # ---------------------------------------------------------------------------
 # ⑱ 既有 R-P 债：控件"隐藏即停"（可执行证明）
 #   · ThinkingIndicator —— 隐藏停循环 / 仅 _active 时复启（v2.x 落点①：timer → motion.loop）
-#   · EmotionArcWidget  —— 呼吸表按可见性启停（不再 __init__ 即空转）
+#   · EmotionArcWidget  —— 呼吸表按可见性启停（v2.x 修复：QTimer → motion.loop，见 ⑲）
 # ---------------------------------------------------------------------------
 def test_thinking_indicator_hidden_stops_timer(qapp):
     from gui import motion
@@ -662,19 +665,174 @@ def test_thinking_indicator_off_is_static_not_blank(qapp):
         motion.configure("standard")
 
 
-def test_emotion_arc_breath_timer_follows_visibility(qapp):
+def _arc_ring(cell):
+    """从今日格样式表读出外圈色（``border: 2px solid <color>;``）。"""
+    if cell is None:
+        return None
+    m = re.search(r"border:\s*2px solid\s+([^;]+);", cell.styleSheet())
+    return m.group(1).strip() if m else None
+
+
+def _emotion_arc(qapp, app_ctx=None):
+    """构造 EmotionArcWidget 并注入今日情绪（今日格可呼吸）；WA_DontShowOnScreen。"""
+    from datetime import datetime
     from gui.widgets.emotion_arc import EmotionArcWidget
 
-    w = EmotionArcWidget(app_ctx=None)
-    # 旧实现 __init__ 即 start()：构造后未显示也已空转。修复后应未启动。
-    assert w._breath_timer.isActive() is False
+    w = EmotionArcWidget(app_ctx=app_ctx)
+    w.refresh_arc([{"time": datetime.now().isoformat(), "emotion": "happy"}])
+    w.setAttribute(Qt.WA_DontShowOnScreen, True)
+    return w
+
+
+class _PagerStub(QObject):
+    """最小 page_manager 桩：只提供既有 ``page_changed`` 信号。"""
+
+    page_changed = Signal(str)
+
+
+# ---------------------------------------------------------------------------
+# ⑲ EmotionArcWidget：呼吸**迁 motion.loop**（修 D-V21-01 自建循环违例）
+#   · 可见才呼吸 / 隐藏即停 / 重复 show-hide **幂等**（不产生多个循环）
+#   · ``off`` 档不启动循环（无句柄、无活动循环、外圈定格透明 = 静态形态）
+#   · 运行中切 ``off`` → on_disabled 触发 → 外圈被**强制切静态**（R-Q 硬要求）
+#   · 节拍保真：**每周期翻转一次**（半周期 = 1 个 period；实测 ≈1600ms，贴原 1400ms）
+#   · 自愈：off→非 off 且收到既有广播（page_changed）→ 自动恢复呼吸
+# ---------------------------------------------------------------------------
+def test_emotion_arc_loop_follows_visibility(qapp):
+    """可见才呼吸：构造不启动 / 显示即启 / 隐藏即停；重复 show/hide 幂等。"""
+    motion.configure("standard")
+    base = motion.running_loop_count()
+    w = _emotion_arc(qapp)
+    # 不再 __init__ 即空转：构造后既无句柄也无循环。
+    assert w._breath_handle is None
+    assert motion.running_loop_count() == base
 
     w.show()
-    assert w._breath_timer.isActive() is True   # 可见才呼吸
+    assert w._breath_handle is not None
+    assert motion.running_loop_count() == base + 1   # 可见才呼吸
+    w.show()                                          # 重复 show 不重复起循环（幂等）
+    assert motion.running_loop_count() == base + 1
+
     w.hide()
-    assert w._breath_timer.isActive() is False  # 隐藏即停
+    assert w._breath_handle is None
+    assert motion.running_loop_count() == base        # 隐藏即停
+    w.hide()                                          # 重复 hide 不抛、不残留
+    assert motion.running_loop_count() == base
 
     w.show()
-    assert w._breath_timer.isActive() is True
+    assert motion.running_loop_count() == base + 1   # 再次可见 → 复启
     w.hide()
-    assert w._breath_timer.isActive() is False
+    assert motion.running_loop_count() == base
+
+
+def test_emotion_arc_off_creates_no_loop_and_is_static(qapp):
+    """``off`` 档：``motion.loop`` 未创建（无句柄/无活动循环），外圈定格透明静态。"""
+    motion.configure("off")
+    try:
+        w = _emotion_arc(qapp)
+        w.show()
+        assert w._breath_handle is None
+        assert motion.running_loop_count() == 0
+        assert w._breath_on is False
+        assert _arc_ring(w._today_cell) == "transparent"   # 静态形态（非高亮）
+    finally:
+        motion.configure("standard")
+
+
+def test_emotion_arc_disabled_switches_to_static(qapp):
+    """最关键一条：运行中切 ``off`` → on_disabled → 外圈**强制切静态**（透明）。"""
+    motion.configure("standard")
+    w = _emotion_arc(qapp)
+    w.show()
+    assert motion.running_loop_count() == 1
+
+    w._on_tick(0.2)                                    # 前半周期 → 高亮
+    assert w._breath_on is True
+    assert _arc_ring(w._today_cell) != "transparent"
+
+    motion.configure("off")
+    motion._tick_loops()                               # 每 tick 校验 enabled() → 立即自停并回调
+    assert motion.running_loop_count() == 0
+    assert w._breath_handle is None
+    assert w._breath_on is False
+    assert _arc_ring(w._today_cell) == "transparent"   # 强制静态（R-Q：不留动画残留）
+    motion.configure("standard")
+
+
+def test_emotion_arc_stop_all_switches_to_static(qapp):
+    """``stop_all(final=True)``（退出 / 换肤 / 切 off）一并停并切静态。"""
+    motion.configure("standard")
+    w = _emotion_arc(qapp)
+    w.show()
+    assert motion.running_loop_count() == 1
+
+    motion.stop_all(final=True)
+    assert motion.running_loop_count() == 0
+    assert w._breath_handle is None
+    assert w._breath_on is False
+    assert _arc_ring(w._today_cell) == "transparent"
+
+
+def test_emotion_arc_period_flip_once_per_cycle(qapp):
+    """节拍保真：外圈**每过一个周期翻转一次**（半周期 = 1 个 period，非每帧/半周期）。
+
+    确定性：直接注入单调递增的相位序列（两次回绕 = 两个周期），断言恰好翻转两次、
+    半周期内状态恒定 —— 与实测「半周期 ≈1600ms」口径一致。
+    """
+    motion.configure("standard")
+    w = _emotion_arc(qapp)
+    w.show()                                           # show → _on_tick(0.0) → 首帧高亮
+    assert w._breath_on is True
+    accent = _arc_ring(w._today_cell)
+    assert accent != "transparent"
+
+    states = []
+    # 两个周期：相位在 [0,1) 内递增，跨周期回绕两次
+    for p in (0.1, 0.5, 0.9, 0.0, 0.1, 0.5, 0.9, 0.0, 0.1):
+        w._on_tick(p)
+        states.append(w._breath_on)
+    # 第 1 周期恒高亮；回绕 1 次 → 第 2 周期恒透明；回绕 2 次 → 回到高亮
+    assert states == [True, True, True, False, False, False, False, True, True], states
+    assert w._breath_period_n == 2                     # 单调递增：两次回绕 = 两个周期
+    w._on_tick(0.2)                                    # 同一周期内不跳变
+    assert _arc_ring(w._today_cell) == accent
+    w.hide()
+
+
+def test_emotion_arc_resumes_after_reenable_via_page_changed(qapp):
+    """自愈：off（无句柄）→ 切回非 off 且收到既有广播（page_changed）→ 呼吸自动恢复。"""
+    from types import SimpleNamespace
+
+    pager = _PagerStub()
+    motion.configure("off")
+    w = _emotion_arc(qapp, app_ctx=SimpleNamespace(page_manager=pager))
+    w.show()
+    assert w._breath_handle is None                    # off 档：不启动、静态
+    assert motion.running_loop_count() == 0
+
+    motion.configure("standard")                       # 切回非 off（此刻仍无句柄）
+    assert w._breath_handle is None
+    assert motion.running_loop_count() == 0
+
+    pager.page_changed.emit("memory_book")             # 既有广播到达 → 自愈恢复
+    assert w._breath_handle is not None
+    assert motion.running_loop_count() == 1
+
+    pager.page_changed.emit("memory_book")             # 重复广播幂等
+    assert motion.running_loop_count() == 1
+
+    w.hide()
+    assert motion.running_loop_count() == 0
+    pager.page_changed.emit("memory_book")             # 隐藏时广播不启动（可见性守卫）
+    assert motion.running_loop_count() == 0
+
+
+def test_emotion_arc_no_pager_is_silent(qapp):
+    """无 page_manager（app_ctx=None）时构造不崩、订阅静默跳过、显示即呼吸。"""
+    motion.configure("standard")
+    w = _emotion_arc(qapp)                             # app_ctx=None
+    assert motion.running_loop_count() == 0            # 未 show：不启动
+    w.show()
+    assert motion.running_loop_count() == 1
+    w.hide()
+    assert motion.running_loop_count() == 0

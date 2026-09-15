@@ -15,7 +15,10 @@
   聚焦后 → 值 50→50、页面继续滚动；
   方向键 → 50→51（键盘仍可用）。
 
-**总开关**：:func:`set_enabled(False)` 即整体失效（快速 A/B 对比用）。
+**总开关**：设置页「通用 → 滚轮不误改设置」即时切换（持久化到
+``GuiConfig.wheel_guard_enabled``，默认开）；启动时 :func:`install` 会按该
+配置初始化，运行中也可程序化调用 :func:`set_enabled`（快速 A/B 对比）。
+置 ``False`` 即整体失效，行为等价于未安装该过滤器。
 无 ``QApplication`` 也可安全 import（顶层不创建 Qt 对象）。
 """
 from __future__ import annotations
@@ -29,7 +32,10 @@ from gui.qt_compat import (
 
 logger = logging.getLogger("maid_coder.gui.wheel_guard")
 
-__all__ = ["GUARDED_TYPES", "ENABLED", "set_enabled", "install", "uninstall"]
+__all__ = [
+    "GUARDED_TYPES", "ENABLED", "set_enabled", "sync_from_config",
+    "install", "uninstall",
+]
 
 #: 受守卫的控件类型（默认会「吞滚轮改值」的那些）
 GUARDED_TYPES = (QComboBox, QAbstractSpinBox, QSlider)
@@ -37,11 +43,57 @@ GUARDED_TYPES = (QComboBox, QAbstractSpinBox, QSlider)
 #: 总开关（置 False → 过滤器直接放行，行为回到未装之前）
 ENABLED: bool = True
 
+#: 总开关是否已被**显式**设置过（调用 :func:`set_enabled` 即置 ``True``）。
+#: 一旦显式设置，:func:`sync_from_config` 的启动期配置同步不再覆盖它 ——
+#: 保证「启动按配置初始化」与「运行中即时切换」互不打架。
+_EXPLICIT: bool = False
+
+
+def _config_enabled() -> bool:
+    """从持久化配置读取「滚轮守卫」总开关（缺省 ``True``）。
+
+    惰性 import ``gui.config``（避免顶层依赖，无 ``QApplication`` 时同样可用）；
+    任何读取失败（无配置文件 / 导入失败 / 缺键）一律返回 ``True`` —— 与既有
+    ``ENABLED=True`` 默认一致，升级用户既有行为不变。
+    """
+    try:
+        from gui.config import GuiConfig
+        return bool(getattr(GuiConfig.load(), "wheel_guard_enabled", True))
+    except Exception:
+        logger.debug("静默降级：读取滚轮守卫配置失败，按默认开启", exc_info=True)
+        return True
+
 
 def set_enabled(flag: bool) -> None:
-    """开关滚轮守卫（供设置项 / A-B 对比使用）。"""
-    global ENABLED
+    """设置滚轮守卫总开关（设置页开关 / A-B 对比用）。
+
+    写入即生效、无需重启：仅翻转模块级 :data:`ENABLED`，事件过滤器下一次命中
+    滚轮事件即读取新值。``False`` 时过滤器**完全不拦截**，行为等价于未安装该
+    过滤器（无半开状态）。设置后不会被启动期配置同步覆盖。
+
+    Args:
+        flag: ``True`` 启用守卫；``False`` 整体失效（滚轮回到控件默认行为）。
+    """
+    global ENABLED, _EXPLICIT
     ENABLED = bool(flag)
+    _EXPLICIT = True
+
+
+def sync_from_config() -> bool:
+    """按持久化配置初始化总开关（应用启动时由 :func:`install` 触发）。
+
+    仅在总开关**从未被显式设置**时生效：读 ``GuiConfig.wheel_guard_enabled``
+    （缺省 ``True``）写回 :data:`ENABLED`；已显式设置过则原样返回、不覆盖，
+    避免运行中的切换被启动期初始化打回。
+
+    Returns:
+        同步后的 :data:`ENABLED` 值。
+    """
+    global ENABLED
+    if _EXPLICIT:
+        return ENABLED
+    ENABLED = _config_enabled()
+    return ENABLED
 
 
 class _WheelGuard(QObject):
@@ -87,6 +139,12 @@ def install(app=None) -> bool:
         app = QApplication.instance()
     if app is None:
         return False
+    # 启动期按配置初始化总开关（总开关已被显式设置时 sync_from_config 不改动）；
+    # 同步失败绝不阻断安装（R-Q：失败降级）。
+    try:
+        sync_from_config()
+    except Exception:
+        logger.debug("静默降级：滚轮守卫配置同步失败", exc_info=True)
     try:
         guard = _WheelGuard(app)
         app.installEventFilter(guard)

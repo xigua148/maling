@@ -26,6 +26,7 @@ manifest 由构建期脚本 ``tools/build_icons.py`` 生成（相关构建期工
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional
 
@@ -33,6 +34,9 @@ from gui.utils import get_resource_path, theme_color
 
 if TYPE_CHECKING:  # 仅类型提示用，运行时不导入（保证无 QApplication 可 import）
     from gui.qt_compat import QFont, QIcon
+
+#: 模块级日志器（R-Q 静默降级统一记 ``debug``：属预期行为、非告警）
+logger = logging.getLogger("maid_coder.gui.icons")
 
 # 图标资源在 gui/ 下的相对目录（⚠-2：与 spec datas 目标目录一致）
 ICON_DIR_REL = "assets/icons"
@@ -122,7 +126,7 @@ def _device_pixel_ratio() -> float:
             if screen is not None:
                 return float(screen.devicePixelRatio() or 1.0)
     except Exception:
-        pass
+        logger.debug("读取 devicePixelRatio 失败，回落 1.0", exc_info=True)
     return 1.0
 
 
@@ -259,7 +263,7 @@ def font(size: int = 16) -> "QFont":
     try:
         qfont.setPixelSize(max(1, int(size)))
     except Exception:
-        pass
+        logger.debug("设置图标字体 pixelSize 失败，沿用默认", exc_info=True)
     return qfont
 
 
@@ -311,7 +315,7 @@ def configure(app_ctx) -> None:
             signal.connect(_on_theme_changed)
             _subscribed = True
     except Exception:
-        pass
+        logger.debug("订阅 theme_changed 失败，图标缓存换肤后不自动清空", exc_info=True)
 
 
 def clear_cache() -> None:

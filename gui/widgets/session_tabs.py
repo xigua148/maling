@@ -97,7 +97,12 @@ class SessionTabsBar(QWidget):
         text = theme_color(self._app_ctx, "text", "#4A4A4A")
         border = theme_color(self._app_ctx, "border", "#E0E0E0")
         primary = theme_color(self._app_ctx, "primary", "#FFB6C1")
-        accent = theme_color(self._app_ctx, "accent", "#FF6B9D")
+        # 对比度修复：选中页字落在 bg_card 上，原用 accent 只有
+        # 3.267/2.163/6.485/3.245（三套浅色 <4.5）→ 改用「文字用」accent_text
+        # （4.844/4.924/6.507/4.935）。
+        # ⚠ primary 在本函数里同时是 hover 底、text_on_accent 是 hover 字 ——
+        #   只换字色，不动这两者的实底配对。
+        accent_text = theme_color(self._app_ctx, "accent_text", "#B45073")
         bg_light = theme_color(self._app_ctx, "bg_light", "#FFF0F3")
         text_on_accent = theme_color(self._app_ctx, "text_on_accent", "#FFFFFF")
 
@@ -119,7 +124,7 @@ class SessionTabsBar(QWidget):
             f"}}"
             f"QTabBar::tab:selected {{"
             f"  background: {bg};"
-            f"  color: {accent};"
+            f"  color: {accent_text};"
             f"  border-color: {primary};"
             f"  font-weight: 600;"
             f"}}"
@@ -133,8 +138,11 @@ class SessionTabsBar(QWidget):
             f"}}"
         )
         self.new_btn.setStyleSheet(
+            # 对比度修复：new_btn 的字/号落在 bg_light 实底上，原用 accent 仅
+            # 2.783/1.931/5.317/2.814（ui_cream 1.931，连图形阈值 3.0 都不过）→
+            # 改用文字色 text（14.492/11.556/12.503/11.980）。
             f"QPushButton#sessionTabsNewBtn {{"
-            f"  background: {bg_light}; color: {accent};"
+            f"  background: {bg_light}; color: {text};"
             f"  border: 1px solid {border}; border-radius: 6px;"
             f"  font-size: 16px; font-weight: bold;"
             f"}}"

@@ -194,7 +194,9 @@ class _MemoryCard(QFrame):
         border = theme_color(self.app_ctx, "divider", "#EFE0E2")
         text = theme_color(self.app_ctx, "text", "#5D4037")
         secondary = theme_color(self.app_ctx, "text_secondary", "#8A8A8A")
-        accent = theme_color(self.app_ctx, "accent", "#FF6B9D")
+        # v2.1(UI-P1)：卡片内按钮文字用 accent_text（「文字用」强调色），
+        # 不再用 accent（「填充/描边用」）——后者在浅色主题下 vs bg_card 仅 2.2~3.3。
+        accent_text = theme_color(self.app_ctx, "accent_text", "#B45073")
         self.setStyleSheet(
             f"QFrame#memoryCard {{ background: {bg}; border: 1px solid {border};"
             f" border-radius: 10px; }}"
@@ -214,9 +216,10 @@ class _MemoryCard(QFrame):
         if btn is not None:
             btn.setStyleSheet(
                 f"QPushButton#memoryRemoveBtn {{ background: transparent;"
-                f" color: {accent}; border: 1px solid {border}; border-radius: 6px;"
+                f" color: {accent_text}; border: 1px solid {border}; border-radius: 6px;"
                 f" font-size: 11px; padding: 3px 10px; }}"
-                f"QPushButton#memoryRemoveBtn:hover {{ background: {border}; }}"
+                f"QPushButton#memoryRemoveBtn:hover {{ background: {border};"
+                f" color: {text}; }}"
             )
 
 
@@ -239,10 +242,25 @@ class PageMemories(QWidget):
             logger.debug("静默降级：page_memories 换肤订阅中忽略异常", exc_info=True)
 
     # ------------------------------------------------------------------
+    def _apply_clear_btn_icon(self) -> None:
+        """按当前主题色重挂「清空回忆」矢量图标（任务 #291）。
+
+        矢量 ``QIcon`` 颜色在构造期烤死，换肤不会自动跟随；本方法在换肤路径上
+        用 ``theme_color`` 取新色重新生成（取色与构造期同一入口，尺寸/字形不变）。
+        """
+        if not hasattr(self, "clear_btn"):
+            return
+        cic = _vector_icon(self.app_ctx, "delete", _MEM_ICON_SIZE,
+                           theme_color(self.app_ctx, "text_secondary", "#8A8A8A"))
+        if cic is not None:
+            self.clear_btn.setIcon(cic)
+            self.clear_btn.setText("清空回忆")
+
     def _apply_theme(self) -> None:
         """换肤刷新：本页样式 + 所有已渲染卡片（卡片样式亦为构造期取色）。"""
         try:
             self._apply_style()
+            self._apply_clear_btn_icon()
             for card in self.findChildren(_MemoryCard):
                 card._apply_style()
         except Exception:
@@ -268,11 +286,7 @@ class PageMemories(QWidget):
         self.clear_btn.setCursor(Qt.PointingHandCursor)
         self.clear_btn.setToolTip("清空所有收藏的高光回忆（不可恢复）")
         self.clear_btn.clicked.connect(self._on_clear)
-        cic = _vector_icon(self.app_ctx, "delete", _MEM_ICON_SIZE,
-                           theme_color(self.app_ctx, "text_secondary", "#8A8A8A"))
-        if cic is not None:
-            self.clear_btn.setIcon(cic)
-            self.clear_btn.setText("清空回忆")
+        self._apply_clear_btn_icon()
         head_row.addWidget(self.clear_btn)
         outer.addLayout(head_row)
 
@@ -379,6 +393,8 @@ class PageMemories(QWidget):
         secondary = theme_color(self.app_ctx, "text_secondary", "#8A8A8A")
         divider = theme_color(self.app_ctx, "divider", "#EFE0E2")
         accent = theme_color(self.app_ctx, "accent", "#FF6B9D")
+        # v2.1(UI-P1)：hover 态文字改 accent_text（描边仍用 accent，属非文字图形）。
+        accent_text = theme_color(self.app_ctx, "accent_text", "#B45073")
         self.info_label.setStyleSheet(
             f"QLabel#memoryInfoLine {{ color: {secondary}; font-size: 12px;"
             f" border-top: 1px solid {divider}; padding-top: 10px; }}"
@@ -391,5 +407,5 @@ class PageMemories(QWidget):
             f"QPushButton#memoryClearBtn {{ background: transparent; color: {secondary};"
             f" border: 1px solid {divider}; border-radius: 8px; font-size: 12px;"
             f" padding: 6px 14px; }}"
-            f"QPushButton#memoryClearBtn:hover {{ color: {accent}; border-color: {accent}; }}"
+            f"QPushButton#memoryClearBtn:hover {{ color: {accent_text}; border-color: {accent}; }}"
         )

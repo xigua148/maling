@@ -2,6 +2,52 @@
 
 码铃各版本的改动历史记录；项目的安装与使用说明见 [README.md](README.md)。
 
+## v2.2.0 — 酒馆（文字叙事冒险）
+
+**版本**：**2.2.0**（2026-09-15）。**测试**：**1985 passed / 4 skipped / 0 failed**。**分发**：`MaLing_v2.2.0_Desktop.zip`（桌面版，解压即用）与 `MaLing_v2.2.0_Portable.exe`（单文件版，免解压），各附 SHA-256 校验文件。
+
+### Added
+- **「酒馆」功能域**：侧栏第 8 项进入的中大型文字叙事冒险，5 个页签（今夜 / 世界书 / 我的故事 / 人物 / 记录）。
+  - 逻辑层 `gui/tavern/`（model / store / engine / worldbook / intent_router / prompt / summarize / service，零 Qt 为主，`service.py` 为唯一 Qt 控制器）
+  - 控件层 `gui/widgets/tavern/`（HUD / 输入 / 叙事流 / 世界书 / 我的故事 / 记录）
+  - 装配页 `gui/pages/page_tavern.py`
+  - 内置内容包「灯笼酒馆」：**3 章 / 18 节点 / 76 选项 / 2 终局 / 17 条世界书 / 3 张人物卡**
+- **开局入口**：「今夜」页在无存档时给出「今晚留下来」入口、终局后给出「再来一夜」；书 id 从内容包现取，新增内容包无需改 UI。
+- **高自由度四件套**：自由输入、重掷（reroll）、改字重发、存档续玩；reroll 与改字**状态零漂移**。
+- **世界书选择逻辑**：`constant` / 关键词 / 条件等多种 selective logic，含预算、递归、`probability`、`sticky`、`cooldown`。
+- **storylet 推进**：`prerequisites` 条件匹配 + `seen_nodes` 去重；**支持条件算子**（见 Changed）。
+- **内容层新增**：物品链（拿到信 → 交还）、`knows_name`（报上名字后称呼与选项变化）、`photo_seen` 回声节点、角色扮演式选项（同一结果多种语气）、后果回声节点、无死路保障（**从任一可达状态都能在有限步内收束到结局**，含初始空场景；口径校正见下）。
+
+### Fixed
+- **v2.1 收口修复批 13 项**：气泡高度冻结、状态栏无图标、构建脚本硬编码路径、动效未收口、静默异常、死代码、字号与 `:focus` 缺失、换肤后角色页图标不跟主题、**知识库退出崩溃（`0xC0000409`）**、滚轮误改控件（新增 `wheel_guard_enabled` 配置键）、换肤后语义警示色丢失、6 个页面未跟主题。
+- **酒馆四个 P0**（都是"入口在、数据在、就是不通"，且被桩测试掩盖）：
+  1. **UI 上根本无法开局** —— `start_play` 在 GUI 层零调用者、服务不自动开局、UI 无开局按钮 → 首次进入永远开不了局（既有 E2E 都直接调服务层，所以全绿）；
+  2. **叙述流回显英文机器名** —— 点「在吧台前坐下」显示 `sit_down`，且世界书中文关键词永远匹配不到玩家输入；
+  3. **世界书三个机制只喂了 Tab、没喂 LLM** —— `probability` / `sticky` / `cooldown` 对提示词完全无效，Tab 与提示词还可能不一致；
+  4. **绑定书分支提前 `return`** —— 用户自建世界书的「世界书」页签恒空。
+- **酒馆 11 处「假机制」**：`pending` 无写入点、世界书页签恒空、storylet 选择未实现、章标题恒显书标题（以上为更早批次）、选项不看前置条件（点了没反应）、终局后仍标 `active`（两局混进一局）、`journal` 整条链无调用者、`write_vars` 死通道、首帧世界书快照为空、`_advance_node` 章序优先。
+- **内容层缺陷**：**两个结局抢位致 `ending_dawn` 不可达**（前置完全相同，ch2 永远赢）；8 个 `choice_id` 重名且文案不一致（45 选项只有 34 唯一 id）→ 反查会串台；`photo_seen` / `knows_name` / `scene_items` 三个死变量；`probability` / `cooldown` / 选项级 `prerequisites` 在真包上全为默认值（机制永远无法被观测）。
+
+### Changed
+- **`prerequisites` 支持条件算子（经用户批准的契约扩展，向后兼容）**：
+  ```jsonc
+  { "scene_id": "counter" }                         // 原样：严格等值
+  { "opened":   { "has": "drawer" } }               // 列表包含
+  { "known":    { "has_all": ["photo","name"] } }   // 列表包含全部
+  { "opened":   { "has_not": "latch" } }            // 列表不包含
+  { "poured":   { "not": "long_night" } }           // 标量不等
+  ```
+  未识别/多算子/类型不匹配一律 **fail-closed 且不抛异常**。这让 `opened` / `known` / `held_items` / `scene_items` / `given` 五个**由变换自动维护、此前无法查询**的列表变量第一次可用于分支（可用分支键 3 → 8），**且未改 `MAX_VARS`**。
+- 提示词与摘要不再出现机器名（`node_id` / `scene_id` / `transform` / var 原值 → 中文，取不到用中性中文兜底）；内容包新增可选 `labels` 通道。
+- `gui/widgets/sidebar.py` 新增导航项、`gui/main_window.py` 注册酒馆页；两个 `maid_coder_gui*.spec` 的 `datas` 增加 `('gui/tavern/content', 'tavern/content')` 并把 `NOTICE` / `LICENSE` 随包分发。
+- `gui/themes/base.qss` §11 拆分为 11a/11b 并新增 11c，共 26+9 条 `#tavern*` 字号规则。
+
+### Known gaps
+- `chapter_id` 为硬禁区字段、无写入点 → 尚未实现「按章解锁」（章标题已正确）。
+- 世界书页签为**只读**内置包回退，暂不支持增删改。
+- `prerequisites` 无 OR、无整体否定；同一 key 不能同时表达「包含 X」与「不包含 Y」。
+- 只读会话（L4）下开局仅内存态，重启即丢。
+
 ## v2.1.1 — 体验与可靠性修复
 
 **版本**：**2.1.1**（2026-09-14）。**测试**：**1466 passed / 12 skipped**。**分发**：`MaLing_v2.1.1_Desktop.zip`（桌面版，解压即用）与 `MaLing_v2.1.1_Portable.exe`（单文件版，免解压）；每个制品均附 SHA-256 校验文件。

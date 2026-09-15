@@ -1,0 +1,310 @@
+%% 码铃 v2.2「酒馆」功能域 · 类图（docs/design-v22.md §4）
+%% 约定：gui/tavern/** 零 Qt（除 TavernService）；UI 层只经 TavernService 的信号更新。
+classDiagram
+    direction LR
+
+    %% ============ 数据模型（纯逻辑，零 Qt） ============
+    class TavernData {
+        <<schema v1 dict>>
+        +int schema_version = 1
+        +dict meta
+        +dict settings
+        +dict library
+        +list~Play~ plays
+        +str active_play_id
+        +dict journal
+    }
+    class Settings {
+        +int worldbook_budget_chars = 1600
+        +int worldbook_scan_depth = 4
+        +int max_lore_entries_per_turn = 3
+        +int recursive_max_depth = 2
+        +int transcript_keep_turns = 14
+        +int auto_summary_every = 8
+        +bool allow_free_input = true
+        +bool allow_propose = true
+        +bool llm_narration = true
+        +str narrator_length = "short"
+    }
+    class Play {
+        +str play_id
+        +str book_id
+        +str title
+        +str status
+        +str chapter_id
+        +str node_id
+        +str scene_id
+        +int turn
+        +int seed
+        +dict vars
+        +list~str~ seen_nodes
+        +list~Choice~ pending
+        +list~TranscriptEntry~ transcript
+        +Summary summary
+        +dict llm
+    }
+    class Vars {
+        +str poured
+        +bool knows_name
+        +list~str~ held_items
+        +list~str~ scene_items
+        +list~str~ given
+        +list~str~ opened
+        +list~str~ known
+    }
+    class Choice {
+        +str choice_id
+        +str label
+        +str transform
+        +dict args
+    }
+    class TranscriptEntry {
+        +int turn
+        +str role
+        +str input_kind
+        +str text
+        +Resolution resolution
+        +bool narrated
+        +str at
+    }
+    class Resolution {
+        +str mode  %% verbatim | propose | narrate
+        +str transform
+        +bool ok
+        +str reason
+        +bool llm_used
+    }
+    class Summary {
+        +int up_to_turn
+        +str text
+        +str generated_by
+        +bool verified
+    }
+    class WorldBook {
+        +list entries
+        +int budget_chars
+        +int scan_depth
+        +int max_entries
+        +int recursive_max_depth
+        +match(recent_texts) list
+        +select_within_budget(matched) list
+    }
+    class WorldEntry {
+        +int uid
+        +str title
+        +list~str~ keys
+        +list~str~ secondary_keys
+        +str selective_logic
+        +str content
+        +str position
+        +int depth
+        +int order
+        +int weight
+        +bool constant
+        +int probability
+        +int sticky
+        +int cooldown
+        +bool recursive
+        +bool case_sensitive
+        +bool enabled
+        +int budget_chars_est
+    }
+
+    %% ============ 数据层（纯逻辑） ============
+    class TavernModel {
+        <<module>>
+        +default_tavern() dict
+        +merge_defaults(data) dict
+        +migrate(data) dict
+        +new_play(book_id, title, seed) dict
+    }
+    class TavernStore {
+        +Path base_dir
+        +Path path
+        +load() dict
+        +save(data) None
+        -_rotate_backup() None
+    }
+    class TavernError {
+        <<exception>>
+        +str message
+    }
+
+    %% ============ 引擎（纯逻辑） ============
+    class Engine {
+        <<module>>
+        +validate(state, transform, args, content=None) ApplyResult
+        +apply_transform(state, transform, args, content=None, seed, strict) ApplyResult
+        +check_invariants(state, content=None, prev_state=None) list~str~
+        +is_forbidden(state, transform, args, content=None) str
+        +ARG_KEYS dict
+        +ALLOWED_EFFECT_FIELDS tuple
+    }
+    class ApplyResult {
+        <<frozen dataclass>>
+        +bool ok
+        +dict state
+        +str reason
+        +str transform
+    }
+    class TransformWhitelist {
+        <<const tuple>>
+        move_to
+        take
+        give
+        open
+        ask_about
+        wait
+        order
+    }
+    class ContentPack {
+        <<content dict · 契约 §4.2 · 全部可缺省>>
+        +list node_ids
+        +list scene_ids
+        +list nodes_alias
+        +list scenes_alias
+        +dict reachable
+        +dict known_topics
+        +dict menu
+        +dict open_conditions
+        +list openable
+        +list var_names
+    }
+    class EffectChannel {
+        <<args.effects · 唯一写入通道 §4.2>>
+        +str field
+        +str op
+        +any value
+    }
+    class ContentLoader {
+        <<module · worldbook.py · 单一解析入口>>
+        +content_dir() Path
+        +load_content(pack_id) dict
+    }
+
+    %% ============ 路由（纯逻辑） ============
+    class IntentRouter {
+        <<module>>
+        +resolve_verbatim(text, content) tuple
+        +route(text, state, content, allow_propose, llm_propose, timeout_s) tuple
+    }
+    class LLMProposeClient {
+        <<injected protocol>>
+        +__call__(prompt) dict
+    }
+
+    %% ============ prompt / 摘要（纯逻辑） ============
+    class PromptBuilder {
+        <<module>>
+        +build_story_prompt(state, book, play, content, relation_ctx, mode) list~dict~
+    }
+    class Summarizer {
+        <<module>>
+        +should_summarize(play, content) bool
+        +validate_summary(text) tuple
+        +make_summary(play, llm_summarize) dict
+    }
+    class RelationCtx {
+        <<read-only dict>>
+        +str stage_name
+        +str self_ref
+    }
+
+    %% ============ 服务层（Qt，唯一） ============
+    class TavernService {
+        <<QObject>>
+        +Signal narration_chunk
+        +Signal narration_done
+        +Signal play_changed
+        +Signal degraded
+        +start_play(book_id) None
+        +submit(text, input_kind) None
+        +reroll(turn) None
+        +edit_narration(turn, text) None
+        -_read_relation_ctx() RelationCtx
+    }
+
+    %% ============ UI 层（Qt） ============
+    class PageTavern {
+        <<QWidget>>
+        +on_enter() None
+    }
+    class TavernNarrative {
+        <<QWidget>>
+    }
+    class TavernInput {
+        <<QWidget>>
+    }
+    class TavernHud {
+        <<QWidget>>
+    }
+    class TavernWorldbook {
+        <<QWidget>>
+    }
+    class TavernPlays {
+        <<QWidget>>
+    }
+    class TavernTrace {
+        <<QWidget>>
+    }
+
+    %% ============ 外部只读依赖 ============
+    class Companion {
+        <<external, READ-ONLY>>
+        +relation_stage_name() str
+    }
+    class Intimacy {
+        <<external, READ-ONLY>>
+        +level_name() str
+    }
+
+    %% ============ 关系 ============
+    TavernData *-- Settings
+    TavernData *-- WorldBook : library.books
+    TavernData *-- "1..*" Play : plays[]
+    TavernData *-- "0..1" Play : active_play_id
+    Play *-- Vars
+    Play *-- "0..*" Choice : pending
+    Play *-- "0..*" TranscriptEntry : transcript
+    Play *-- "0..1" Summary
+    TranscriptEntry *-- Resolution
+    WorldBook *-- "0..*" WorldEntry
+
+    TavernStore ..> TavernModel : merge_defaults/migrate
+    TavernStore ..> TavernError : raises
+    TavernModel ..> TavernData
+
+    Engine ..> TransformWhitelist
+    Engine ..> ApplyResult
+    Engine ..> ContentPack : reads (all optional)
+    ContentLoader ..> ContentPack : parses (single source)
+    Engine ..> EffectChannel : validate + apply
+    Choice ..> EffectChannel : args.effects
+    IntentRouter ..> Engine : validate/apply
+    IntentRouter ..> LLMProposeClient : allow_propose only
+    PromptBuilder ..> WorldBook : matched entries
+    PromptBuilder ..> RelationCtx
+    Summarizer ..> Play
+
+    TavernService *-- TavernStore
+    TavernService ..> IntentRouter
+    TavernService ..> PromptBuilder
+    TavernService ..> Summarizer
+    TavernService ..> Companion : READ-ONLY
+    TavernService ..> Intimacy : READ-ONLY
+
+    PageTavern *-- TavernNarrative
+    PageTavern *-- TavernInput
+    PageTavern *-- TavernHud
+    PageTavern *-- TavernWorldbook
+    PageTavern *-- TavernPlays
+    PageTavern *-- TavernTrace
+    PageTavern ..> TavernService : signals only
+    TavernNarrative ..> TavernService
+    TavernHud ..> TavernService
+
+    note for Engine "校验序(§4.2 冻结)：白名单 → 硬禁区 → args → pre →(施加后)不变量"
+    note for EffectChannel "field ∈ ALLOWED_EFFECT_FIELDS ∪ 白名单 var；transcript+op=edit → rewrite_history；write_vars 不受支持(拒 unexpected_args)，effects 为唯一写入通道"
+    note for ContentPack "var_names 与 DEFAULT_VAR_NAMES 取『并集』(内容包只可追加，不可删/覆盖)；缺省：pre 面 fail-closed、I2 面 fail-open"
+
+    %% 备注：gui/tavern/**（除 TavernService）零 Qt；Engine/IntentRouter/WorldBook/Prompt/Summarizer/Store/Model 均可无 QApplication 单测。

@@ -1,0 +1,3 @@
+﻿IMPORT_OK gui.tavern.prompt dir_has_Q_symbols= []
+IMPORT_OK gui.tavern.summarize dir_has_Q_symbols= []
+PySide6 loaded?  False

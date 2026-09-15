@@ -1097,15 +1097,9 @@ class PageRole(QWidget):
         self.avatar_btn.setIconSize(AVATAR_ICON_SIZE)
         self.avatar_btn.setCursor(Qt.PointingHandCursor)
         self.avatar_btn.setToolTip("点击更换头像（选 PNG/JPG/WebP，会复制到角色专属目录）")
-        self.avatar_btn.setStyleSheet(
-            "QPushButton#roleAvatarBtn {"
-            "  background: #FFF0F5; color: #C48A9C;"
-            "  border: 2px solid #FFB6C1; border-radius: 36px;"
-            "  font-size: 28px;"
-            "}"
-            "QPushButton#roleAvatarBtn:hover { border-color: #FF6B9D; }"
-            "QPushButton#roleAvatarBtn:pressed { background: #FFE4EC; }"
-        )
+        # v2.1(#278)：头像按钮配色不再写死粉系色值，改走主题语义键
+        # （见 _apply_avatar_style，由 _on_theme_changed 换肤后重刷）。
+        self._apply_avatar_style()
         self.avatar_btn.clicked.connect(self._on_avatar_clicked)
         avatar_row.addWidget(self.avatar_btn)
 
@@ -2102,6 +2096,15 @@ class PageRole(QWidget):
         card_bg = theme_engine.get_color("bg_card", "#FFFFFF")
         focus = theme_engine.get_color("focus_accent", primary)
         text_on_accent = theme_engine.get_color("text_on_accent", "#FFFFFF")
+        # v2.1(UI-Fix-listsel)：列表选中/悬停底改用「Qt 能正确解析」的写法。
+        # 原写法是把 2 位透明度直接追加在 6 位 primary 色值之后，
+        # 但 Qt 的 QSS 是按 AARRGGBB 解析的 -> 实测渲染色是橄榄绿（如 #96AB54），
+        # 且越「淡」的主题越不透明（ui_cream 首字节 FF → 完全不透明 #8FA322）。
+        # 选中底落既有令牌 bg_light（四套主题的「淡强调底」），悬停底用显式 rgba
+        # 保留原设计「悬停(≈6.7%) 比选中更淡」的层次。
+        bg_light = theme_engine.get_color("bg_light", bg)
+        _r, _g, _b = (int(primary.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+        hover_bg = "rgba(%d,%d,%d,0.067)" % (_r, _g, _b)
 
         self.setStyleSheet(f"""
             QWidget#rolePage {{
@@ -2125,13 +2128,16 @@ class PageRole(QWidget):
                 padding: 8px 12px;
                 border-radius: 8px;
             }}
-            QListWidget#roleList::item:selected {{
-                background: {primary}22;
-                color: {primary};
-                font-weight: 500;
-            }}
+            /* :hover 必须写在 :selected 之前 —— 两条规则特异性相同，QSS 里
+               后写者胜；否则鼠标划过已选中行时悬停底会盖掉选中底（选中高亮
+               短暂消失）。顺序调整实测见 _verify_contrast/（Part F）。 */
             QListWidget#roleList::item:hover {{
-                background: {primary}11;
+                background: {hover_bg};
+            }}
+            QListWidget#roleList::item:selected {{
+                background: {bg_light};
+                color: {text};
+                font-weight: 500;
             }}
             QFrame#roleSection {{
                 background: {card_bg};
@@ -2173,5 +2179,89 @@ class PageRole(QWidget):
             }}
         """)
 
+    def _apply_avatar_style(self) -> None:
+        """头像按钮配色统一走主题语义键（任务 #278）。
+
+        旧实现把 ``#FFF0F5 / #C48A9C / #FFB6C1`` 等粉系色值写死在按钮样式表里，
+        换到深色主题（ui_night）/ 深海主题（ui_whale）时会残留一片「粉色孤岛」，
+        与主题明显割裂。这里改用 accent 语义键（与页面其余图标同源）：
+        底 = ``accent_light``、字 = ``accent_text``、环 = ``accent``、
+        悬停环 = ``focus_accent``、按下底 = ``border``；四套主题实测均「融入」。
+
+        取色一律走 :func:`gui.utils.theme_color`（无活动主题引擎时回落到中性默认），
+        因此本方法在「无 theme_engine」的降级态下也能给出完整圆框（不丢 border-radius）。
+        """
+        if not hasattr(self, "avatar_btn"):
+            return
+        bg = theme_color(self.app_ctx, "accent_light", "#F5EAEE")
+        fg = theme_color(self.app_ctx, "accent_text", "#B45073")
+        ring = theme_color(self.app_ctx, "accent", "#C57792")
+        ring_hover = theme_color(self.app_ctx, "focus_accent", ring)
+        press = theme_color(self.app_ctx, "border", "#EBEBEF")
+        self.avatar_btn.setStyleSheet(
+            "QPushButton#roleAvatarBtn {"
+            f"  background: {bg}; color: {fg};"
+            f"  border: 2px solid {ring}; border-radius: 36px;"
+            "  font-size: 28px;"
+            "}"
+            f"QPushButton#roleAvatarBtn:hover {{ border-color: {ring_hover}; }}"
+            f"QPushButton#roleAvatarBtn:pressed {{ background: {press}; }}"
+        )
+
+    def _refresh_role_list_icons(self) -> None:
+        """换肤后按新主题色重建角色列表的默认角色星标（保留当前选中项）。"""
+        if not hasattr(self, "role_list"):
+            return
+        star_ic = _vector_icon(self.app_ctx, "star", _ROLE_BTN_ICON_SIZE,
+                               theme_color(self.app_ctx, "accent", "#FF6B9D"))
+        for i in range(self.role_list.count()):
+            item = self.role_list.item(i)
+            rid = item.data(Qt.UserRole)
+            role = self.role_manager.get_role(rid) if rid else None
+            # getattr 防御：role 缺失/字段不全时不抛，沿用原标题即可
+            is_default = bool(getattr(role, "is_default", False))
+            if star_ic is not None:
+                item.setIcon(star_ic if is_default else QIcon())
+            else:
+                name = getattr(role, "name", None) or item.text().lstrip("★○ ")
+                item.setText(("★ " if is_default else "○ ") + name)
+
+    def _refresh_theme_icons(self) -> None:
+        """换肤后按新主题色重建本页矢量图标（任务 #278）。
+
+        矢量 ``QIcon`` 的颜色在 ``QPixmap`` 里渲染期烤死（见 ``gui/icons.py``），
+        控件一旦 ``setIcon`` 就不会随主题自动改色 —— 因此必须在换肤路径上用新主题色
+        **重新生成**。这里复用本页既有的 ``_decorate_button`` / ``_refresh_prompt_entry``
+        / ``_refresh_workshop_entries`` 助手（它们内部即走 ``theme_color`` 取当前色板），
+        不新增任何图标名、不改尺寸/位置/字形，只解决「颜色不随主题」。
+        """
+        # ① 静态文案按钮：重挂图标 + 复原文案
+        for attr, name, clean, fallback in (
+            ("new_btn", "add", "新建角色", "➕ 新建角色"),
+            ("preset_new_btn", "auto_awesome", "用预设新建", "🌸 用预设新建"),
+            ("export_card_btn", "export", "导出角色卡", "📤 导出角色卡"),
+            ("import_card_btn", "inbox", "导入角色卡", "📥 导入角色卡"),
+        ):
+            btn = getattr(self, attr, None)
+            if btn is not None:
+                _decorate_button(btn, self.app_ctx, name, clean, fallback)
+        # ② 动态文案按钮：复用既有概要刷新（内部即取新色重挂图标，文案同步更新）
+        self._refresh_prompt_entry()
+        self._refresh_workshop_entries()
+        # ③ 角色列表默认星标
+        self._refresh_role_list_icons()
+        # ④ 头像（矢量 ✨ 或角色资产图，按新主题色重取）
+        if self._current_role_id:
+            role = self.role_manager.get_role(self._current_role_id)
+            if role is not None:
+                self._set_avatar_icon(role)
+
     def _on_theme_changed(self, theme_name: str) -> None:
         self._apply_theme()
+        # v2.1(#278)：换肤后颜色不会自动跟随 —— 主动重建头像配色与本页矢量图标，
+        # 否则图标会停留在构造期烤死的旧主题色。
+        self._apply_avatar_style()
+        try:
+            self._refresh_theme_icons()
+        except Exception:
+            logger.debug("静默降级：角色页换肤图标重建失败", exc_info=True)

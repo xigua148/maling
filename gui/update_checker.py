@@ -39,7 +39,8 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 from urllib.parse import urlparse
 
-from gui.qt_compat import QObject, QThread, Signal
+from gui.qt_compat import QObject, Signal
+from gui.qt_exit_guard import ExitSafeQThread
 
 from core import __version__, parse_version, is_newer_version
 
@@ -431,8 +432,12 @@ def detect_install_form() -> str:
         return "onedir"
 
 
-class _FetchWorker(QThread):
-    """后台拉取 version.json；任何失败都只结束线程，不抛异常（静默边界）。"""
+class _FetchWorker(ExitSafeQThread):
+    """后台拉取 version.json；任何失败都只结束线程，不抛异常（静默边界）。
+
+    退出自我收口（继承 :class:`gui.qt_exit_guard.ExitSafeQThread`）：无父控件，靠
+    ``aboutToQuit`` → 幂等有界 ``stop()`` 收口；超时 detach + 强引用防 GC。
+    """
 
     fetched = Signal(object)   # 成功：dict（原始 JSON）；失败不发信号
     failed = Signal()
@@ -517,7 +522,9 @@ class UpdateChecker(QObject):
         manual=True 表示手动检查：结果不受「忽略此版本」与 24h 闸限制。
         """
         self._manual = bool(manual)
-        self._worker = _FetchWorker(self._url)
+        # parent=self：worker 成为 checker 的 Qt 子对象 → checker 被销毁时由退出收口
+        # 的父控件 destroyed 钩子先行停机（避免连坐析构运行中的 QThread）
+        self._worker = _FetchWorker(self._url, parent=self)
         self._worker.fetched.connect(self._on_fetched)
         self._worker.failed.connect(self._on_failed)
         self._worker.start()

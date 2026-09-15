@@ -220,7 +220,14 @@ class MiniGamesDialog(QDialog):
         border = theme_color(self.app_ctx, "border", "#FFE4E1")
         text = theme_color(self.app_ctx, "text", "#5D4037")
         secondary = theme_color(self.app_ctx, "text_secondary", "#8A8A8A")
-        accent = theme_color(self.app_ctx, "accent", "#FF6B9D")
+        # 对比度修复（标题）：accent 是「填充用」强调色，作字色落在 bg_card 上仅
+        # 3.267/2.163/6.485/3.245；标题 19px bold 属 WCAG 大字（阈值 3.0，ui_cream
+        # 2.163 不过）→ 改用「文字用」accent_text（4.844/4.924/6.507/4.935）。
+        accent_text = theme_color(self.app_ctx, "accent_text", "#B45073")
+        # 对比度修复（miniGamePickBtn 选中/hover 实底）：实底为 primary/accent 时，
+        # 原硬编码 #FFFFFF 只有 3.267/2.163/2.678/3.245（四套全 <4.5，ui_night 2.678
+        # 连 3.0 都不过）→ 改用仓库 P4 约定键 text_on_accent（5.208/5.984/6.485/5.192）。
+        text_on_accent = theme_color(self.app_ctx, "text_on_accent", "#FFFFFF")
         bg_light = theme_color(self.app_ctx, "bg_light", "#FFF0F3")
         primary = theme_color(self.app_ctx, "primary", "#FFB6C1")
         primary_dark = theme_color(self.app_ctx, "primary_dark", "#FF69B4")
@@ -228,7 +235,7 @@ class MiniGamesDialog(QDialog):
 
         self.setStyleSheet(f"QDialog {{ background: {bg}; color: {text}; }}")
         self.title_label.setStyleSheet(
-            f"QLabel#miniGamesTitle {{ color: {accent}; background: transparent; }}"
+            f"QLabel#miniGamesTitle {{ color: {accent_text}; background: transparent; }}"
         )
         self.game_group_label.setStyleSheet(
             f"QLabel#miniGameGroupLabel {{ color: {secondary}; background: transparent;"
@@ -242,14 +249,20 @@ class MiniGamesDialog(QDialog):
         )
         for gid, btn in self.game_btns.items():
             checked = (gid == self._game)
+            # 对比度修复（未选中）：实测底色是 bg（不是 bg_card，两处独立取样互证），
+            # 原字色 accent 落上去只有 3.051/2.057/7.014/2.966（三套浅色 <4.5）
+            # → 改用「文字用」accent_text（4.524/4.684/7.039/4.511）。
+            # ⚠ 描边仍为 primary（未选中态与字色原为同色，现描边保持不动）。
+            fill = primary if checked else "transparent"
+            fg = text_on_accent if checked else accent_text
             btn.setStyleSheet(
                 f"QPushButton#miniGamePickBtn {{"
-                f"  background: {primary if checked else 'transparent'};"
-                f"  color: {'#FFFFFF' if checked else accent};"
+                f"  background: {fill}; color: {fg};"
                 f"  border: 1px solid {primary}; border-radius: 8px;"
                 f"  padding: 8px 6px; font-size: 13px;"
                 f"}}"
-                f"QPushButton#miniGamePickBtn:hover {{ background: {primary}; color: #FFFFFF; }}"
+                f"QPushButton#miniGamePickBtn:hover {{"
+                f" background: {primary}; color: {text_on_accent}; }}"
             )
         note = self.findChild(QLabel, "miniGamesNote")
         if note is not None:
@@ -432,6 +445,7 @@ class MiniGamesDialog(QDialog):
                 w.deleteLater()
         bg_light = theme_color(self.app_ctx, "bg_light", "#FFF0F3")
         accent = theme_color(self.app_ctx, "accent", "#FF6B9D")
+        text = theme_color(self.app_ctx, "text", "#5D4037")
         text_on = "#FFFFFF"
         for label, cb in actions:
             btn = QPushButton(label)
@@ -443,7 +457,9 @@ class MiniGamesDialog(QDialog):
                 f"  background: {accent}; color: {text_on}; border: none;"
                 f"  border-radius: 8px; padding: 6px 14px; font-size: 13px;"
                 f"}}"
-                f"QPushButton#miniActionBtn:hover {{ background: {bg_light}; color: {accent};"
+                # hover 字落在 bg_light 实底上：accent 仅 2.783/1.931/5.317/2.814，
+                # 改用文字色 text（14.492/11.556/12.503/11.980）。
+                f"QPushButton#miniActionBtn:hover {{ background: {bg_light}; color: {text};"
                 f" border: 1px solid {accent}; }}"
             )
             self._action_row_layout.addWidget(btn)

@@ -495,7 +495,6 @@ class ThemeEngine(QObject):
         # 模板若写成 font-family: "${font_family}"; 会把整条链当成单个族名（既有缺陷）。
         font_choice = self._font_choice()
         body_chain = fonts.font_family_chain(font_choice, "body")
-        title_chain = fonts.font_family_chain(font_choice, "title")
         qss = qss.replace("${font_family}", fonts.qss_font_family(font_choice, "body"))
         qss = qss.replace("${font_title}", fonts.qss_font_family(font_choice, "title"))
 

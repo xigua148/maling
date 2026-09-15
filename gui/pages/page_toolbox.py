@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import logging
 import re
 import time
 import urllib.parse
@@ -16,6 +17,8 @@ from gui.qt_compat import (
     QLineEdit, QComboBox, QMessageBox, QApplication, QListWidgetItem, QSize,
 )
 from gui.utils import theme_color
+
+logger = logging.getLogger("maid_coder.gui")
 
 # v2.1(V21-12/D-V21-06): 工具箱列表图标统一 —— 只记「图标名 + 尺寸 + theme_color 取色」，
 # 字体不可用时回落原 emoji。
@@ -524,6 +527,15 @@ class PageToolbox(QWidget):
         secondary = theme_engine.get_color("text_secondary", "#888888")
         border = theme_engine.get_color("border", "#FFE4EC")
         card_bg = theme_engine.get_color("bg_card", "#FFFFFF")
+        # v2.1(UI-Fix-listsel)：列表选中/悬停底改用「Qt 能正确解析」的写法。
+        # 原写法是把 2 位透明度直接追加在 6 位 primary 色值之后，
+        # 但 Qt 的 QSS 是按 AARRGGBB 解析的 -> 实测渲染色是橄榄绿（如 #96AB54），
+        # 且越「淡」的主题越不透明（ui_cream 首字节 FF → 完全不透明 #8FA322）。
+        # 选中底落既有令牌 bg_light（四套主题的「淡强调底」），悬停底用显式 rgba
+        # 保留原设计「悬停(≈6.7%) 比选中更淡」的层次。
+        bg_light = theme_engine.get_color("bg_light", bg)
+        _r, _g, _b = (int(primary.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+        hover_bg = "rgba(%d,%d,%d,0.067)" % (_r, _g, _b)
 
         self.setStyleSheet(f"""
             QWidget#toolboxPage {{
@@ -547,13 +559,16 @@ class PageToolbox(QWidget):
                 padding: 6px 10px;
                 border-radius: 6px;
             }}
-            QListWidget#toolList::item:selected {{
-                background: {primary}22;
-                color: {primary};
-                font-weight: 500;
-            }}
+            /* :hover 必须写在 :selected 之前 —— 两条规则特异性相同，QSS 里
+               后写者胜；否则鼠标划过已选中行时悬停底会盖掉选中底（选中高亮
+               短暂消失）。顺序调整实测见 _verify_contrast/（Part F）。 */
             QListWidget#toolList::item:hover {{
-                background: {primary}11;
+                background: {hover_bg};
+            }}
+            QListWidget#toolList::item:selected {{
+                background: {bg_light};
+                color: {text};
+                font-weight: 500;
             }}
             QFrame#toolboxSection {{
                 background: {card_bg};
@@ -566,5 +581,32 @@ class PageToolbox(QWidget):
             }}
         """)
 
+    def _refresh_category_icons(self) -> None:
+        """换肤后按新主题色重挂左侧分类图标（任务 #291）—— 只重设图标，不重建列表。
+
+        分类图标此前只在 ``_init_ui`` 构造期挂一次，换肤不跟随；此处用同一
+        ``theme_color`` 入口取新色重生成（尺寸/字形/位置不变）。
+        """
+        tl = getattr(self, "tool_list", None)
+        if tl is None:
+            return
+        ic = _vector_icon(self.app_ctx, "folder", _TOOL_ICON_SIZE,
+                          theme_color(self.app_ctx, "text", "#5D4037"))
+        for i in range(tl.count()):
+            item = tl.item(i)
+            if item is None or item.data(Qt.UserRole) != "category":
+                continue
+            if ic is not None:
+                item.setIcon(ic)
+            else:
+                txt = item.text()
+                if not txt.startswith("📁 "):
+                    item.setText(f"📁 {txt}")
+
     def _on_theme_changed(self, theme_name: str) -> None:
         self._apply_theme()
+        # v2.1(#291): 换肤后左侧分类矢量图标按新主题色重挂
+        try:
+            self._refresh_category_icons()
+        except Exception:
+            logger.debug("静默降级：工具箱换肤图标重建失败", exc_info=True)

@@ -28,6 +28,7 @@ from gui.qt_compat import (
     QListWidgetItem, QScrollArea, QSizePolicy,
 )
 from gui.utils import theme_color, brand_persona_self
+from gui.session_manager import is_group_session as _is_group_session
 
 logger = logging.getLogger("maid_coder.gui")
 
@@ -119,19 +120,10 @@ class ToggleCard(QFrame):
         layout.setSpacing(8)
 
         top = QHBoxLayout()
-        icon_label = QLabel(self._icon)
-        icon_label.setObjectName("toggleCardIcon")
-        ic = (_vector_icon(self._app_ctx, self._icon_name, _ICON_SIZE_CARD,
-                           theme_color(self._app_ctx, "text", "#5D4037"))
-              if self._icon_name else None)
-        if ic is not None:
-            icon_label.setText("")
-            icon_label.setPixmap(ic.pixmap(_ICON_SIZE_CARD, _ICON_SIZE_CARD))
-            icon_label.setFixedSize(_ICON_SIZE_CARD, _ICON_SIZE_CARD)
-        else:
-            font = QFont()
-            icon_label.setFont(font)
-        top.addWidget(icon_label)
+        self._icon_label = QLabel(self._icon)
+        self._icon_label.setObjectName("toggleCardIcon")
+        self.refresh_theme_icon()
+        top.addWidget(self._icon_label)
         top.addStretch()
         self.state_label = QLabel("开" if self._state else "关")
         self.state_label.setObjectName("toggleCardState")
@@ -150,6 +142,29 @@ class ToggleCard(QFrame):
         desc_label.setWordWrap(True)
         layout.addWidget(desc_label)
         layout.addStretch()
+
+    def refresh_theme_icon(self) -> None:
+        """按**当前**主题色重建本卡图标（#279 续 / 沿用 page_role 换肤范式）。
+
+        矢量字形的颜色在渲染期烤进 ``QPixmap``、QSS 管不到 —— 换肤后若不在换肤
+        入口重建，图标会停在构造期的旧主题色。本方法只重新取色，**不改**图标名 /
+        尺寸 / 位置 / 字形；无图标名（降级构造）时空转，图标不可用时回落原 emoji。
+        """
+        lbl = getattr(self, "_icon_label", None)
+        if lbl is None:
+            return
+        ic = (_vector_icon(self._app_ctx, self._icon_name, _ICON_SIZE_CARD,
+                           theme_color(self._app_ctx, "text", "#5D4037"))
+              if self._icon_name else None)
+        if ic is not None:
+            lbl.setText("")
+            lbl.setPixmap(ic.pixmap(_ICON_SIZE_CARD, _ICON_SIZE_CARD))
+            lbl.setFixedSize(_ICON_SIZE_CARD, _ICON_SIZE_CARD)
+        else:
+            # 字体/图标不可用 → 回落原 emoji（setText 会清掉旧 pixmap）
+            lbl.setText(self._icon)
+            font = QFont()
+            lbl.setFont(font)
 
     def _update_style(self) -> None:
         self.state_label.setText("开" if self._state else "关")
@@ -202,20 +217,13 @@ class StatusCard(QFrame):
         layout.setSpacing(6)
 
         top = QHBoxLayout()
-        ic = (_vector_icon(app_ctx, icon_name, _ICON_SIZE_CARD,
-                           theme_color(app_ctx, "text", "#5D4037"))
-              if icon_name else None)
-        if ic is not None:
-            icon_label = QLabel()
-            icon_label.setPixmap(ic.pixmap(_ICON_SIZE_CARD, _ICON_SIZE_CARD))
-            icon_label.setFixedSize(_ICON_SIZE_CARD, _ICON_SIZE_CARD)
-            icon_label.setObjectName("statusCardIcon")
-        else:
-            icon_label = QLabel(icon)
-            icon_label.setObjectName("statusCardIcon")
-            icon_font = QFont()
-            icon_label.setFont(icon_font)
-        top.addWidget(icon_label)
+        self._icon = icon
+        self._icon_name = icon_name
+        self._app_ctx = app_ctx
+        self._icon_label = QLabel()
+        self._icon_label.setObjectName("statusCardIcon")
+        self.refresh_theme_icon()
+        top.addWidget(self._icon_label)
         top.addStretch()
         layout.addLayout(top)
 
@@ -229,6 +237,27 @@ class StatusCard(QFrame):
         title_label = QLabel(title)
         title_label.setObjectName("statusCardTitle")
         layout.addWidget(title_label)
+
+    def refresh_theme_icon(self) -> None:
+        """按当前主题色重建状态卡图标（#279 续 / 沿用 page_role 换肤范式）。
+
+        只重新取色，不改图标名 / 尺寸 / 位置 / 字形；无图标名时空转，
+        图标不可用时回落原 emoji（setText 会清掉旧 pixmap，不残留旧色）。
+        """
+        lbl = getattr(self, "_icon_label", None)
+        if lbl is None:
+            return
+        ic = (_vector_icon(self._app_ctx, self._icon_name, _ICON_SIZE_CARD,
+                           theme_color(self._app_ctx, "text", "#5D4037"))
+              if self._icon_name else None)
+        if ic is not None:
+            lbl.setText("")
+            lbl.setPixmap(ic.pixmap(_ICON_SIZE_CARD, _ICON_SIZE_CARD))
+            lbl.setFixedSize(_ICON_SIZE_CARD, _ICON_SIZE_CARD)
+        else:
+            lbl.setText(self._icon)
+            icon_font = QFont()
+            lbl.setFont(icon_font)
 
     def set_value(self, value: str) -> None:
         self.value_label.setText(value)
@@ -346,6 +375,76 @@ class PageHome(QWidget):
         except Exception:
             logger.debug("静默降级：page_home._apply_theme 中忽略异常", exc_info=True)
 
+        # v2.1(修复 #279 续 / 沿用 page_role 换肤范式)：本页矢量图标的颜色在渲染期
+        # 烤进 QPixmap、QSS 管不到 —— 换肤时必须按新主题色**重建**，否则停在旧色。
+        # 只重取色，不动图标名 / 尺寸 / 位置 / 字形。
+        try:
+            self._refresh_theme_icons()
+        except Exception:
+            logger.debug("静默降级：page_home 换肤图标重建失败", exc_info=True)
+
+    def _refresh_theme_icons(self) -> None:
+        """换肤后按**新主题色**重建本页全部矢量图标（#279 续 / #278 范式）。
+
+        覆盖：快捷入口按钮 / 模型入口按钮 / 状态卡 / 模式卡 / 本周回顾标题 /
+        主形象兜底铃铛。各控件内部均走 ``theme_color`` 重取当前色板；
+        调用点在换肤入口 :meth:`_apply_theme`（构造末尾与 ``theme_changed`` 各触发一次，
+        幂等无副作用）。
+        """
+        # ① 快捷入口按钮（复用既有 _apply_button_icon 取色助手）
+        for btn, name, clean, fallback in getattr(self, "_quick_buttons", []):
+            if btn is not None:
+                _apply_button_icon(btn, self.app_ctx, name, clean, fallback)
+        # ② 模型入口按钮（复用既有概要刷新，内部即取新色重挂 settings 图标）
+        if getattr(self, "model_entry_btn", None) is not None:
+            self._refresh_model_entry()
+        # ③ 状态卡（token / 网络 / 项目根）
+        for card in (getattr(self, "token_card", None),
+                     getattr(self, "network_card", None),
+                     getattr(self, "project_card", None)):
+            if card is not None and hasattr(card, "refresh_theme_icon"):
+                card.refresh_theme_icon()
+        # ④ 模式切换卡（深度/编程/闲聊/多模型/流式）
+        for card in (getattr(self, "cards", None) or {}).values():
+            if hasattr(card, "refresh_theme_icon"):
+                card.refresh_theme_icon()
+        # ⑤ 本周回顾标题图标
+        self._refresh_weekly_icon()
+        # ⑥ 主形象兜底铃铛（仅在走兜底 QLabel 时生效）
+        self._refresh_avatar_icon()
+
+    def _refresh_weekly_icon(self) -> None:
+        """本周回顾标题的日历图标按新主题色重建（无图标位 / 图标不可用时空转）。"""
+        lbl = getattr(self, "_weekly_icon_label", None)
+        if lbl is None:
+            return
+        ic = _vector_icon(self.app_ctx, "calendar", _ICON_SIZE_CARD,
+                          theme_color(self.app_ctx, "text", "#5D4037"))
+        if ic is not None:
+            lbl.setPixmap(ic.pixmap(_ICON_SIZE_CARD, _ICON_SIZE_CARD))
+
+    def _refresh_avatar_icon(self) -> None:
+        """主形象兜底铃铛图标按主题色重建（仅当 avatar 走兜底 QLabel 时生效）。
+
+        真图/MaidAvatar 情况下 ``_avatar_is_fallback_icon`` 为 False → 空转，
+        绝不触碰与主题无关的主形象资产。
+        """
+        if not getattr(self, "_avatar_is_fallback_icon", False):
+            return
+        lbl = getattr(self, "avatar", None)
+        if lbl is None or not hasattr(lbl, "setPixmap"):
+            return
+        px = getattr(self, "_avatar_fallback_px", 64)
+        ic = _vector_icon(self.app_ctx, "notification", px,
+                          theme_color(self.app_ctx, "text", "#5D4037"))
+        if ic is not None:
+            lbl.setText("")
+            lbl.setPixmap(ic.pixmap(px, px))
+        else:
+            lbl.setText("🔔")
+            f = QFont()
+            lbl.setFont(f)
+
     # ==================================================================
     # 布局构建
     # ==================================================================
@@ -417,6 +516,8 @@ class PageHome(QWidget):
 
         # 左：主形象（缺真图时中性铃铛兜底，UI 永不空白）
         self.avatar = None
+        self._avatar_is_fallback_icon = False
+        self._avatar_fallback_px = 64
         try:
             if MaidAvatar is not None and _MAID_QT_OK:
                 self.avatar = MaidAvatar(size=150, expression="normal")
@@ -427,18 +528,12 @@ class PageHome(QWidget):
         if self.avatar is None:
             # 兜底：形象不可用时显示铃铛图标（仍不空白、不崩溃）
             # v2.1(V21-12): 有矢量图标则用图标字体渲染（高 DPI 更清晰），否则回落 emoji
+            # v2.1(#279 续): 记为「兜底图标」→ 换肤时随主题色重建（见 _refresh_avatar_icon）
+            self._avatar_is_fallback_icon = True
             self.avatar = QLabel()
             self.avatar.setObjectName("homeAvatarFallback")
             self.avatar.setAlignment(Qt.AlignCenter)
-            fallback_px = 64
-            ic = _vector_icon(self.app_ctx, "notification", fallback_px,
-                              theme_color(self.app_ctx, "text", "#5D4037"))
-            if ic is not None:
-                self.avatar.setPixmap(ic.pixmap(fallback_px, fallback_px))
-            else:
-                self.avatar.setText("🔔")
-                f = QFont()
-                self.avatar.setFont(f)
+            self._refresh_avatar_icon()
         row.addWidget(self.avatar, 0, Qt.AlignVCenter)
 
         # 右：问候 / 动态文案列
@@ -507,6 +602,7 @@ class PageHome(QWidget):
 
         title_row = QHBoxLayout()
         title_row.setSpacing(6)
+        self._weekly_icon_label = None  # v2.1(#279 续): 换肤时随主题色重建（见 _refresh_weekly_icon）
         ic = _vector_icon(self.app_ctx, "calendar", _ICON_SIZE_CARD,
                           theme_color(self.app_ctx, "text", "#5D4037"))
         if ic is not None:
@@ -514,6 +610,7 @@ class PageHome(QWidget):
             icon_lab.setPixmap(ic.pixmap(_ICON_SIZE_CARD, _ICON_SIZE_CARD))
             icon_lab.setFixedSize(_ICON_SIZE_CARD, _ICON_SIZE_CARD)
             title_row.addWidget(icon_lab)
+            self._weekly_icon_label = icon_lab
             title = QLabel("本周回顾")
         else:
             title = QLabel("🌿 本周回顾")
@@ -604,6 +701,8 @@ class PageHome(QWidget):
 
         grid = QGridLayout()
         grid.setSpacing(10)
+        # v2.1(#279 续): 记录 (btn, icon_name, clean_text, fallback_text) 供换肤重建图标
+        self._quick_buttons: List[tuple] = []
         for idx, (key, text, icon_name, emoji, tip, handler_key) in enumerate(QUICK_ACTIONS):
             btn = QPushButton(f"{emoji}  {text}")
             btn.setObjectName("quickBtn")
@@ -611,6 +710,7 @@ class PageHome(QWidget):
             btn.setCursor(Qt.PointingHandCursor)
             btn.setMinimumHeight(40)
             _apply_button_icon(btn, self.app_ctx, icon_name, text, f"{emoji}  {text}")
+            self._quick_buttons.append((btn, icon_name, text, f"{emoji}  {text}"))
             handler = self._resolve_quick_handler(handler_key)
             if handler is not None:
                 btn.clicked.connect(handler)
@@ -734,6 +834,11 @@ class PageHome(QWidget):
 
         # 最近会话（保留；若有需要可读 session_manager 数据）
         session_title = QLabel("最近会话")
+        # v2.1(修复 #279)：补 objectName —— 与「本周回顾 / 快捷入口 / 工作状态 / 模式切换」
+        # 同源（共享 `QLabel#homeSectionTitle`，并被 `_apply_theme` 的
+        # `findChildren(QLabel, "homeSectionTitle")` 纳入换肤重刷）。
+        # 修复前缺 id → 字号落到 `QWidget{font-size:14px}`（比同级 17px 小，且换肤不刷新）。
+        session_title.setObjectName("homeSectionTitle")
         session_title.setFont(tf)
         session_title.setStyleSheet(f"color: {self._tc('text', '#5D4037')};")
         self._layout.addWidget(session_title)
@@ -1008,38 +1113,112 @@ class PageHome(QWidget):
     # 原有行为（保留功能入口，不删功能）
     # ==================================================================
     def _load_recent_sessions(self) -> None:
-        """加载最近会话列表（从 session 历史或本地存储读取）。"""
-        self.session_list.clear()
-        sessions: List[str] = []
+        """加载「最近会话」列表。
 
+        数据源按可用性择优（v2.1 修复 #279 续）：
+          ① ``app_ctx.session_manager`` 可用 → 列出**真实会话**（复用既有会话管理的
+             ``all_sessions()``；群聊带 👥 前缀，文案与聊天面板侧栏同款），每项
+             ``Qt.UserRole`` = ``session.id``，供 :meth:`_on_session_clicked` 切换；
+          ② 无 ``session_manager``（降级上下文 / 单测）→ 回落展示当前会话
+             ``session.history`` 的最近几条消息。
+
+        消息兜底分支的文案规则（v2.1 修复 #279）：前缀**不用原始 ``role`` 令牌**
+        （``system`` / ``user`` / ``assistant``），改按项目规则取当前生效角色的
+        ``given_name``（``assistant``）/「主人」（``user``），``system`` 行不展示；
+        无历史时保持**真实空态**（不再用硬编码假会话充数）。
+        """
+        self.session_list.clear()
+
+        # ① 真实会话列表（既有切换路径的数据源）
+        session_manager = getattr(self.app_ctx, "session_manager", None)
+        if session_manager is not None and self._populate_sessions_from_manager(session_manager):
+            return
+
+        # ② 兜底：当前会话最近消息（无 session_manager / 会话列表为空）
+        sessions: List[str] = []
         session = getattr(self.app_ctx, "session", None)
         if session is not None:
             try:
                 hist = getattr(session, "history", [])
                 if hist:
-                    for i, msg in enumerate(hist[-5:]):
-                        role = msg.get("role", "unknown")
-                        content = msg.get("content", "")[:30]
-                        sessions.append(f"{role}: {content}...")
+                    ai_name, user_name = "码铃", "主人"
+                    try:
+                        from gui.widgets.message_bubble import (  # noqa: PLC0415
+                            resolve_default_speaker_name, USER_SPEAKER_NAME,
+                        )
+                        ai_name = resolve_default_speaker_name()
+                        user_name = USER_SPEAKER_NAME
+                    except Exception:
+                        logger.debug("静默降级：人名解析不可用，回落「码铃 / 主人」",
+                                     exc_info=True)
+                    for msg in hist[-5:]:
+                        role = str(msg.get("role", "") or "").strip().lower()
+                        if role == "system":
+                            continue  # 不把系统提示词当「会话」展示
+                        if role == "user":
+                            who = user_name
+                        elif role == "assistant":
+                            who = ai_name
+                        else:
+                            continue
+                        content = str(msg.get("content", "") or "")[:30]
+                        sessions.append(f"{who}: {content}...")
             except Exception:
                 logger.debug("静默降级：_load_recent_sessions 中忽略异常", exc_info=True)
 
+        # v2.1(修复 #279)：无历史 → 真实空态；不再展示 5 条硬编码假会话。
         if not sessions:
-            sessions = [
-                "会话 1: 代码审查讨论...",
-                "会话 2: API 接口设计...",
-                "会话 3: 重构方案分析...",
-                "会话 4: Bug 排查记录...",
-                "会话 5: 项目初始化...",
-            ]
+            return
 
         for s in sessions[:5]:
             item = QListWidgetItem(s)
             self.session_list.addItem(item)
 
+    def _populate_sessions_from_manager(self, session_manager) -> bool:
+        """用 ``session_manager`` 的真实会话填充列表；有内容返回 True。
+
+        每项 ``Qt.UserRole`` = ``session.id``（点击切换用）；条目文案与聊天面板侧栏
+        同款（群聊 ``👥`` 前缀 + ``名称 (消息数)``）。单条渲染失败静默跳过，
+        绝不因脏会话数据阻断整页刷新。
+        """
+        try:
+            all_sessions = session_manager.all_sessions()
+        except Exception:
+            logger.debug("静默降级：读取会话列表失败", exc_info=True)
+            return False
+        count = 0
+        for sess in all_sessions:
+            if count >= 5:
+                break
+            try:
+                prefix = ""
+                if _is_group_session(sess):
+                    try:
+                        prefix = icons.text_glyph("people", "👥") + " "
+                    except Exception:
+                        prefix = "👥 "
+                name = str(getattr(sess, "name", "") or "会话")
+                n_msg = int(getattr(sess, "message_count", 0) or 0)
+                item = QListWidgetItem(f"{prefix}{name} ({n_msg})")
+                item.setData(Qt.UserRole, str(getattr(sess, "id", "") or ""))
+                item.setToolTip(f"切换到会话：{name}")
+                self.session_list.addItem(item)
+                count += 1
+            except Exception:
+                logger.debug("静默降级：会话条目渲染失败", exc_info=True)
+        return count > 0
+
     def _on_session_clicked(self, item: QListWidgetItem) -> None:
-        text = item.text()
-        self.session_selected.emit(text)
+        """点击「最近会话」条目 → 发出 ``session_selected``（载荷 = 会话 id）。
+
+        v2.1(修复 #279 续)：旧实现恒发 ``item.text()``（且全仓无消费者）→ 点击无反应。
+        现在发**会话 id**，由 ``MainWindow`` 消费后复用既有会话切换路径切会话；
+        兜底视图（消息行，无会话 id）不发信号，避免误触发。
+        """
+        sid = item.data(Qt.UserRole) if item is not None else None
+        if not sid:
+            return
+        self.session_selected.emit(str(sid))
 
     def _apply_mode_change(self, key: str, state: bool) -> None:
         """将模式变更应用到 session。"""

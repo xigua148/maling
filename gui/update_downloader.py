@@ -37,7 +37,8 @@ from pathlib import Path
 from typing import Callable, Optional, Sequence
 from urllib.parse import urlsplit
 
-from gui.qt_compat import QThread, Signal
+from gui.qt_compat import Signal
+from gui.qt_exit_guard import ExitSafeQThread
 
 logger = logging.getLogger("maid_coder.gui")
 
@@ -384,7 +385,7 @@ def parse_sha256_file(text: str) -> Optional[tuple[str, str]]:
 # ---------------------------------------------------------------------------
 # 二、DownloadWorker（V20-06）
 # ---------------------------------------------------------------------------
-class DownloadWorker(QThread):
+class DownloadWorker(ExitSafeQThread):
     """后台下载线程（Range 续传 / 200 重下 / 降级链 / 取消保留 `.part` / sha256 校验）。
 
     用法（gui/main.py 接线建议）::
@@ -450,6 +451,15 @@ class DownloadWorker(QThread):
 
     # 别名（便于调用方语义化调用）
     cancel = request_cancel
+
+    def stop(self, wait_ms=None) -> bool:
+        """幂等停机（覆写基类）：先 ``request_cancel`` 协作取消，再**有界** ``wait``。
+
+        退出收口（``aboutToQuit`` / 父控件 ``destroyed``）走此路径 → 先请求取消，
+        主循环 ≤1s 内停写盘（``.part`` 保留），故有界等待通常远小于上界。
+        """
+        self.request_cancel()
+        return super().stop(wait_ms)
 
     @property
     def part_path(self) -> Path:

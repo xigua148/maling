@@ -6,8 +6,10 @@
 
 它做什么
 --------
-1. 从**本地 wheel**（``UI设计工具集/Python包/qtawesome-1.4.2-py3-none-any.whl``）取出官方
-   图标集字体与 charmap（离线，不联网），并用 ``qtawesome``（可选）交叉校验码位映射；
+1. 从**本地 qtawesome wheel** 取出官方图标集字体与 charmap（离线，不联网），并用
+   ``qtawesome``（可选）交叉校验码位映射；wheel 的位置**不写死**，按 ``find_wheel`` 的
+   优先级查找（--wheel → 环境变量 ``MALING_ICON_WHEEL`` → 仓库内 tools/vendor 或
+   third_party → 本机同级设计工具目录回退）；
 2. 按脚本内 ``ICON_MAP``（语义名 → 图标集字形名）解析出码位，用 ``pyftsubset`` **子集化**
    为 ``gui/assets/icons/maling_icons.ttf``（只留用到的字形，体积压到数十 KB）；
 3. 生成 ``gui/assets/icons/icons_manifest.json``（``{"<语义名>": <码位整数>}``）；
@@ -20,7 +22,7 @@
     python tools/build_icons.py --check              # 只校验 ICON_MAP 里的字形名是否都在图标集内（不写盘）
     python tools/build_icons.py --list               # 打印当前「语义名 → 图标集字形名」映射
     python tools/build_icons.py --source-dir <dir>   # 用已解压的图标集目录（含 remixicon-*.ttf + charmap）
-    python tools/build_icons.py --wheel <path.whl>   # 指定本地 qtawesome wheel（默认取工具集目录）
+    python tools/build_icons.py --wheel <path.whl>   # 指定本地 qtawesome wheel（否则按候选优先级自动查找）
     python tools/build_icons.py --subset-python <py> # 指定带 fontTools 的解释器（默认自动探测）
     python tools/build_icons.py --add pin-line=pin-line --add cloud-off=cloud-off-line   # 本批追加名字
 
@@ -52,10 +54,71 @@ TTF_OUT_NAME = "maling_icons.ttf"
 MANIFEST_OUT_NAME = "icons_manifest.json"
 LICENSE_OUT_NAME = "LICENSE"
 
-# 默认本地 wheel（离线；不联网）——与团队交付的 UI 设计工具集同目录
-DEFAULT_WHEEL = (
-    REPO_ROOT.parent / "UI设计工具集" / "Python包" / "qtawesome-1.4.2-py3-none-any.whl"
+# ---------------------------------------------------------------------------
+# 本地 qtawesome wheel 的候选查找（离线；不联网）
+#
+# 该 wheel **仅构建期**用于从 Remix Icon 取字形与码位（不是运行时依赖，也不随包分发）。
+# 开源用户 clone 后通常没有它 —— 因此这里**不**写死任何单个路径，而是按优先级查找；
+# 全部落空时由 ``WHEEL_MISSING_HELP`` 给出可操作的获取指引（见 ``find_wheel`` / ``main``）。
+# ---------------------------------------------------------------------------
+WHEEL_NAME = "qtawesome-1.4.2-py3-none-any.whl"
+WHEEL_ENV_VAR = "MALING_ICON_WHEEL"
+# ③ 仓库内可选的自备目录：把 wheel 放到这里即可离线构建（不随包分发，按需自行放置）
+WHEEL_REPO_DIRS = (
+    REPO_ROOT / "tools" / "vendor",
+    REPO_ROOT / "third_party",
 )
+# ④ 本机开发便利：与仓库同级的设计工具目录（开源 clone 后通常不存在；仅作最后回退）
+WHEEL_DEV_SIBLING_DIR = REPO_ROOT.parent / "UI设计工具集" / "Python包"
+
+WHEEL_MISSING_HELP = f"""[ERROR] 未找到本地 qtawesome wheel（构建图标字体所需）。
+
+原因：本脚本从 qtawesome wheel 中离线取出 Remix Icon 的 TTF 与 charmap，再子集化为随包
+      字体 {OUT_DIR.name}/{TTF_OUT_NAME}。它**仅在构建期使用**（不是运行时依赖、不随发布包
+      分发），但**重建图标字体**时必需。
+
+如何提供（按优先级任一即可）：
+  1) 显式指定路径：  python tools/build_icons.py --wheel <path/to/{WHEEL_NAME}>
+  2) 设置环境变量：  Windows  set {WHEEL_ENV_VAR}=<path/to/{WHEEL_NAME}>
+                     macOS/Linux  export {WHEEL_ENV_VAR}=<path/to/{WHEEL_NAME}>
+  3) 放入仓库内可选目录： tools/vendor/ 或 third_party/（任意 qtawesome-*.whl 均可被识别）
+  4) 或改用已解压的图标集目录：python tools/build_icons.py --source-dir <解压目录>
+
+离线获取 wheel（在有网机器执行后拷贝本文件即可）：
+  pip download qtawesome==1.4.2 --no-deps -d tools/vendor"""
+
+
+def find_wheel(explicit: str = "") -> Optional[Path]:
+    """按优先级定位本地 qtawesome wheel，返回首个存在者；找不到返回 ``None``。
+
+    优先级（前者优先）：
+      ① ``--wheel`` 显式路径；
+      ② 环境变量 ``MALING_ICON_WHEEL``；
+      ③ 仓库内可选目录 ``tools/vendor/`` 或 ``third_party/``（匹配任意 ``qtawesome-*.whl``）；
+      ④ 本机开发便利：仓库同级 ``UI设计工具集/Python包/``（开源 clone 后通常不存在）。
+
+    Args:
+        explicit: 命令行 ``--wheel`` 传入的路径（可为空）。
+
+    Returns:
+        第一个存在的 wheel 路径；全部落空时返回 ``None``。
+    """
+    candidates: List[Path] = []
+    if explicit:
+        candidates.append(Path(explicit))
+    env_wheel = os.environ.get(WHEEL_ENV_VAR, "")
+    if env_wheel:
+        candidates.append(Path(env_wheel))
+    for directory in WHEEL_REPO_DIRS:
+        candidates.append(directory / WHEEL_NAME)
+        if directory.is_dir():
+            candidates.extend(sorted(directory.glob("qtawesome-*.whl")))
+    candidates.append(WHEEL_DEV_SIBLING_DIR / WHEEL_NAME)
+
+    for cand in candidates:
+        if cand and cand.is_file():
+            return cand
+    return None
 
 # ---------------------------------------------------------------------------
 # 图标集元数据（设计 D-V21-07 / D-V21-14；随包登记）
@@ -250,9 +313,15 @@ def _load_charmap_text(data: bytes) -> Dict[str, int]:
 
 
 def _extract_from_wheel(wheel: Path, tmp_dir: Path) -> Tuple[Path, Dict[str, int]]:
-    """从本地 wheel 取出图标集 TTF + charmap（离线）。"""
-    if not wheel.exists():
-        raise FileNotFoundError(f"本地 wheel 不存在：{wheel}")
+    """从本地 wheel 取出图标集 TTF + charmap（离线）。
+
+    正常情况下 wheel 由 ``find_wheel`` 解析并保证存在；此处仅作防御性校验。
+    """
+    if not wheel.is_file():
+        raise RuntimeError(
+            f"qtawesome wheel 不可读取：{wheel}\n"
+            f"请用 --wheel 指定有效路径，或设置环境变量 {WHEEL_ENV_VAR}（详见 --help）。"
+        )
     with zipfile.ZipFile(wheel) as z:
         ttf_names = [n for n in z.namelist() if Path(n).name and _match(Path(n).name, WHEEL_TTF_GLOB)]
         cmap_names = [n for n in z.namelist() if Path(n).name and _match(Path(n).name, WHEEL_CHARMAP_GLOB)]
@@ -395,9 +464,9 @@ def find_subset_python(explicit: str = "") -> Optional[str]:
         candidates.append(env_py)
     candidates.append(sys.executable)
     # 本机受管解释器版本目录（便于在默认 env 未装 fontTools 时仍可构建）
+    # 仅用 Path.home() 做通用化定位，**不得**写入任何具体用户名/机器路径。
     for base in (
         Path.home() / ".workbuddy" / "binaries" / "python" / "versions",
-        Path("C:/Users/Administrator/.workbuddy/binaries/python/versions"),
     ):
         if base.is_dir():
             candidates.extend(str(p) for p in sorted(base.glob("*/python.exe")))
@@ -460,7 +529,8 @@ def write_license(dest: Path) -> bool:
 # ---------------------------------------------------------------------------
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build bundled icon font for MaLing (v2.1 D3).")
-    parser.add_argument("--wheel", default="", help="本地 qtawesome wheel 路径（默认取工具集目录）")
+    parser.add_argument("--wheel", default="",
+                        help="本地 qtawesome wheel 路径（缺省时按候选优先级自动查找）")
     parser.add_argument("--source-dir", default="", help="已解压的图标集目录（跳过 wheel）")
     parser.add_argument("--subset-python", default="", help="带 fontTools 的解释器（默认自动探测）")
     parser.add_argument("--add", action="append", default=[], metavar="NAME=GLYPH",
@@ -486,10 +556,17 @@ def main() -> int:
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="maling_build_icons_"))
     try:
-        wheel = Path(args.wheel) if args.wheel else DEFAULT_WHEEL
+        if args.wheel and not Path(args.wheel).is_file():
+            print(f"[ERROR] --wheel 指定的文件不存在或不是文件：{args.wheel}")
+            return 2
+        wheel = find_wheel(args.wheel)
         if args.source_dir:
             src_ttf, charmap = _load_from_source_dir(Path(args.source_dir))
         else:
+            if wheel is None:
+                print(WHEEL_MISSING_HELP)
+                return 2
+            print(f"[wheel] 使用 qtawesome wheel：{wheel}")
             src_ttf, charmap = _extract_from_wheel(wheel, tmp_dir)
 
         manifest, missing = resolve_codepoints(icon_map, charmap)
