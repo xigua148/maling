@@ -1008,6 +1008,10 @@ class MaidPet(_MaidPetBase):
             border = self._tc("divider", "#F0DAE0")
             text = self._tc("text", "#5D4037")
             accent = self._tc("accent", "#FF6B9D")
+            # 落在强调实底上的文字色：原写死裸 #FFFFFF，四风格 accent 实底上只有
+            # 1.153~3.267（<4.5，白字落浅强调实底近不可辨）→ 改用语义键
+            # text_on_accent（四风格明暗 5.192~8.794）。
+            on_accent = self._tc("text_on_accent", "#1C1C1E")
             radius = self._tc("radius_md", "12px")
             body.setStyleSheet(
                 f"QFrame#petTooltipBody {{"
@@ -1017,10 +1021,13 @@ class MaidPet(_MaidPetBase):
                 f"QLabel#petTooltipText {{ color: {text}; font-size: 12px;"
                 f"  line-height: 1.5; background: transparent; }}"
                 f"QPushButton#petHomeBtn {{"
-                f"  background: {accent}; color: #FFFFFF; border: none;"
+                f"  background: {accent}; color: {on_accent}; border: none;"
                 f"  border-radius: 10px; font-size: 11px; padding: 4px 10px;"
                 f"}}"
-                f"QPushButton#petHomeBtn:hover {{ background: {self._tc('accent_light', '#FF9EB5')}; }}"
+                # hover 换 accent_light（随主题翻转的软填充）→ 显式声明配对文字色
+                # text；原依赖基规则 #FFFFFF，在浅色档 accent_light 上只有 1.12~1.17。
+                f"QPushButton#petHomeBtn:hover {{ background: {self._tc('accent_light', '#FF9EB5')};"
+                f" color: {text}; }}"
             )
 
     def _show_popup(self) -> None:

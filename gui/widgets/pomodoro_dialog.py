@@ -138,6 +138,10 @@ class PomodoroDialog(QDialog):
         secondary = theme_color(self.app_ctx, "text_secondary", "#8A8A8A")
         bg_light = theme_color(self.app_ctx, "bg_light", "#FFF0F3")
         divider = theme_color(self.app_ctx, "divider", "#EFE0E2")
+        # 落在强调实底（accent / primary）上的文字色。原写死裸 #FFFFFF，实测四风格
+        # 明暗全部 2.124~3.267（<4.5，白字落浅强调实底不可读）→ 改用语义键
+        # text_on_accent（实底上的文字令牌，四风格 ≥5.192），与 chat_window/chatStopBtn 同修法。
+        on_accent = theme_color(self.app_ctx, "text_on_accent", "#1C1C1E")
         self.setStyleSheet(
             f"QDialog {{ background: {bg}; color: {text}; }}"
             f"QLabel#pomPhase {{ color: {accent_text}; background: transparent; }}"
@@ -146,15 +150,18 @@ class PomodoroDialog(QDialog):
             f" background: transparent; }}"
             f"QFrame#pomCard {{ background: {bg_light}; border: 1px solid {divider};"
             f" border-radius: 10px; }}"
-            f"QPushButton#pomBtnPrimary {{ background: {accent}; color: #FFFFFF;"
+            f"QPushButton#pomBtnPrimary {{ background: {accent}; color: {on_accent};"
             f" border: none; border-radius: 8px; padding: 8px 10px; font-size: 13px; }}"
-            f"QPushButton#pomBtnPrimary:hover {{ background: {primary}; }}"
+            # hover 换的 primary 与 accent 同值（四风格），字色同步取 on_accent；
+            # 原规则未声明 color → 回落基规则同一键值，此处显式声明使 hover/pressed
+            # 不再依赖「基规则恰好写了什么」。
+            f"QPushButton#pomBtnPrimary:hover {{ background: {primary}; color: {on_accent}; }}"
             # pomBtn 字落在 bg_light 实底上：accent 仅 2.783/1.931/5.317/2.814，
             # 改用文字色 text（14.492/11.556/12.503/11.980）。
             f"QPushButton#pomBtn {{ background: {bg_light}; color: {text};"
             f" border: 1px solid {primary}; border-radius: 8px; padding: 8px 10px;"
             f" font-size: 13px; }}"
-            f"QPushButton#pomBtn:hover {{ background: {primary}; color: #FFFFFF; }}"
+            f"QPushButton#pomBtn:hover {{ background: {primary}; color: {on_accent}; }}"
         )
 
     # ------------------------------------------------------------------

@@ -146,16 +146,9 @@ class ChatUiBuildMixin:
         self.export_btn.setFixedSize(32, 28)
         self.export_btn.setCursor(Qt.PointingHandCursor)
         self.export_btn.setToolTip("导出聊天记录（Markdown / TXT / JSON）")
-        self.export_btn.setStyleSheet(
-            "QPushButton#exportChatBtn {"
-            "  background: transparent; color: #4A90D9;"
-            "  border: 1px solid #A8C8E8; border-radius: 12px;"
-            "  font-size: 12px; padding: 0px;"
-            "}"
-            "QPushButton#exportChatBtn:hover {"
-            "  background: #4A90D9; color: #FFFFFF; border-color: #4A90D9;"
-            "}"
-        )
+        # v2.2.1(换肤一致性)：内联样式已收口到 `_apply_chat_theme()`（唯一取色入口）——
+        # 原为构造期一次性内联裸色（#4A90D9 / #A8C8E8 / hover #FFFFFF），
+        # 在 `_init_ui` 调用的那一刻求值一次 ⇒ 切主题不再重刷，四套皮肤下恒为同一支蓝。
         self.export_btn.clicked.connect(self._on_export_chat)
         title_row.addWidget(self.export_btn)
 
@@ -369,14 +362,9 @@ class ChatUiBuildMixin:
         self.stop_btn.setCursor(Qt.PointingHandCursor)
         # 大气化：按钮高度与发送/Agent 按钮统一
         self.stop_btn.setFixedHeight(40)
-        self.stop_btn.setStyleSheet(
-            "QPushButton#stopBtn {"
-            "  background: #FF6B6B; color: #FFFFFF;"
-            "  border: none; border-radius: 10px;"
-            "  font-size: 13px; padding: 6px 16px;"
-            "}"
-            "QPushButton#stopBtn:hover { background: #FF5252; }"
-        )
+        # v2.2.1(换肤一致性)：内联样式已收口到 `_apply_chat_theme()`（唯一取色入口）——
+        # 原字色为裸 `#FFFFFF`，落 `#FF6B6B` 实底四套主题一致只有 2.775（<4.5），
+        # 与 chat_window 的 #chatStopBtn 同一缺陷、同一修法（改走 text_on_accent）。
         self.stop_btn.clicked.connect(self._on_stop_generation)
         self.stop_btn.setVisible(False)
         btn_row.addWidget(self.stop_btn)
@@ -567,9 +555,12 @@ class ChatUiBuildMixin:
         _div = theme_color(ctx, "divider", "#FFB6C1")
         _primary = theme_color(ctx, "primary", "#FF9EB5")
         _primary_dark = theme_color(ctx, "primary_dark", "#E0527F")
-        # 任务 A：常态描边与焦点圈必须是两个不同键。四套主题均已注册
-        # focus_accent（#C57792 / #FF8FA3 / #FF6B9D / #2E9BB5），缺键时回落 accent。
-        _focus = theme_color(ctx, "focus_accent", _ac)
+        # 任务 A：常态描边与焦点圈必须是两个不同键。
+        # v2.2.1：焦点圈由 focus_accent 改取 accent_text。焦点圈属「非文本图形」
+        # （WCAG 1.4.11 需 ≥3:1），而本控件自身底是 bg_light；focus_accent 落其上
+        # 实测仅 2.783 / 1.931 / 5.317 / 2.814（3/4 套不达标），accent_text 落 bg_light
+        # 为 4.125 / 4.397 / 5.335 / 4.280，四套全达标。与常态描边（border）仍是两键。
+        _focus = theme_color(ctx, "accent_text", _ac)
 
         def _ssw(widget, css: str) -> None:
             """给单个控件覆盖样式；控件为 None / 异常时静默跳过，绝不阻断其余控件换肤。"""
@@ -592,11 +583,14 @@ class ChatUiBuildMixin:
             f" border-radius: 12px; font-size: 16px; font-weight: bold; }}"
             f"QPushButton:hover {{ background: {_ac}; color: {_on_ac}; }}")
 
+        # 悬停底 bg_light 随主题翻转，原未声明 color → 继承 ::item 的 text_secondary
+        # （不随主题翻转的次级灰）→ ui_night 明/暗 4.285、三套浅色 3.840~4.010 均 <4.5。
+        # 显式补 bg_light 的配对文字色 text。
         _ss("session_list",
             f"QListWidget {{ background: transparent; border: none; outline: none; }}"
             f"QListWidget::item {{ padding: 6px 8px; border-radius: 6px; color: {_txt2}; }}"
             f"QListWidget::item:selected {{ background: {_bg_card}; color: {_ac_text}; font-weight: 500; }}"
-            f"QListWidget::item:hover {{ background: {_bg_l}; }}")
+            f"QListWidget::item:hover {{ background: {_bg_l}; color: {_txt}; }}")
 
         # 折叠钮：常态 bg_light 淡底 + text（11.56~14.49）；悬停 accent 实底 + text_on_accent。
         # 原 `background: accent_light; color: accent_light` 在四风格下同值恒 1.000。
@@ -651,11 +645,31 @@ class ChatUiBuildMixin:
             f"  background: {_primary}; color: {_on_ac}; border-color: {_primary};"
             "}")
 
+        # 导出按钮（与 expandChatBtn 同排同款 32x28）：
+        # 原为**构造期一次性内联裸色**（常态 #4A90D9 字 + #A8C8E8 描边、hover 实底
+        # #4A90D9 + #FFFFFF 字）—— 与全站强调色体系脱节，且 `setStyleSheet` 在
+        # `_init_ui` 那一刻求值一次 ⇒ 四套皮肤下恒为同一支蓝，换肤完全不跟随。
+        # 现改为令牌下发：常态字色与描边取 accent_text（落页底 bg，8 档 ≥4.511 ⇒ 8/8 达标）、
+        # hover 实底取 accent 填充 + text_on_accent 字色（8 档 ≥5.192 ⇒ 8/8 达标）。
+        _ss("export_btn",
+            "QPushButton#exportChatBtn {"
+            f"  background: transparent; color: {_ac_text};"
+            f"  border: 1px solid {_ac_text};"
+            "  border-radius: 12px; font-size: 12px; padding: 0px;"
+            "}"
+            "QPushButton#exportChatBtn:hover {"
+            f"  background: {_ac}; color: {_on_ac}; border-color: {_ac};"
+            "}")
+
         # --- 表情面板 / 快捷回复（多控件，逐个覆盖） ---
+        # 表情按钮常态底 bg_light、悬停底 divider，二者均**随主题翻转**（深色下是深底）；
+        # 本 sheet 原未声明 color → 常态回落 app 级 QPushButton 的 text_on_accent
+        # （「亮强调实底上的深字」）→ 深底深字，深色四风格实测 1.089~1.360 近不可见。
+        # 与 bg_light 配对的文字键是 text（同样随主题翻转），显式补上。
         _emoji_css = (
-            f"QPushButton {{ background: {_bg_l}; border: 1px solid {_div};"
+            f"QPushButton {{ background: {_bg_l}; color: {_txt}; border: 1px solid {_div};"
             " border-radius: 8px; font-size: 14px; }"
-            f"QPushButton:hover {{ background: {_div}; }}"
+            f"QPushButton:hover {{ background: {_div}; color: {_txt}; }}"
         )
         _emoji_panel = getattr(self, "emoji_panel", None)
         if _emoji_panel is not None:
@@ -736,6 +750,26 @@ class ChatUiBuildMixin:
             f"  background: {_ac}; color: {_on_ac}; border-color: {_ac};"
             "}"
             f"QPushButton#webSearchBtn:hover {{ background: {_bg_l}; color: {_txt}; }}")
+
+        # 停止生成（输入区）：原为**构造期一次性内联**裸色 —— 字色裸 `#FFFFFF` 落
+        # `#FF6B6B` 实底上，四套主题一致只有 2.775（< 小字 AA 4.5），白字近不可辨；
+        # 且同样换肤不重刷。修法与 `chat_window.chatStopBtn` 完全一致：字色走
+        # text_on_accent（实底上的文字令牌）。
+        # 实测（8 档 = 4 风格 × 明暗）：常态底 #FF6B6B 上 6.131/4.664/6.258/6.071
+        # （浅）/6.131/6.131/6.258/4.978（深）⇒ 8/8 达标，最差 4.664。
+        # hover 底 #FF5252 上 5.332/4.056/5.442/5.279（浅）/5.332/5.332/5.442/4.329（深）
+        # ⇒ 6/8 达标，ui_cream/浅 4.056 与 ui_whale/深 4.329 未达 4.5（差 0.44 / 0.17）。
+        # 底色 `#FF6B6B` / hover `#FF5252` 与 chat_window 的 #chatStopBtn 保持同值
+        # （同一交互的两个入口），属既有裸值残留；hover 两档未达标见回传「需 owner 决策」
+        # （选项：为 danger 实底立专用 on-color 令牌 / 取消 hover 变色，二者均越界）。
+        _ss("stop_btn",
+            "QPushButton#stopBtn {"
+            "  background: #FF6B6B;"
+            f"  color: {_on_ac};"
+            "  border: none; border-radius: 10px;"
+            "  font-size: 13px; padding: 6px 16px;"
+            "}"
+            "QPushButton#stopBtn:hover { background: #FF5252; }")
 
         # --- 意图 / 场景 小型下拉（同款） ---
         # 下拉列表的 selection-color 原是硬编码 #4A4A4A，而 selection-background 是

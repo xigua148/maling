@@ -63,9 +63,14 @@ class ChatPanelWidget(ChatPopupFadeMixin, ChatCompletionMixin, ChatScreenWatchMi
     }
     # hover 态图标取色键（与各按钮既有 QSS hover 前景对齐；None = 沿用正文色）；
     # 取色唯一入口 theme_color，禁裸硬编码色。
+    # v2.2.1(换肤一致性)：export_btn / expand_btn 的 hover 实底是 accent（= primary），
+    # 其 QSS hover 前景已是 text_on_accent；此处原取 bg_card（四套浅色下 = #FFFFFF）
+    # 落 accent 实底只有 3.267 / 2.163 / 2.678 / 3.245（ui_minimal/cream/night/whale 浅色），
+    # 其中 ui_cream、ui_night 两档低于 3:1（图形对象下界）⇒ 对齐为 text_on_accent
+    # （8 档最差 5.192，全部达标）。
     _TITLE_ICON_HOVER_KEY = {
-        "export_btn": "bg_card",
-        "expand_btn": "bg_card",
+        "export_btn": "text_on_accent",
+        "expand_btn": "text_on_accent",
         "tab_mode_btn": None,
         "style_btn": None,
     }

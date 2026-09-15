@@ -190,7 +190,13 @@ class AuthorizeActionDialog(QDialog):
         allow.setStyleSheet(
             f"QPushButton {{ background: {accent}; color: {on_accent};"
             f" border: none; border-radius: 10px; padding: 6px 18px; font-size: 12px; }}"
-            f"QPushButton:hover {{ background: {bg_light}; }}"
+            # v2.2.1(连带回归修复)：hover 换的底是 bg_light（**随主题翻转**的淡填充，
+            #   深色/四风格深色下是深底），原规则未声明 color → 回落基规则的
+            #   text_on_accent（配「亮强调实底」的深字）→ 深字落深底不可读
+            #   （cream/深 1.232、minimal/深 1.107、night 1.220、whale/深 1.032）。
+            #   显式补 color: text（bg_light 的配对文字键，与 eng-fix-listsel 在
+            #   screen_watch_bar:269 / ui_build 处同修法）。
+            f"QPushButton:hover {{ background: {bg_light}; color: {text_main}; }}"
         )
         allow.clicked.connect(self.accept)
         reject = QPushButton("拒绝")

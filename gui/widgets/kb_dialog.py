@@ -84,7 +84,11 @@ class KnowledgeBaseDialog(QDialog):
             f"  background: {self._bg}; color: {self._accent};"
             f"  border: 1px solid {self._accent}; border-radius: 8px; padding: 6px 14px;"
             f"}}"
-            f"QPushButton:hover {{ background: {self._tc('bg_light', '#FFF0F3')}; }}"
+            # hover 换 bg_light（随主题翻转的软填充）→ 显式补配对文字色 text；
+            # 原依赖基规则 color（本处是 accent 填充色当字色），在浅色档
+            # bg_light 上只有 1.931/2.783/2.814。
+            f"QPushButton:hover {{ background: {self._tc('bg_light', '#FFF0F3')};"
+            f" color: {self._text}; }}"
         )
 
         layout = QVBoxLayout(self)

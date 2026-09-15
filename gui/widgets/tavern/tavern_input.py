@@ -65,7 +65,9 @@ _COLOR_FALLBACKS: Dict[str, str] = {
     "surface_muted": "#EFEFEF",
     "divider": "#E8E8E8",
     "border": "#DDDDDD",
-    "focus_accent": "#FF6B9D",
+    # v2.2.1：焦点圈由 focus_accent 改取 accent_text（非文本图形需 ≥3:1；
+    # focus_accent 落本控件自身底 bg_card 为 2.163~3.267，accent_text 为 4.844~6.507）。
+    "accent_text": "#B45073",
     "primary": "#FF6B9D",
     "primary_dark": "#E8558A",
     "disabled_bg": "#EDEDED",
@@ -86,7 +88,7 @@ QPushButton#tavernChoiceBtn {
 }
 QPushButton#tavernChoiceBtn:hover {
     background-color: %(surface_muted)s;
-    border-color: %(focus_accent)s;
+    border-color: %(accent_text)s;
 }
 QPushButton#tavernChoiceBtn:pressed {
     background-color: %(bg_light)s;
@@ -104,7 +106,7 @@ QPlainTextEdit#tavernInputEdit {
     padding: 8px 10px;
 }
 QPlainTextEdit#tavernInputEdit:focus {
-    border-color: %(focus_accent)s;
+    border-color: %(accent_text)s;
 }
 QPushButton#tavernSendBtn {
     background-color: %(primary)s;

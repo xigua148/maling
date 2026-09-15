@@ -1064,7 +1064,12 @@ _DARK_OVERRIDES: Dict[str, Dict[str, str]] = {
         "text_hint": "#9A8072", "divider": "#3B322C",
         "shadow": "rgba(0,0,0,0.42)",
         "bg_light": "#38292B", "focus_accent": "#FFB3C2",
-        "text_on_accent": "#FFFFFF",
+        # text_on_accent：落在强调实底（primary/accent #FF9FB2、primary_dark #EF8497）
+        # 上的文字色。原写死 #FFFFFF，实测 vs primary 仅 1.935（<4.5，白字在浅粉实底上
+        # 基本不可读）；其余三套深色板一律用深字（minimal #1C1C1E / night #1C1920 /
+        # whale #12303F），cream 是四套里唯一孤例。改深字后 vs primary=8.794、
+        # vs primary_dark=6.820、vs state_warn=8.706、vs #FF6B6B=6.131 全部 ≥4.5。
+        "text_on_accent": "#1C1C1E",
         "accent_light": "#4A2F34",
         "bubble_user_bg": "#4A2F34", "bubble_user_text": "#F7E4E8",
         "bubble_ai_bg": "#2A2320", "bubble_ai_text": "#EFE3DC",

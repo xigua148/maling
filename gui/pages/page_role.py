@@ -2094,7 +2094,10 @@ class PageRole(QWidget):
         hint = theme_engine.get_color("text_hint", secondary)
         border = theme_engine.get_color("border", "#FFE4EC")
         card_bg = theme_engine.get_color("bg_card", "#FFFFFF")
-        focus = theme_engine.get_color("focus_accent", primary)
+        # v2.2.1：三个角色输入框的焦点圈由 focus_accent 改取 accent_text
+        # （焦点圈属非文本图形，WCAG 1.4.11 需 ≥3:1；focus_accent 落 bg_card 实测
+        #  3.267 / 2.163 / 6.485 / 3.245，cream 不达标；accent_text 为 4.844~6.507）。
+        focus = theme_engine.get_color("accent_text", primary)
         text_on_accent = theme_engine.get_color("text_on_accent", "#FFFFFF")
         # v2.1(UI-Fix-listsel)：列表选中/悬停底改用「Qt 能正确解析」的写法。
         # 原写法是把 2 位透明度直接追加在 6 位 primary 色值之后，
@@ -2198,6 +2201,11 @@ class PageRole(QWidget):
         ring = theme_color(self.app_ctx, "accent", "#C57792")
         ring_hover = theme_color(self.app_ctx, "focus_accent", ring)
         press = theme_color(self.app_ctx, "border", "#EBEBEF")
+        # :pressed 换上的底是 border（**随主题翻转**，深色下是深底），原未声明 color →
+        # 回落基规则的 accent_text（「浅底上的强调文字色」，深色下偏亮）→ 实测
+        # ui_whale/深 3.374、ui_minimal/深 4.013、ui_whale/浅 3.908、ui_cream/浅 4.041
+        # 均 <4.5。显式补 text（border 的配对文字色，随主题翻转，四风格 ≥9.2）。
+        press_text = theme_color(self.app_ctx, "text", "#4A4A4A")
         self.avatar_btn.setStyleSheet(
             "QPushButton#roleAvatarBtn {"
             f"  background: {bg}; color: {fg};"
@@ -2205,7 +2213,7 @@ class PageRole(QWidget):
             "  font-size: 28px;"
             "}"
             f"QPushButton#roleAvatarBtn:hover {{ border-color: {ring_hover}; }}"
-            f"QPushButton#roleAvatarBtn:pressed {{ background: {press}; }}"
+            f"QPushButton#roleAvatarBtn:pressed {{ background: {press}; color: {press_text}; }}"
         )
 
     def _refresh_role_list_icons(self) -> None:

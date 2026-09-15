@@ -467,7 +467,7 @@ agent:
 
 新引入的所有 UI（附件芯片、tab 标签、语音对话框）**全部**通过 `gui.utils.theme_color(app_ctx, key, fallback)` 取色，**禁止硬编码颜色**。主题切换时调 `refresh_theme()` / `apply_theme()` 即生效。新增的色键：
 
-- `text_on_accent`：强调背景上的文字色（默认 `#FFFFFF`）
+- `text_on_accent`：强调背景上的文字色（**不是固定白**：随主题取值，四套 UI 风格的强调实底为浅色，故按「浅实底配深字」取 `#05202A`~`#3D2E2A`；仅兼容旧主题 cute/minimal/maid 仍为 `#FFFFFF`）
 - `bg_light`：次级背景（默认 `#FFF0F3`）
 - `disabled_bg` / `disabled_text`：禁用态（默认 `#E0E0E0` / `#9E9E9E`）
 

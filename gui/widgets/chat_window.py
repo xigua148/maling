@@ -415,7 +415,7 @@ class ChatWindow(QWidget):
             f"  selection-background-color: {_tc('accent_light', '#FFB6C1')};"
             "}"
             "QTextEdit#chatInput:focus {"
-            f"  border-color: {_tc('accent', '#FF9EB5')};"
+            f"  border-color: {_tc('accent_text', '#B45073')};"
             f"  background: {_tc('bg_card', '#FFFFFF')};"
             "}"
         )
@@ -764,6 +764,11 @@ class ChatWindow(QWidget):
             _bd = theme_engine.get_color("border", "#FFD6E0")
             _txt = theme_engine.get_color("text", "#4A4A4A")
             _ac_l = theme_engine.get_color("accent_light", "#FFB6C1")
+            # v2.2.1：焦点圈改取 accent_text。此前取 accent_light，而四套主题里
+            # accent_light ≡ bg_light，且该输入框自身底也是 bg_light
+            # → 焦点圈与其自身底对比 **1.000，完全不可见**。
+            # accent_text 落 bg_light 为 4.125~4.280，四套全达标（非文本图形需 ≥3:1）。
+            _ac_tx = theme_engine.get_color("accent_text", "#B45073")
             _bg_card = theme_engine.get_color("bg_card", "#FFFFFF")
             if getattr(self, "input_edit", None) is not None:
                 self.input_edit.setStyleSheet(
@@ -778,7 +783,7 @@ class ChatWindow(QWidget):
                     f"  selection-background-color: {_ac_l};"
                     f"}}"
                     f"QTextEdit#chatInput:focus {{"
-                    f"  border-color: {_ac_l};"
+                    f"  border-color: {_ac_tx};"
                     f"  background: {_bg_card};"
                     f"}}"
                 )

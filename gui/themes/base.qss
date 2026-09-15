@@ -263,7 +263,7 @@ QWidget#settingsSection QComboBox#settingsThemeCombo:focus,
 QWidget#settingsSection QComboBox#settingsAppearanceCombo:focus,
 QWidget#settingsSection QComboBox#settingsFontCombo:focus,
 QWidget#settingsSection QComboBox#settingsAnimationCombo:focus {
-    border-color: ${focus_accent};
+    border-color: ${accent_text};
 }
 QWidget#settingsSection QComboBox#settingsThemeCombo::drop-down,
 QWidget#settingsSection QComboBox#settingsAppearanceCombo::drop-down,
@@ -495,7 +495,7 @@ QCheckBox::indicator:hover {
 }
 QCheckBox:focus,
 QCheckBox::indicator:focus {
-    border-color: ${focus_accent};
+    border-color: ${accent_text};
 }
 QCheckBox::indicator:disabled {
     background-color: ${disabled_bg};
@@ -561,23 +561,24 @@ QTabBar::tab:selected:focus {
        （实测 diff=0px），`border` 生效；且对文本编辑设 border 能**替换**系统原生蓝框
        （实测蓝像素 248 → 0）。具名容器（#sessionList / #projectTreeView）在肤感层写有更高
        特异性的 border/outline，故逐处用 id 规则补回。
-     · 描边取色 `${focus_accent}`：此处描边压在**页面 / 卡片底色**上，与既有 QLineEdit /
-       QComboBox 焦点同一语义键（项目既有口径）；仅当该键与底色同值而退化时（见 §5 按钮、
-       §9 页签）才改用 `${text}`。
+     · 描边取色 `${accent_text}`（v2.2.1 收口）：v2.2.0 取 `${focus_accent}`，但四套新风格里
+       focus_accent ≡ primary，浅色三套的描边压在页面底色上实测仅 **1.931 ~ 2.814**（<3:1，
+       非文本图形不达标）；改取「文字用」强调色 `${accent_text}` 后四风格明暗实测 **≥4.125**，
+       与 §5 按钮 / §9 页签改用 `${text}` 同属「同值/低对比退化即换键」的既有口径。
      · 无动画（QSS 天然静态，off 档同样可见）。
    注：已有具名焦点规则的编辑器（#chatInput / #codeEditorArea）特异性更高，不受本块影响。 */
 QListWidget:focus,
 QListView:focus,
 QTreeView:focus {
-    border: 1px solid ${focus_accent};
+    border: 1px solid ${accent_text};
 }
 QListWidget#sessionList:focus,
 QTreeView#projectTreeView:focus {
-    border: 1px solid ${focus_accent};
+    border: 1px solid ${accent_text};
 }
 QTextEdit:focus,
 QPlainTextEdit:focus {
-    border: 1px solid ${focus_accent};
+    border: 1px solid ${accent_text};
 }
 /* 滑杆：焦点落在手柄上 → 给手柄加一圈描边（不改变手柄尺寸/位置）；
    取色 ${text}（手柄本身即 ${primary} 填充，用 focus_accent 会被同色吃掉） */
