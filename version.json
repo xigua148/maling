@@ -1,31 +1,32 @@
 {
-  "version": "2.2.0",
-  "_comment": "2.2.0 正式发布构建；assets.*.sha256/size 已由 tools/build_release.py 回填为 dist_v2.2.0 实测值（发布成功前不得推送本文件）。",
-  "released_at": "2026-09-15",
+  "version": "2.2.1",
+  "_comment": "2.2.1 正式发布构建；assets.*.sha256/size 已由 tools/build_release.py 回填为 dist_v2.2.1 实测值（发布成功前不得推送本文件）。",
+  "released_at": "2026-09-16",
   "min_compatible": "1.0.0",
   "min_updatable": "2.0.0",
-  "release_url": "https://github.com/xigua148/maling/releases/tag/v2.2.0",
+  "release_url": "https://github.com/xigua148/maling/releases/tag/v2.2.1",
   "downloads": {
-    "github": "https://github.com/xigua148/maling/releases/download/v2.2.0/MaLing_v2.2.0_Desktop.zip",
+    "github": "https://github.com/xigua148/maling/releases/download/v2.2.1/MaLing_v2.2.1_Desktop.zip",
     "mirror": ""
   },
   "assets": {
     "onedir": {
-      "url": "https://github.com/xigua148/maling/releases/download/v2.2.0/MaLing_v2.2.0_Desktop.zip",
+      "url": "https://github.com/xigua148/maling/releases/download/v2.2.1/MaLing_v2.2.1_Desktop.zip",
       "mirror": "",
-      "sha256": "773edfaa4e4d651f0a7b194fcc1ec2f5c83b882a2b01947bec133e83fdc94c7b",
-      "size": 301713747,
-      "filename": "MaLing_v2.2.0_Desktop.zip"
+      "sha256": "35baa975e82a331dc566a2ac5a05694702c17d85f4ebe9b31c4e179a381752b6",
+      "size": 301734743,
+      "filename": "MaLing_v2.2.1_Desktop.zip"
     },
     "single": {
-      "url": "https://github.com/xigua148/maling/releases/download/v2.2.0/MaLing_v2.2.0_Portable.exe",
+      "url": "https://github.com/xigua148/maling/releases/download/v2.2.1/MaLing_v2.2.1_Portable.exe",
       "mirror": "",
-      "sha256": "7ad6b2e84b6ff1eaba84255503c0a098aba3aeb187df559c0a0294994b103e09",
-      "size": 231675681,
-      "filename": "MaLing_v2.2.0_Portable.exe"
+      "sha256": "1e87bb66dec2370bebcd17c2c224c25e9247b94e1cddfa6b464e904424f9286f",
+      "size": 231695054,
+      "filename": "MaLing_v2.2.1_Portable.exe"
     }
   },
   "notes": [
+    "v2.2.1 可辨识性修复 + 更新链路修复：① 更新检查分支由 main 改指 master——仓库默认分支一直是 master，此前代码写 main 而仓库无该分支，导致 v2.0.0 起所有已装客户端「检查更新」线上 404 恒失败（本次事故根因）；② 补出 beta 频道清单（设置页可选 beta，但仓库从未提供该清单文件，选 beta 必然失败）；③ 输入框焦点圈可辨识性：四套主题 + 4 处 Python 内联统改 accent_text，最差 1.000→4.125——其中独立浮窗输入框的焦点圈原本与自身底色完全相同（1.000，完全看不见）；④ 列表/页签选中态加 accent_text 描边环（奶油主题 2.102→4.924），并用 padding 补偿保证选中前后几何零位移；⑤ 修「改了背景却没声明字色」整类缺陷 15 处（知识库/待办/番茄钟/桌宠对话/授权弹窗，以及四风格 :pressed 与发送按钮禁用态）；⑥ 奶油深色主题按钮白字不可读（1.935→8.794）；⑦ 聊天面板导出/停止按钮硬编码色收口到唯一取色入口并跟随换肤；⑧ 角色页右列原无滚动容器导致三个输入框被压到 h=11（内容区 −3，字形一个像素都画不出）→ 加滚动容器 + 最小高后 h=36、minimumSizeHint 837→261；⑨ 首页头像首帧停在默认图（广播早于主窗构造 + 订阅被包在判空块里）→ 构造时补拉一次并拆开通道；⑩ 浮窗/主面板共 9 处标签被 QWidget 背景规则污染成不透明色块（79.3%~100%→0.0%），即「左上角的字跟背景不符」；⑪ 侧栏「码铃·关系」chip 底色与侧栏底同色（Δ=0，等于没画）→ 8 组实测 Δ 14~31；⑫ 其余 12 个/主题「实底+方角」按钮改圆角（§1g，四主题实底方角 0 个，逐按钮对账 48 行差异全部且仅为方角→圆角）；⑬ 深色主题下顶栏四键图标为纯黑不可见（构造早于 icons.configure，且退化结果写进 QPixmapCache 无失效）→ 改为显式按主题令牌传色；⑭ 图标字形只在构造期求值一次，字体晚就绪时永久停在 emoji 态且换肤不恢复 → 抽出重取并挂换肤点；⑮ 浮窗标题硬编码不随角色、右上最小化键字号与另两键不一致 → 标题随角色（空名回退「码铃」）、三键字号统一且关闭键改走矢量图标族；⑯ 语音输入依赖缺失时点击只弹一次说明（被误读为「点了没反应」）→ 置灰 + tooltip 写明缺失依赖；⑰ _connect_signals 不再因 chat_service 缺失连带跳过主题/消息/角色等无关通道，并补幂等；⑱ 按用户指令移除独立浮窗的「表情/导出/语音」三个按钮及其表情面板（功能保留在聊天主面板，语音另有托盘入口）；⑲ 本版测试 2229 passed / 9 skipped / 1 failed（唯一失败为构建回填前的 version.json assets 契约，填完即绿）。",
     "v2.2.0 酒馆上线：侧栏新增「酒馆」文字叙事冒险（5 页签 / 3 章 / 18 节点 · 76 选项 / 2 终局 / 17 条世界书 / 3 张人物卡），支持自由输入、重掷、改字重发与存档续玩；同批完成 v2.1 收口修复 13 项（含知识库退出崩溃、滚轮误改控件）与酒馆四个 P0 空壳修复。",
     "v2.1.1 体验与可靠性修复：设置滚轮不再误改选项；聊天气泡不再因滚轮留空白；毛玻璃在 Windows 11 可见；全站主题跟随修复；关系等级实时影响口吻/情绪/首页与侧栏；左下角小形象跟随当前角色并显示角色姓名与好感度阶段；设置/角色输入控件可读性修复；第三方组件归属与 NOTICE 补全。",
     "v2.1.0 视觉一致性收口：图标字形体系 · 字体族链修复 · 字号单一收口；三处循环动效回退（ripple/bars/typing→pulse/文字节奏）；侧栏滚动条 hover 才显示；KB 检索/建索引异步化（QThread）；核心层 L0→L1 反向依赖修（path_guard.py）；命令白名单收敛为 ALLOWED_COMMANDS 子集（+子集守卫）；气泡姓名走 given_name（人设≠人名）。",
@@ -61,5 +62,5 @@
     "v1.2.3：聊天面板移除逐条 token 显示（数值焦虑），累计用量仅保留在首页 Token 卡"
   ],
   "channel": "stable",
-  "downloads_note": "尚未在公开渠道发布；本地分发使用码铃_MaLing_v2.0.0_桌面版.zip。公开发布后在此登记真实下载地址与 sha256。"
+  "downloads_note": "公开发布于 GitHub Releases（https://github.com/xigua148/maling/releases/tag/v2.2.1）。assets.*.sha256/size 由 tools/build_release.py 回填为 dist_2.2.1 实测值。"
 }
