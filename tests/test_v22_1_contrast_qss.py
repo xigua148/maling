@@ -720,12 +720,25 @@ _RING_ANCHORS = {
         "    border: 1px solid ${accent_text};\n}",
     ),
     "themes/ui_whale.qss": (
-        "QPushButton#quickBtn:focus,\nQPushButton#expandChatBtn:focus,\n"
-        "QPushButton#quickReplyBtn:focus,\nQPushButton#quickActionBtn:focus,\n"
-        "QPushButton#copyBtn:focus,\nQPushButton#copyCodeBtn:focus {\n"
+        # v2.2.1 二轮订正：本段原为**全仓唯一**没走 `[keyboardNav="true"]` 门控的
+        # :focus 规则（用户第 3 条原话「这个项目所有类似选定黑框的都可以不用存在」）。
+        # 实测鼠标点击即 hasFocus()==True → 帧差 732~758 px、新色 #247A8F
+        # （#expandChatBtn 落底仅 1.52:1，最扎眼）。现按 base.qss §5 / §9b 的同一口径
+        # 加属性门控，**颜色 / 宽度 / 版式一字未动**，故此处的环令牌仍是 ${accent_text}。
+        "QPushButton#quickBtn[keyboardNav=\"true\"]:focus,\n"
+        "QPushButton#expandChatBtn[keyboardNav=\"true\"]:focus,\n"
+        "QPushButton#quickReplyBtn[keyboardNav=\"true\"]:focus,\n"
+        "QPushButton#quickActionBtn[keyboardNav=\"true\"]:focus,\n"
+        "QPushButton#copyBtn[keyboardNav=\"true\"]:focus,\n"
+        "QPushButton#copyCodeBtn[keyboardNav=\"true\"]:focus {\n"
         "    border-color: ${accent_text};\n}",
     ),
 }
+
+#: 二轮订正的反向守卫：ui_whale 那 6 个按钮的 `:focus` **不得**再出现无门控形态
+#: （无门控 = 鼠标点一下也上环 = 用户点名的「选定黑框」）。
+_WHALE_UNGATED_FOCUS_IDS = ("quickBtn", "expandChatBtn", "quickReplyBtn",
+                            "quickActionBtn", "copyBtn", "copyCodeBtn")
 
 #: **证伪记录 / 反向守卫**：代码编辑器底色是**深色**（浅色主题下也是 #2B2B33），
 #: 该处**必须保留** ``${focus_accent}``。实测把这条也换成 ``${accent_text}``（压在浅底上的
@@ -773,6 +786,25 @@ def test_generic_ring_anchors_in_place(qapp, isolated_env):
         qss = (ROOT / "gui" / rel).read_text(encoding="utf-8")
         for a in anchors:
             assert a in qss, f"{rel}: 缺失通用焦点环锚点\n---\n{a}\n---"
+
+
+def test_whale_button_focus_ring_is_keyboard_gated(qapp, isolated_env):
+    """二轮反向守卫：ui_whale 那 6 个按钮不得退回「鼠标点一下就上环」的无门控形态。
+
+    判据取「选择器含该 id、含 :focus、且不含 keyboardNav」——只看形态，不看颜色，
+    与 base.qss §5 / §9b 同一口径（用户诉求是「所有类似选定黑框都不要」，与颜色无关）。
+    """
+    qss = (ROOT / "gui" / "themes" / "ui_whale.qss").read_text(encoding="utf-8")
+    bad = [sel for sel, _decl in _focus_rule_decls(qss)
+           if ":focus" in sel and "keyboardNav" not in sel
+           and any(f"#{oid}" in sel for oid in _WHALE_UNGATED_FOCUS_IDS)]
+    assert not bad, (
+        "ui_whale: 以下 :focus 规则已退回无门控形态 —— 鼠标点击就会贴出选定框，"
+        f"与用户「所有类似选定黑框都不要」相悖：{bad}")
+    gated = [sel for sel, _decl in _focus_rule_decls(qss) if "keyboardNav" in sel]
+    assert gated, (
+        "ui_whale: 一个 keyboardNav 门控的 :focus 规则都没有 —— 键盘可达性被整段删掉了"
+        "（本订正只允许「加属性门控」，不允许「删规则」）")
 
 
 RING_KINDS = ("settings_combo", "checkbox", "treeview", "treeview_project",
@@ -851,10 +883,34 @@ def _ring_host(theme):
     return engine, host, ws
 
 
-def _ring_probe(w, kind) -> Counter:
+def _ring_probe(w, kind, *, kbd_nav: bool = False) -> Counter:
+    """取「聚焦态」像素直方图。
+
+    ``kbd_nav=True`` 时先按**产品口径**把控件标成键盘导航焦点
+    （``keyboardNav="true"`` 动态属性 + unpolish/polish，即 ``MainWindow.eventFilter``
+    在 Tab/Shift+Tab/助记键路径上做的事），再 ``setFocus()``。
+
+    ⚠ 为什么两态取法不同（而不是「顺手都加上属性」）：
+      · **before（v2.2.0 等价态）**：当时的 :focus 规则**无门控** —— 鼠标点一下或程序性
+        焦点都会上环。故 before 侧**不设**该属性才是对 v2.2.0 的忠实模拟；
+      · **after（v2.2.1）**：通用焦点环已按「焦点来源」分流
+        （``base.qss`` §5；``ui_whale.qss`` 那 6 个按钮同口径），QPushButton 的环
+        **只在键盘导航时**出现。若 after 侧仍用程序性焦点取，会取不到环 ——
+        那不是「环没了」，是**探针没走键盘路径**。
+      · 两态断言彼此独立（before：focus_accent 在 / accent_text 不在；
+        after：accent_text 在 / focus_accent 不在），不做 before↔after 的直接对比，
+        故不构成「改了条件的 before 拿去比 after」的弱化。
+    """
+    if kbd_nav:
+        w.setProperty("keyboardNav", "true")
+        w.style().unpolish(w)
+        w.style().polish(w)
     w.setFocus()
     _pump(6)
     assert w.hasFocus(), f"{kind}: 控件未拿到焦点，本用例无意义"
+    if kbd_nav:
+        assert w.property("keyboardNav") == "true", (
+            f"{kind}: keyboardNav 属性没打上（unpolish/polish 失效）→ 本用例会假红")
     return _hist(w.grab().toImage(), (0, 0, w.width(), w.height()))
 
 
@@ -873,7 +929,7 @@ def test_generic_ring_renders_accent_text(qapp, isolated_env, theme, kind):
 
     with _state(engine, before=True):
         before = _ring_probe(w, kind)
-    after = _ring_probe(w, kind)
+    after = _ring_probe(w, kind, kbd_nav=True)
 
     assert before and after, f"{theme}/{kind}: 直方图为空（几何 {w.width()}x{w.height()}）"
     pxb, pxa = _px(before, tokens), _px(after, tokens)

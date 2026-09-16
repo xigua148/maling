@@ -116,8 +116,15 @@ class SidebarWidget(QWidget):
         ("plan",        "计划",     "list",         "\u2630"),      # ☰
         ("tavern",      "酒馆",     "glass",        "\U0001F377"),  # 🍷  v2.2(V22-09)
         ("agent",       "角色",     "person",       "\u263A"),      # ☺
-        ("tools",       "工具",     "settings",     "\u2699"),      # ⚙
-        ("settings",    "设置",     "tune",         "\u2691"),      # ⚑
+        # 用户诉求：调换「工具 / 设置」两项的**图标**（[2] icon_name）—— 工具的本义是滑杆
+        # （tune），设置的本义是齿轮（settings），此前二者写反。[1] label / [0] key 零变更。
+        # 随后配套：交换 [2] 后 [3] 回退 emoji 变得语义不配对（工具=滑杆却回退 ⚙、
+        # 设置=齿轮却回退 ⚑），故一并订正为「工具 → 扳手 U+1F527 / 设置 → 齿轮 U+2699」。
+        #   · U+1F527 沿用本仓既有「工具类」回退约定（gui/widgets/tool_trace.py:223、
+        #     gui/chat_input_logic.py:72 均以 🔧 作 plugin/工具 的 text_glyph 回退），非新造；
+        #   · U+2699 与设置语义同族（gui/pages/page_home.py:728 的「⚙ 模型设置」同字符）。
+        ("tools",       "工具",     "tune",         "\U0001F527"),  # 🔧
+        ("settings",    "设置",     "settings",     "\u2699"),      # ⚙
     ]
 
     def __init__(self, app_context, parent: Optional[QWidget] = None):
@@ -625,23 +632,40 @@ class SidebarWidget(QWidget):
         self.maid_chip.setToolTip(f"{tooltip}\n关系：{stage}\n点击回首页")
 
     def _apply_maid_chip_style(self) -> None:
-        """主题色样式（theme_color，禁裸色）。"""
-        bg = theme_color(self.app_ctx, "bg_card", "#FFFFFF")
+        """主题色样式（theme_color，禁裸色）。
+
+        v2.2.2 缺陷修复：基态底色原取 ``bg_card``，而**四套主题的侧栏根底本身也是
+        ``bg_card``**（各肤感层 `SidebarWidget { background-color: ${bg_card}; }`）
+        ⇒ 二者同色 Δ=0，等于压根没画底色。改取 ``bg_light``：4 浅 + 4 深共 8 组实测
+        与侧栏底 ``bg_card`` 均有可见差（8/8 不再 Δ=0，Δ 通道 14~31：
+        浅色档 21 / 17 / 30 / 31，深色档 15 / 14 / 30 / 18 ⇒ 浅色 ≥ 17、深色 ≥ 14；见
+        `_probe/maid_chip_probe.py`）。
+
+        悬停态原用 ``bg_light``，与本轮基态撞色，故改取 ``surface_muted`` ——
+        与侧栏同排的 ``#sidebarModelBtn:hover`` 用的是同一令牌，观感一致；
+        字色仍为 ``text``（8 组实测 字/底 ≥ 11.5、字/悬停底 ≥ 11.9 ——
+        「≥ 10.9」是早一轮的读数，未随重测更新）。
+
+        本函数是**运行期动态取色重刷**的写法：``_on_sidebar_theme_changed`` 在
+        ThemeEngine.theme_changed 上调用它（见 `_connect_maid_companion`），
+        故换肤后会重取色，本轮改动随之生效。
+        """
         border = theme_color(self.app_ctx, "divider", "#F0DAE0")
         text = theme_color(self.app_ctx, "text", "#5D4037")
         accent = theme_color(self.app_ctx, "accent", "#FF6B9D")
         bg_light = theme_color(self.app_ctx, "bg_light", "#FFF0F3")
+        muted = theme_color(self.app_ctx, "surface_muted", "#FFF7FA")
         self.maid_chip.setStyleSheet(
             f"QPushButton#sidebarMaidChip {{"
-            f"  background: {bg}; border: 1px solid {border};"
+            f"  background: {bg_light}; border: 1px solid {border};"
             f"  border-radius: 12px; padding: 2px 8px;"
             f"  text-align: left; color: {text}; font-size: 12px;"
             f"}}"
-            # 对比度修复（仅 hover 态）：字落在 bg_light 实底上，原用 accent 仅
-            # 2.783/1.931/5.317/2.814（三套浅色 <4.5）→ 改用文字色 text
-            # （14.492/11.556/12.503/11.980）。基态本就是 text，不动。
+            # hover 底色 surface_muted 同为淡底，字色保持 text
+            # （原注：字落 bg_light 实底时用 accent 仅 2.783/1.931/5.317/2.814，
+            #  三套浅色 <4.5 → 故一律用 text；本轮沿用该结论）。
             f"QPushButton#sidebarMaidChip:hover {{"
-            f"  background: {bg_light}; border-color: {accent}; color: {text};"
+            f"  background: {muted}; border-color: {accent}; color: {text};"
             f"}}"
         )
 

@@ -5,7 +5,7 @@ from typing import Optional
 
 from gui.qt_compat import (
     QWidget, QVBoxLayout, QLabel, QPushButton,
-    QHBoxLayout, QFrame, Qt, QFont,
+    QHBoxLayout, QFrame, QScrollArea, Qt, QFont,
 )
 
 # v10.15: 关于页版本号硬编码改为读 core.__version__
@@ -41,7 +41,29 @@ class PageAbout(QWidget):
         self._init_ui()
 
     def _init_ui(self) -> None:
-        layout = QVBoxLayout(self)
+        # v2.2.1(黑框修复·三轮)：本页此前是**唯一**没有滚动区的长页。
+        #   页面内容的最小高度实测约 1156px，而默认窗口 1600×900 只给页面 875px
+        #   ⇒ 竖向被挤压；页内最矮的那个按钮「检查更新」（96×35 的 sizeHint）
+        #   被压到 **96×17**（内容区 56×1），文字**一个像素都画不出来**
+        #   （`_fix_blackbox/sweep5_before.txt`：加高 24px 后墨迹 1 → 13 行，四主题×明暗一致）。
+        #   改用与 page_home / page_settings / page_role / page_memories /
+        #   page_memory_book / page_tavern 完全相同的口径：内容放进 QScrollArea。
+        #   ⚠ 只加一层滚动容器，页内控件与文案**一字未动**；
+        #     `QScrollArea { border: none; background-color: transparent; }` 四主题 QSS 均已声明。
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        outer.addWidget(scroll)
+
+        content = QWidget()
+        scroll.setWidget(content)
+
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(20)
 
@@ -70,6 +92,9 @@ class PageAbout(QWidget):
         v_layout.addWidget(QLabel(f"更新源: {self._update_source_host()}"))
         upd_row = QHBoxLayout()
         self.check_update_btn = QPushButton("检查更新")
+        # v2.2.1(三轮)：补 objectName（此前是全仓唯一「有属性名但无 objectName」的按钮，
+        #   独立扫描只能靠 `id=-` 认它）。只加名字，样式/几何/文案一律不动。
+        self.check_update_btn.setObjectName("checkUpdateBtn")
         self.check_update_btn.clicked.connect(self._on_check_update)
         upd_row.addWidget(self.check_update_btn)
         self.update_state_label = QLabel("")

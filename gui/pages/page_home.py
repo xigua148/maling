@@ -32,6 +32,64 @@ from gui.session_manager import is_group_session as _is_group_session
 
 logger = logging.getLogger("maid_coder.gui")
 
+# ---------------------------------------------------------------------------
+# v2.2.1(修复「首页头像与当前角色不符」)：当前生效角色的**首帧补偿**
+#   根因一：role_changed 的启动广播发生在 MainWindow（进而本页）构造**之前**
+#     —— gui/main.py 先 `notify_role_changed(...)`，之后才 `MainWindow(app_ctx)`，
+#     故只订阅信号时首页首帧永远停在默认形象上（信号已是过去时）。
+#   根因二：本页的形象刷新订阅此前写在 `_connect_companion` 的
+#     `companion_bridge is None → return` 之后，桥接对象缺失时通道直接断掉。
+#
+#   取「当前生效角色」复用仓库既有唯一入口
+#   ``gui/pages/page_role.RoleManager().default_role``（与 sidebar / gui/utils /
+#   message_bubble 同源，不另造一套）；``RoleManager()`` 构造即 ``_load_all()``
+#   同步读盘 → 这里模块级复用**同一个实例**，绝不在「每次刷新头像」时 new。
+# ---------------------------------------------------------------------------
+_ROLE_MANAGER_CACHE = None
+_ROLE_MANAGER_TRIED = False
+
+
+def _get_role_manager():
+    """模块级复用同一个 RoleManager（构造即同步读盘，禁止每次刷新 new）。"""
+    global _ROLE_MANAGER_CACHE, _ROLE_MANAGER_TRIED
+    if not _ROLE_MANAGER_TRIED:
+        _ROLE_MANAGER_TRIED = True
+        try:
+            from gui.pages.page_role import RoleManager
+            _ROLE_MANAGER_CACHE = RoleManager()
+        except Exception:
+            logger.debug("静默降级：取当前角色失败（RoleManager 不可用）", exc_info=True)
+            _ROLE_MANAGER_CACHE = None
+    return _ROLE_MANAGER_CACHE
+
+
+def _current_role_id() -> str:
+    """当前生效角色 id；取不到返回 ""（形象回落码铃本体，UI 不空白）。"""
+    manager = _get_role_manager()
+    if manager is None:
+        return ""
+    try:
+        role = manager.default_role
+        return str(getattr(role, "id", "") or "") if role is not None else ""
+    except Exception:
+        logger.debug("静默降级：_current_role_id 中忽略异常", exc_info=True)
+        return ""
+
+
+def _current_role_base_expression() -> str:
+    """当前生效角色的基线表情 id；取不到返回 "normal"。"""
+    manager = _get_role_manager()
+    if manager is None:
+        return "normal"
+    try:
+        role = manager.default_role
+        if role is None:
+            return "normal"
+        return str(getattr(role, "current_expression", "") or "normal")
+    except Exception:
+        return "normal"
+
+
 # v2.1(V21-12/D-V21-06): 首页图标位统一 —— 只记「图标名 + 尺寸 + theme_color 取色」，
 # 字体不可用时回落原 emoji（不空白、不崩）。
 _ICON_SIZE_CARD = 20   # 状态卡 / 模式卡图标
@@ -303,8 +361,14 @@ class PageHome(QWidget):
         # Bug2 修复：AI 自选表情的"保持"语义 —— 心情引擎回落事件不应把 AI 标记
         # 的表情打回基线；记住最近一次 AI 标记，回落时优先沿用。
         self._last_ai_expr: Optional[str] = None
+        # v2.2.1: role_bridge 订阅置一次性标记（_connect_companion 会被反复调用，
+        #   无标记时重复 connect 会让 _on_role_changed 被触发多次）
+        self._role_connected = False
         self._init_ui()
         self._sync_from_session()
+        # v2.2.1(修复「首页头像与当前角色不符」): 首帧补偿 —— 启动广播早于本页构造，
+        #   这里主动拉一次当前生效角色并渲染形象（见模块头注释）。
+        self._refresh_role_avatar()
         # v1.9(V19-16): 主题切换 → D 风格口吻文案即时刷新
         self._connect_theme_brand()
         # v1.2(B9): 启动即刷新首页模型入口当前状态
@@ -854,22 +918,32 @@ class PageHome(QWidget):
     # companion 接线（心情 -> 表情；关系称谓）
     # ==================================================================
     def _connect_companion(self) -> None:
-        """订阅 companion_bridge.mood_changed：心情态变化即换表情 + 刷新动态/称谓。"""
-        if self._companion_connected:
-            return
+        """订阅 companion_bridge.mood_changed（心情换表情）+ role_bridge.role_changed（角色换形象）。
+
+        v2.2.1(修复「首页头像与当前角色不符」)：两条订阅**互不遮挡** —— 此前
+        role_bridge 的订阅写在 `companion_bridge is None → return` **之后**，
+        桥接对象缺失时头像更新通道被整段跳过、直接断掉。
+        """
+        # 通道一：心情 → 表情（companion_bridge 缺失时只跳过本通道）
         bridge = getattr(self.app_ctx, "companion_bridge", None)
-        if bridge is None:
+        if not self._companion_connected and bridge is not None:
+            try:
+                if hasattr(bridge, "mood_changed") and hasattr(bridge.mood_changed, "connect"):
+                    bridge.mood_changed.connect(self._on_companion_mood_changed)
+                    self._companion_connected = True
+            except Exception:
+                logger.debug("静默降级：mood_changed 订阅失败", exc_info=True)
+        # 通道二：v1.4.2 角色生效 → 首页大形象切角色专属资产集（独立通道）
+        if getattr(self, "_role_connected", False):
             return
         try:
-            if hasattr(bridge, "mood_changed") and hasattr(bridge.mood_changed, "connect"):
-                bridge.mood_changed.connect(self._on_companion_mood_changed)
-                self._companion_connected = True
-            # v1.4.2: 订阅角色生效 → 首页大形象切角色专属资产集
             rb = getattr(self.app_ctx, "role_bridge", None)
-            if rb is not None and hasattr(rb, "role_changed"):
+            if rb is not None and hasattr(rb, "role_changed") \
+                    and hasattr(rb.role_changed, "connect"):
                 rb.role_changed.connect(self._on_role_changed)
+                self._role_connected = True
         except Exception:
-            logger.debug("静默降级：_connect_companion 中忽略异常", exc_info=True)
+            logger.debug("静默降级：role_changed 订阅失败", exc_info=True)
 
     def _on_companion_mood_changed(self, mood: str, reason: str) -> None:
         """心情变化：更新主形象表情 + 每日动态文案（不渲染任何数值）。
@@ -909,14 +983,37 @@ class PageHome(QWidget):
             self._role_base_expr = base_expr or "normal"
             # Bug2: 切角色 = 上下文重置，清除旧角色的 AI 标记记忆，回到该角色基线
             self._last_ai_expr = None
-            from gui.maid_avatar import role_assets
-            assets = role_assets(role_id)
             avatar = getattr(self, "avatar", None)
             if avatar is not None and hasattr(avatar, "set_assets"):
-                avatar.set_assets(assets)  # None → 回落码铃本体
+                self._apply_role_assets(role_id)  # None → 回落码铃本体
                 avatar.set_maid_expression(self._role_base_expr)
         except Exception:
             logger.debug("静默降级：_on_role_changed 中忽略异常", exc_info=True)
+
+    # -- v2.2.1: 当前角色形象的唯一落点（首帧补偿 + 换角色共用） --
+    def _apply_role_assets(self, role_id: str) -> None:
+        """把角色专属形象资产套到首页大形象；无专属资产（None）由控件回落码铃本体。"""
+        avatar = getattr(self, "avatar", None)
+        if avatar is None or not hasattr(avatar, "set_assets"):
+            return
+        try:
+            from gui.maid_avatar import role_assets
+            avatar.set_assets(role_assets(str(role_id or "")))
+        except Exception:
+            logger.debug("静默降级：_apply_role_assets 中忽略异常", exc_info=True)
+
+    def _refresh_role_avatar(self) -> None:
+        """首帧补偿：主动拉一次当前生效角色（不依赖 role_changed 信号）。
+
+        取角色走仓库既有唯一入口 ``RoleManager().default_role``（实例模块级复用，
+        见 :func:`_get_role_manager`）；形象只认角色 id 对应的资产集，
+        ``given_name``（空 = 无名字 → 自称「我」）只关乎姓名显示，不参与取图 ——
+        任何情况下都不得拿 ``role.name``（人设标签）当姓名或形象依据。
+        """
+        if getattr(self, "avatar", None) is None:
+            return
+        self._role_base_expr = _current_role_base_expression() or "normal"
+        self._apply_role_assets(_current_role_id())
 
     def _get_nickname(self) -> str:
         try:

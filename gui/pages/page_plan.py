@@ -276,6 +276,10 @@ class PagePlan(QWidget):
         header.addStretch()
 
         self.new_btn = QPushButton("+")
+        # v2.2.1(黑框修复 WP1)：定尺寸单字符按钮必须自带 id —— 通用 QPushButton
+        # 的 `padding: 8px 20px`（肤感层）会把 28×28 的内容区压成 -12×12，
+        # 字形无处可画。padding 归零收口在 base.qss §1c。
+        self.new_btn.setObjectName("planNewBtn")
         self.new_btn.setFixedSize(28, 28)
         self.new_btn.setCursor(Qt.PointingHandCursor)
         self.new_btn.setToolTip("新建计划")

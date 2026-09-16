@@ -66,6 +66,38 @@ def diagnose_voice_input() -> Tuple[bool, bool, str]:
     return True, True, "语音识别后端与麦克风均就绪"
 
 
+def voice_input_button_state() -> Tuple[bool, str]:
+    """UI 入口按钮的可用性 + 说明 tooltip（供「🎤 语音」按钮使用）。
+
+    v2.2.2(P6-B 可用性诊断)：依赖缺失（无 SpeechRecognition / PyAudio，或无麦克风）时，
+    入口按钮此前**恒可点** —— 用户要先付出一次无效点击，才看到说明对话框。本函数把
+    同一份诊断**提前**暴露给按钮：不可用即置灰并给出原因。
+
+    口径与边界：
+      · **只做诊断**：内部复用 :func:`diagnose_voice_input`，未另写一套探测；
+        识别链路（:class:`_RecognitionWorker` / :class:`VoiceInputDialog`）一行未动。
+      · 形态对齐既有先例：`chat_panel_parts/extras.py::_init_handsfree` 对「免提」按钮
+        就是 `btn.setEnabled(backend_ok)` + 原因 tooltip。
+      · 诊断自身抛异常 → **保守判为不可用**（沿用「诚实降级、不假装可用」口径），
+        绝不因此让面板构造失败。
+
+    返回 ``(是否可用, tooltip 文本)``；可用时的 tooltip 与旧文案保持一致。
+    """
+    try:
+        backend_ok, device_ok, desc = diagnose_voice_input()
+    except Exception as exc:  # 诊断失败 → 不确定，按不可用处理（不冒充可用）
+        return False, f"语音输入暂不可用（可用性诊断失败：{type(exc).__name__}）"
+    if backend_ok and device_ok:
+        return True, "语音输入（依赖 SpeechRecognition + 麦克风）"
+    hint = (
+        "未检测到语音识别后端（SpeechRecognition / PyAudio）—— 安装后即可使用：\n"
+        "pip install SpeechRecognition pyaudio（需真实麦克风与可访问 Google 语音 API 的网络）"
+        if not backend_ok else
+        "语音识别后端已就绪，但当前环境无可用麦克风设备（请连接麦克风或检查系统授权）"
+    )
+    return False, f"语音输入暂不可用：{desc}\n{hint}"
+
+
 class _RecognitionWorker(ExitSafeQThread):
     """R3: 录音 + 识别在独立线程执行，避免同步阻塞 GUI 线程（此前最长 8.8s 冻结）。
 
@@ -157,11 +189,20 @@ class VoiceInputDialog(QDialog):
         self._apply_theme()
 
         # 启动时探测
+        # v2.2.2(P6-B 可用性诊断)：依赖缺失 / 无设备时，除把按钮置灰外，还必须把
+        #   **不可用原因**写进 tooltip —— 置灰按钮点不动，用户悬停是唯一的就地询问
+        #   途径（此前只有上方 12px 灰字的一行状态，关窗即失）。置灰本身的样式由
+        #   `_apply_theme()` 的 `QPushButton:disabled` 承担（本次未动）。
+        #   ⚠ 只补可用性诊断，识别流程（`_RecognitionWorker` / `_on_start_clicked`）零改动。
         backend_ok, device_ok, desc = diagnose_voice_input()
         if not backend_ok or not device_ok:
             self.start_btn.setEnabled(False)
+            _unavailable = (
+                f"{desc}\n请安装 SpeechRecognition / PyAudio 并连接麦克风后重试。"
+            )
+            self.start_btn.setToolTip(_unavailable)
             self.status_label.setText(
-                f"{icons.text_glyph('warning', '⚠')} {desc}\n请安装 SpeechRecognition / PyAudio 并连接麦克风后重试。"
+                f"{icons.text_glyph('warning', '⚠')} {_unavailable}"
             )
         else:
             self.status_label.setText(

@@ -242,7 +242,18 @@ class ChatInteractionsMixin:
         """导出当前会话聊天记录（Markdown / TXT / JSON）。"""
         messages = self._collect_messages()
         if not messages:
-            QMessageBox.information(self, "导出", "当前没有消息可导出")
+            # v2.2.2(P6-C)判定：**不置灰，只改文案**。理由三条 ——
+            #   ① 「有没有消息」是**动态**状态：要让 `setEnabled` 正确，就得在
+            #      `add_message` / 切会话 / 载历史等处挂刷新点，而这些落点在
+            #      `chat_window.py` / `ui_build.py` / `extras.py` 各有副本 ⇒
+            #      为省一次弹窗引入多处新耦合，不划算。
+            #   ② 本按钮的**文本已被清空换成 `setIcon()` 位图**
+            #      （`ui_build.py::_apply_title_icons()`）⇒ `text == ""`，QSS `color:`
+            #      对它无效；置灰后按钮上看不到任何原因，只能靠 tooltip，而 tooltip
+            #      会随消息增删静默过期。
+            #   ③ 同族空/不可用路径（拍照 / 小游戏）都是「点了给一句说明」，
+            #      单独置灰一个反而破坏一致性。
+            QMessageBox.information(self, "导出", "先聊两句吧 —— 目前还没有消息可以导出。")
             return
 
         session_name = "聊天记录"

@@ -10,6 +10,8 @@ from gui.qt_compat import (
     QPushButton,  # v1.2.1: 顶部 Key 引导横幅
     QPixmap,  # v2.1.1: 状态栏图标清空/降级
     QEvent, QGraphicsOpacityEffect,  # v2.1(V21-08): 窗口状态重应用 / 切页淡入收尾
+    QApplication,  # v2.2.1(黑框修复 WP3): 应用级焦点事件过滤器
+    QSlider,  # v2.2.1(黑框修复 WP3): 滑杆手柄焦点描边同样要分流
 )
 from gui.utils import theme_color  # v2.1(V21-08): 取色唯一入口
 from core import __version__ as CORE_VERSION
@@ -53,6 +55,18 @@ from gui.pages.page_tavern import PageTavern  # v2.2(V22-09): 酒馆（AI 陪伴
 from gui.pages.onboarding import OnboardingDialog
 
 logger = logging.getLogger("maid_coder.gui")
+
+#: v2.2.1(黑框修复 WP3)：标在 QPushButton 上的动态属性 —— 只有「键盘导航进来的焦点」
+#: 才置 True，base.qss 用它门控 `outline`。
+#: 背景：base.qss 原为 `QPushButton:focus { outline: 1px solid ${text}; }`，四套主题的
+#: ${text} 都是近黑色（#1C1C1E / #3D2E2A / #12303F）→ **鼠标点击任意按钮**都会在内容区
+#: 边缘描出一圈近黑矩形（用户报「选定的黑框」「退出弹窗两个选项的黑框」）。Qt QSS 没有
+#: `:focus-visible`，故用本属性把「键盘焦点」与「鼠标焦点」分开：鼠标路径零描边（回到
+#: 「按压提示足够」），键盘路径保留一圈细的 ${accent_text} 指示（可达性不丢，任务 #280）。
+#: 属性值变化后**必须** unpolish/polish 才会重新求值（Qt 只在 polish 时匹配属性选择器）。
+_KBD_NAV_PROP = "keyboardNav"
+#: 判定「键盘/助记键进来的焦点」的 reason 白名单（其余一律视为指针/程序性焦点）。
+_KBD_NAV_REASONS = (Qt.TabFocusReason, Qt.BacktabFocusReason, Qt.ShortcutFocusReason)
 
 
 def _icon_glyph(name: str, fallback: str) -> str:
@@ -137,6 +151,58 @@ class MainWindow(QMainWindow):
         # 必须放在第 7 步**之后**：``_check_first_run()`` 会把 ``OnboardingDialog``
         # addWidget 到页面栈（晚入栈页根），早于它执行就会漏掉该页根。
         self._ensure_page_backgrounds()
+
+        # 9. v2.2.1(黑框修复 WP3)：应用级焦点事件过滤器 —— 按 QFocusEvent.reason()
+        # 给 QPushButton / QSlider 打 keyboardNav 动态属性，供 base.qss 门控焦点描边。
+        # 装在这里（而非 gui/main.py）以免触碰更新编排段；只处理 FocusIn、永不吞事件。
+        try:
+            _app = QApplication.instance()
+            if _app is not None:
+                _app.installEventFilter(self)
+        except Exception:
+            logger.debug("静默降级：安装焦点事件过滤器失败", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # v2.2.1(黑框修复 WP3)：焦点描边的「键盘/鼠标」分流
+    # ------------------------------------------------------------------
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt 命名)
+        """应用级过滤器：给拿到焦点的 ``QPushButton`` / ``QSlider`` 标 ``keyboardNav``。
+
+        只认 ``QEvent.FocusIn``；其余事件原样交回基类（**永不吞事件**）。
+        分流依据 ``QFocusEvent.reason()``：
+          · ``TabFocusReason`` / ``BacktabFocusReason`` / ``ShortcutFocusReason``
+            → ``keyboardNav = True`` → base.qss 画出细的 ``${text_on_accent}`` 焦点圈；
+          · 其余（``MouseFocusReason`` / ``ActiveWindowFocusReason`` /
+            ``PopupFocusReason`` / ``OtherFocusReason`` …）→ ``False`` → 零描边。
+        只在属性值**真的变化**时才 unpolish/polish（避免无谓重绘）。
+
+        纳入 ``QSlider`` 的依据（真机实测）：它默认 ``focusPolicy() == 11``
+        （``ClickFocus|TabFocus``）→ **鼠标点一下滑杆就给焦点**，于是
+        ``QSlider::handle:horizontal:focus`` 的近黑描边在指针路径上也会出现
+        （聚焦帧差 85~87px）→ 与按钮同属用户否掉的那一类，故一并分流。
+        ``QTabBar`` **不纳入**：默认 ``focusPolicy() == 1``（``TabFocus``），鼠标点击
+        不给焦点，其近黑下划线只出现在键盘路径 = 该保留的可达性提示。
+        """
+        try:
+            if event is not None and event.type() == QEvent.FocusIn:
+                if isinstance(obj, (QPushButton, QSlider)):
+                    try:
+                        reason = event.reason()
+                    except Exception:
+                        reason = None
+                    kbd = reason in _KBD_NAV_REASONS
+                    cur = obj.property(_KBD_NAV_PROP)
+                    # ``cur is None``（从未写过）也要落到 False —— 否则属性一直不存在，
+                    # QSS 选择器虽然同样不命中，但「可读性 / 可断言性」都差一档。
+                    if cur is None or bool(cur) != kbd:
+                        obj.setProperty(_KBD_NAV_PROP, kbd)
+                        style = obj.style()
+                        if style is not None:
+                            style.unpolish(obj)
+                            style.polish(obj)
+        except Exception:
+            logger.debug("静默降级：eventFilter 中忽略异常", exc_info=True)
+        return super().eventFilter(obj, event)
 
     def _setup_central_layout(self) -> None:
         """中心区域：左侧功能导航栏 + 中间主屏（页面栈）。
@@ -808,6 +874,9 @@ class MainWindow(QMainWindow):
             if self.property("glass") != "on":
                 self.setProperty("glass", "on")
                 self._repolish()
+            # v2.2.1(黑框修复 WP2)：若此刻正有页面停在 opacity < 1（淡入进行中），
+            # 玻璃一开它就立刻透出纯黑 → 开玻璃的同时把全部页面的淡入残留收干净。
+            self._drop_page_fades()
         else:
             # winId 尚未有效 / DWM 应用失败 → 纯色降级（fail-safe，不黑窗）
             if self.property("glass") is not None:
@@ -859,6 +928,21 @@ class MainWindow(QMainWindow):
                     running.stop()
                 except Exception:
                     logger.debug("静默降级：_on_page_switched 中忽略异常", exc_info=True)
+
+            # v2.2.1(黑框修复 WP2)：毛玻璃开 → **不做透明度淡入**。
+            # 根因（屏幕级实测）：glass="on" 时 base.qss §1 把 #glassCentralOuter /
+            # #glassCentralSplitter / #glassPageStack 置 `background: transparent`，
+            # 于是「opacity < 1 的整页」= 整片区域**无人绘制**，屏幕上是纯黑
+            # （切页起帧实测纯黑 82.22%、均值 RGB(44,43,43)；glass="off" 同一动作
+            # 仅 0.03% —— 该缺陷只在毛玻璃档出现）。motion 内核（gui/motion.py，冻结
+            # 内核）在无 effect 时固定从 `start = 0.0` 起淡，签名/默认值不得改动，
+            # 故修在**调用点**：该档直接把新页复位为完全不透明，切换交给已经完成的
+            # setCurrentWidget（瞬时、无过渡）—— 视觉上是「无淡入直切」，不再是黑屏。
+            # glass="off" 保留原有淡入（那里实测无害，v2.1 动效特性不动）。
+            if self.property("glass") == "on":
+                self._drop_page_fades()
+                return
+
             # 切页淡入**唯一落点**：直接走 motion.fade，不经 gui.transitions
             # （transitions 本轮只提供按钮按压反馈，勿在此重复接入）。
             anim = motion.fade(
@@ -882,6 +966,49 @@ class MainWindow(QMainWindow):
                 page.setGraphicsEffect(None)
         except Exception:
             logger.debug("静默降级：_finish_page_fade 中忽略异常", exc_info=True)
+
+    def _drop_page_fades(self) -> None:
+        """把**全部**页面的淡入残留收干净：停动画 + 移除 opacity effect（复位完全不透明）。
+
+        v2.2.1(黑框修复 WP2)：只服务于「毛玻璃开」这一档 —— 该档页面栈链路
+        （§1 三容器）是 transparent，任何 opacity < 1 的页面都会把**未绘制**区透成
+        屏幕纯黑。触发面有两处：① 切页入口（同页重切 / 立即退出撞上未完成的淡入）；
+        ② 淡入跑到一半时把毛玻璃打开（``_apply_glass_state`` 的 on 分支）。
+
+        候选集取「``_page_fade_anims`` 的键 ∪ ``self.pages`` ∪ ``page_stack`` 全部
+        直接子级」—— 只听动画表会漏掉「动画已 pop、effect 仍在页上」的残留
+        （切页入口正是先 pop 再判定），只听 ``self.pages`` 会漏掉晚入栈页
+        （``OnboardingDialog``）。本方法幂等，可安全重入。
+        """
+        targets = set()
+        try:
+            targets.update(getattr(self, "_page_fade_anims", {}).keys())
+        except Exception:
+            logger.debug("静默降级：_drop_page_fades 枚举动画表失败", exc_info=True)
+        pages = getattr(self, "pages", None)
+        if isinstance(pages, dict):
+            targets.update(pages.values())
+        stack = getattr(self, "page_stack", None)
+        if stack is not None:
+            try:
+                targets.update(stack.widget(i) for i in range(stack.count()))
+            except Exception:
+                logger.debug("静默降级：_drop_page_fades 枚举页面栈失败", exc_info=True)
+        for page in targets:
+            if page is None:
+                continue
+            running = self._page_fade_anims.pop(page, None)
+            if running is not None:
+                try:
+                    running.stop()
+                except Exception:
+                    logger.debug("静默降级：_drop_page_fades 停动画失败", exc_info=True)
+            try:
+                effect = page.graphicsEffect()
+                if isinstance(effect, QGraphicsOpacityEffect):
+                    page.setGraphicsEffect(None)
+            except Exception:
+                logger.debug("静默降级：_drop_page_fades 移除 effect 失败", exc_info=True)
 
     def _on_mode_changed(self, mode_name: str, state: bool) -> None:
         """模式变更处理。"""

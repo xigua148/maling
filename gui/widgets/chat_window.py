@@ -9,8 +9,8 @@ from gui.qt_compat import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton,
     QLabel, QScrollArea, QFrame, Qt, QSize, QSizePolicy, QFont,
     QApplication, QGraphicsDropShadowEffect, QColor, QPoint,
-    QGridLayout, QSystemTrayIcon, QMenu, QAction, Signal, QObject,
-    QFileDialog, QMessageBox, QDialog, QDragEnterEvent, QDropEvent,
+    QSystemTrayIcon, QMenu, QAction, Signal, QObject,
+    QMessageBox, QDialog, QDragEnterEvent, QDropEvent,
     QDragMoveEvent, QEvent,
 )
 from gui.utils import theme_color
@@ -21,8 +21,6 @@ from gui.widgets.message_bubble import (
 )
 from gui.widgets.thinking_indicator import ThinkingIndicator
 from gui.widgets.attachment_bar import AttachmentBar
-from gui.widgets import voice_input as voice_input_mod
-from gui.chat_exporter import ChatExporter
 
 # v2.1(可观测性)：静默 except 收敛用 —— 本文件此前 26 处 `except ...: pass` 无任何
 #   记录，异常被完全吞掉，问题只能靠肉眼发现。改走 logger.debug 后可在日志里定位
@@ -32,12 +30,51 @@ logger = logging.getLogger("maid_coder.gui.chat_window")
 # v1.4：自绘标题栏窗口控制按钮尺寸（宽 ≥28、高 ≥24，符号才看得清）
 _TITLE_BTN_WIDTH = 32
 _TITLE_BTN_HEIGHT = 26
-# 标题栏控制按钮：符号 / 中文 tooltip / 字号
+# v2.2.2(P3 尺寸收口)：标题栏的**两套**尺寸此前在 `_init_ui` 里写成裸字面量
+#   （`setFixedSize(28, 28)` / `setFixedSize(_TITLE_BTN_WIDTH, _TITLE_BTN_HEIGHT)`）
+#   ⇒ 归到本常量块，只此一处定义。
+#   ⚠ **数值一个都没改**：两组尺寸被布局与守卫钉住
+#     （`tests/test_v22_1_blackbox_fixes.py::_WP4_SIZES` 锁 `pin/attach 28×28`、
+#      `min/max/close 32×26`），实测把三键并到 28×28 会让按钮组宽 3×32=96 → 3×28=84
+#     （Δ−12px）、高 26 → 28（Δ+2px），即**可见位移**；而「统一数值」正是该守卫的
+#     反面。故本次只收口「定义处数目」，不动观感。
+#   v2.2.2(裁决2)：原先第三套 `_EMOJI_BTN_SIZE = (44, 36)` 随浮窗表情面板一并移除
+#     —— 该常量的唯一消费者就是那个面板；主面板表情格子的 44×36 在
+#     `chat_panel_parts/ui_build.py` 侧（`_emoji_css`）自成一体，不受影响。
+_TITLE_TOOL_BTN_SIZE = (28, 28)                               # 标题栏工具键（置顶 / 合并）
+_TITLE_WINDOW_BTN_SIZE = (_TITLE_BTN_WIDTH, _TITLE_BTN_HEIGHT)  # 标题栏窗口控制键
+# v2.2.2(P2 缺陷·字形晚注册)：本窗全部「图标字体字形」文本位。
+#   `icons.text_glyph()` 的调用点原先**只在构造期求值一次**；图标字体缺失、或注册
+#   晚于建窗（`gui/main.py` 的启动顺序）时，文本就永久停在 emoji 兜底态。
+#   下表是 (属性名, 图标名, 兜底文本)，由 `_refresh_icon_glyphs()` 在换肤/主题变更点重取。
+_GLYPH_SLOTS = (
+    ("icon_label", "chat", "💬"),
+    ("pin_btn", "anchor", "📌"),
+    ("attach_btn", "link", "🔗"),
+    ("stop_btn", "stop", "⏹"),
+    ("send_btn", "send", "➤"),
+)
+# 标题栏控制按钮：(Unicode 兜底符号, tooltip, 字号, remixicon 图标名或 None)
+# v2.2.2(P3)：manifest 实测只有 `close` 一个语义合适的名字
+#   （minimize / maximize / fullscreen / minus / subtract **均不在** manifest，
+#    `expand` 虽在但语义是「展开为独立浮窗」且已归主面板 `#expandChatBtn` 使用
+#    ⇒ 硬塞会让两个不同功能的按钮共用一个字形），故**只有关闭键**改走图标族，
+#   最小化 / 最大化保留 Unicode（按 team-lead 口径：不许硬塞语义不对的字形）。
+# v2.2.2(P3 缺陷·字号零余量)：字号列三键**统一为 17px**。此前最小化键单独用 20px，
+#   而 20px 档 `QFontMetrics.height()` 实测 **26**，恰等于 `_TITLE_BTN_HEIGHT` 26 ⇒
+#   **零纵向余量**（另两键 fmH 22 / 高 26，余 4px）。按钮高被
+#   `tests/test_v22_1_blackbox_fixes.py` 的 `_WP4_SIZES` 钉死 32×26，唯一可动的杠杆
+#   就是字号；且本仓字体族可由用户切换（v1.9 字体系统）⇒ 换到行盒更高的字体时，
+#   这一键会最先被内容区裁掉。并档实测代价（真实平台 + 整窗 grab 后裁切，四主题一致）：
+#     字号    min 落墨   fmH     max / close 落墨
+#     20px    22         26      46~54 / 80~109
+#     17px    16~18      22      23~40 / 57~86
+#   ⇒ `−`(U+2212) 是细横线，落墨由 hinting 而非 em 尺寸决定，并档只短 2px，视觉代价≈0；
+#   收益是三键 fmH 一并降到 22（统一 4px 余量、字重同款）。
 _TITLE_BUTTONS = (
-    # (符号, tooltip, 字号)
-    ("−", "最小化", 20),
-    ("□", "最大化/还原", 17),
-    ("✕", "关闭", 17),
+    ("−", "最小化", 17, None),
+    ("□", "最大化/还原", 17, None),
+    ("✕", "关闭", 17, "close"),
 )
 
 
@@ -51,9 +88,9 @@ class ChatWindow(QWidget):
     """R6: 窗口发送用户消息时发出 (display_text, attachments)，
     由主面板统一渲染并持久化，使两条发送路径落同一份会话数据。"""
 
-    # 内置颜文字/符号表情
-    EMOJIS = ["❤", "✨", "(｡･ω･｡)", "(´▽｀)", "(*´∀`)~♥", "(๑•̀ㅂ•́)و✧",
-              "(｡♥‿♥｡)", "(ﾉ◕ヮ◕)ﾉ*:･ﾟ✧", "(｡◕‿◕｡)", "♪(´ε｀ )", "(≧▽≦)", "(｡･ω･｡)ﾉ♡"]
+    # v2.2.2(裁决2)：原类属性 `EMOJIS`（内置颜文字/符号表情）随浮窗表情面板一并移除
+    #   —— 它唯一的消费者就是那个面板的 12 个格子。主面板表情用
+    #   `ChatPanelWidget.EMOJIS`（`chat_panel.py:40`），不受影响。
 
     # 快捷回复（主人视角：用户点击后发给女仆的常用语）
     QUICK_REPLIES = [
@@ -80,6 +117,14 @@ class ChatWindow(QWidget):
         self._tray_icon: Optional[QSystemTrayIcon] = None
         # v2.1(G-2): 顶层浮窗 Acrylic 应用态（仅记账，失败即回落纯色）
         self._glass_applied: bool = False
+        # v2.2.2(缺陷·脆弱耦合)：_connect_signals 分通道的「一次性连接」标记 ——
+        #   重复调用不得叠加连接（重复 connect 会让同一个槽被调多次）。
+        self._svc_connected = False
+        self._mood_connected = False
+        self._session_connected = False
+        self._theme_connected = False
+        self._role_connected = False
+        self._tts_connected = False
         # 第四阶段：拖拽支持
         self.setAcceptDrops(True)
 
@@ -237,7 +282,10 @@ class ChatWindow(QWidget):
         title_layout.setSpacing(8)
 
         icon_label = QLabel(icons.text_glyph("chat", "💬"))
+        # v2.2.2(缺陷1)：裸 QLabel 会吃应用级 `QWidget{background-color:${bg}}`，
+        #   在 bg_card 标题栏上画出一条异色竖带 → 补 background: transparent。
         icon_label.setStyleSheet(
+            "background: transparent;"
             f"font-size: 16px; color: {_tc('accent_text', '#FF6B9D')};")
         self.icon_label = icon_label
         title_layout.addWidget(icon_label)
@@ -246,14 +294,16 @@ class ChatWindow(QWidget):
         # 而 primary/accent 这类「实底用色」在浅色主题上只有 ~2.1。
         self.title_label = QLabel("与女仆的对话")
         self.title_label.setStyleSheet(
-            f"QLabel {{ color: {_tc('accent_text', '#FF6B9D')};"
+            "QLabel { background: transparent;"
+            f" color: {_tc('accent_text', '#FF6B9D')};"
             " font-size: 15px; font-weight: 600; }"
         )
         title_layout.addWidget(self.title_label)
 
         self.subtitle_label = QLabel("在线")
         self.subtitle_label.setStyleSheet(
-            f"QLabel {{ color: {_tc('text_secondary', '#BBBBBB')};"
+            "QLabel { background: transparent;"
+            f" color: {_tc('text_secondary', '#BBBBBB')};"
             " font-size: 11px; margin-left: 4px; }"
         )
         title_layout.addWidget(self.subtitle_label)
@@ -263,7 +313,8 @@ class ChatWindow(QWidget):
         # v2.1(I-2): 图标位改矢量字形（文案内嵌 → QSS color/hover 仍生效，置顶态重着色不丢；
         # 缺字体自动回落原 emoji）。manifest 无 pushpin 名，取 anchor（锚定/固定）语义。
         self.pin_btn = QPushButton(icons.text_glyph("anchor", "📌"))
-        self.pin_btn.setFixedSize(28, 28)
+        _tool_btn_w, _tool_btn_h = _TITLE_TOOL_BTN_SIZE
+        self.pin_btn.setFixedSize(_tool_btn_w, _tool_btn_h)
         self.pin_btn.setCursor(Qt.PointingHandCursor)
         self.pin_btn.setStyleSheet(self._idle_tool_button_qss("accent_text"))
 
@@ -273,7 +324,7 @@ class ChatWindow(QWidget):
 
         # 合并按钮（Attach）
         self.attach_btn = QPushButton(icons.text_glyph("link", "🔗"))
-        self.attach_btn.setFixedSize(28, 28)
+        self.attach_btn.setFixedSize(_tool_btn_w, _tool_btn_h)
         self.attach_btn.setCursor(Qt.PointingHandCursor)
         self.attach_btn.setStyleSheet(self._idle_tool_button_qss("info"))
         self.attach_btn.setToolTip("合并到主窗口")
@@ -283,16 +334,21 @@ class ChatWindow(QWidget):
         # v1.4：本窗口是无边框自绘标题栏，窗口控制按钮必须自带可见符号。
         # 此前只用极淡的 − □ × ，在浅色标题栏上几乎看不见（像是空白按钮），
         # 这里统一给符号 + 中文 tooltip + 主题取色的 hover 态。
-        self.min_btn = QPushButton(_TITLE_BUTTONS[0][0])
-        self.max_btn = QPushButton(_TITLE_BUTTONS[1][0])
-        self.close_btn = QPushButton(_TITLE_BUTTONS[2][0])
+        # v2.2.2(P3)：符号文本不再在这里写死 —— 交给 `_refresh_icon_glyphs()`
+        #   唯一写入（图标名 / Unicode 兜底 / 字号全部真值源在 `_TITLE_BUTTONS`），
+        #   这样关闭键能随图标字体就绪状态重取，且不存在第二处字形来源。
+        self.min_btn = QPushButton()
+        self.max_btn = QPushButton()
+        self.close_btn = QPushButton()
         self.min_btn.clicked.connect(self.showMinimized)
         self.max_btn.clicked.connect(self._toggle_maximize)
         self.close_btn.clicked.connect(self.hide)
+        _win_btn_w, _win_btn_h = _TITLE_WINDOW_BTN_SIZE
         for btn in (self.min_btn, self.max_btn, self.close_btn):
-            btn.setFixedSize(_TITLE_BTN_WIDTH, _TITLE_BTN_HEIGHT)
+            btn.setFixedSize(_win_btn_w, _win_btn_h)
             btn.setCursor(Qt.PointingHandCursor)
             title_layout.addWidget(btn)
+        self._refresh_icon_glyphs()
         self._apply_title_button_theme()
 
         main_layout.addWidget(title_bar)
@@ -341,28 +397,14 @@ class ChatWindow(QWidget):
         input_layout.setContentsMargins(16, 12, 16, 16)
         input_layout.setSpacing(8)
 
-        # 表情选择面板（默认隐藏）
-        self.emoji_panel = QWidget()
-        self.emoji_panel.setObjectName("emojiPanel")
-        self.emoji_panel.setVisible(False)
-        self.emoji_panel.setStyleSheet(
-            f"QWidget#emojiPanel {{ background: {_tc('bg_card', '#FFFFFF')}; border-radius: 12px; }}")
-        emoji_layout = QGridLayout(self.emoji_panel)
-        emoji_layout.setContentsMargins(8, 8, 8, 8)
-        emoji_layout.setSpacing(6)
-        for idx, emoji in enumerate(self.EMOJIS):
-            btn = QPushButton(emoji)
-            btn.setFixedSize(44, 36)
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.setStyleSheet(
-                f"QPushButton {{ background: {_tc('bg_light', '#FFF0F5')};"
-                f" border: 1px solid {_tc('accent_light', '#FFB6C1')};"
-                f" border-radius: 8px; font-size: 14px; color: {_tc('text', '#4A4A4A')}; }}"
-                f"QPushButton:hover {{ background: {_tc('accent_light', '#FFB6C1')}; }}"
-            )
-            btn.clicked.connect(lambda checked, e=emoji: self._on_emoji_clicked(e))
-            emoji_layout.addWidget(btn, idx // 4, idx % 4)
-        input_layout.addWidget(self.emoji_panel)
+        # v2.2.2(裁决2 · 用户指令)：浮窗的 12 格表情面板**已移除**。
+        #   面板原先 `setVisible(False)`，其唯一开关是浮窗的 `emoji_btn` —— 而该按钮
+        #   随 P0（浮窗「表情 / 导出 / 语音」三按钮移除）一并删除 ⇒ 面板**无任何路径
+        #   可达**，留着即是死代码（每次构造仍建 12 个 QPushButton + 一个 QGridLayout）。
+        #   表情功能保留在聊天主面板自己的面板上：`chat_panel_parts/ui_build.py:281-293`
+        #   构造、`#quickActionBtn` 开它、`interactions.py:282` 的 `_on_toggle_emoji_panel`
+        #   给它开合、`ui_build.py:697-708` 的 `_emoji_css` 给 12 个格子补 `padding:0`。
+        #   固化守卫：`tests/test_v22_1_blackbox_fixes.py::test_wp4_chat_window_emoji_panel_absent`。
 
         # 快捷回复栏
         quick_reply_container = QWidget()
@@ -439,6 +481,9 @@ class ChatWindow(QWidget):
             f"  color: {_tc('text_on_accent', '#1C1C1E')};"
             "  border: none;"
             "  border-radius: 20px;"
+            # v2.2.1(黑框修复·二轮)：40×40 定尺寸，通用 padding 8/20 把内容区压成
+            #   0×24 → 「⏹」一个像素都画不出来（字形 0 → 补 padding:0 后 36 px）。
+            "  padding: 0px;"
             "  font-size: 14px;"
             "}"
             "QPushButton#chatStopBtn:hover { background: #FF5252; }"
@@ -457,6 +502,9 @@ class ChatWindow(QWidget):
             f"  color: {_tc('text_on_accent', '#FFFFFF')};"
             "  border: none;"
             "  border-radius: 20px;"
+            # v2.2.1(黑框修复·二轮)：40×40 定尺寸，通用 padding 8/20 把内容区压成
+            #   0×24 → 「➤」一个像素都画不出来（字形 0 → 补 padding:0 后 44 px）。
+            "  padding: 0px;"
             "  font-size: 16px;"
             "  font-weight: bold;"
             "}"
@@ -469,99 +517,120 @@ class ChatWindow(QWidget):
 
         input_layout.addLayout(input_row)
 
-        # 底部工具行：表情按钮 + 导出按钮 + 快捷键提示
+        # 底部工具行：仅剩快捷键提示。
+        # v2.2.2(需求·用户指令)：浮窗的「表情 / 导出 / 语音」三个扁平文字按钮**已移除**。
+        #   三项功能仍在聊天主面板上（导出 = `ui_build.py` 的 `#exportChatBtn`，
+        #   表情 = `#quickActionBtn`，语音 = 主面板语音入口），故本次只删浮窗
+        #   这一套入口，并连带删掉 `_apply_theme` 里对这三个按钮的 `setStyleSheet` 重刷。
         bottom_row = QHBoxLayout()
-        self.emoji_btn = QPushButton(f"{icons.text_glyph('emoji', '😊')} 表情")
-        self.emoji_btn.setFixedHeight(24)
-        self.emoji_btn.setStyleSheet(self._flat_text_button_qss("accent_text", "accent_text"))
-        self.emoji_btn.setCursor(Qt.PointingHandCursor)
-        self.emoji_btn.clicked.connect(self._on_toggle_emoji_panel)
-        bottom_row.addWidget(self.emoji_btn)
-
-        # 导出按钮沿用 info（功能蓝）语义色，随主题令牌取值而非硬编码。
-        self.export_btn = QPushButton(f"{icons.text_glyph('export', '📤')} 导出")
-        self.export_btn.setFixedHeight(24)
-        self.export_btn.setStyleSheet(self._flat_text_button_qss("info", "info"))
-        self.export_btn.setCursor(Qt.PointingHandCursor)
-        self.export_btn.setToolTip("导出聊天记录（Markdown / TXT / JSON）")
-        self.export_btn.clicked.connect(self._on_export_chat)
-        bottom_row.addWidget(self.export_btn)
-
-        # 第四阶段：语音输入入口
-        self.voice_btn = QPushButton(f"{icons.text_glyph('voice', '🎤')} 语音")
-        self.voice_btn.setFixedHeight(24)
-        self.voice_btn.setStyleSheet(self._flat_text_button_qss("accent_text", "accent_text"))
-        self.voice_btn.setCursor(Qt.PointingHandCursor)
-        self.voice_btn.setToolTip("语音输入（依赖 SpeechRecognition + 麦克风）")
-        self.voice_btn.clicked.connect(self._on_voice_input)
-        bottom_row.addWidget(self.voice_btn)
-
-        bottom_row.addStretch()
+        # v2.2.2(缺陷·横向被压 → 已随三按钮移除而不可达)：本行原先并排「表情 / 导出 /
+        #   语音」三个扁平文字按钮 + 本提示标签，且布局上**不能**用 addStretch() 顶替
+        #   下面那行 —— 裸 QLabel 的 minimumSizeHint ≡ 全文宽（QLabel 既不省略也不换行），
+        #   整行最小宽 = 三按钮 sizeHint + 全文提示 > 容器可用宽 ⇒ QBoxLayout 按比例摊派
+        #   亏空，会连带把三个按钮压到低于 sizeHint ⇒ 横向裁字。实测（均 `show()`，四主题
+        #   一致，数字**按平台分组**，两型号字宽不同不可混用）：
+        #     offscreen 平台：控件 88px、内容区 48px、advance 48px；最小窗宽 400 档被压到
+        #       81px（内容区 41 < advance 48）⇒ 裁字。
+        #     真实平台：控件 85px、内容区 45px、advance 45px；同档被压到 81px
+        #       （内容区 41 < advance 45）⇒ 裁字。
+        #   三按钮已删（用户指令），本行只剩提示标签，该挤压不再可能发生。下列两行保留，
+        #   作用是让提示标签可以窄于全文宽、不把输入区顶宽：`setMinimumWidth(1)` 写 1 而
+        #   非 0（Qt 把 (0,0) 当作「未设置」，会回落到 minimumSizeHint），
+        #   `addWidget(..., 1)` 让它吃下全部剩余宽度（宽窗右对齐 ⇒ 视觉与原先一致，
+        #   窄窗下由它先让位）。
         self._hint_label = QLabel("Enter 发送 · Shift+Enter 换行")
         self._hint_label.setAlignment(Qt.AlignRight)
-        bottom_row.addWidget(self._hint_label)
+        self._hint_label.setMinimumWidth(1)
+        bottom_row.addWidget(self._hint_label, 1)
         self._update_hint_theme()
         input_layout.addLayout(bottom_row)
 
         main_layout.addWidget(input_container)
 
     def _connect_signals(self) -> None:
-        if self.chat_service is None:
-            return
-        self.chat_service.message_stream_started.connect(self._on_stream_started)
-        self.chat_service.message_chunk_received.connect(self._on_chunk)
-        self.chat_service.message_stream_finished.connect(self._on_stream_finished)
-        self.chat_service.message_cancelled.connect(self._on_stream_cancelled)
-        self.chat_service.thinking_indicator.connect(self._on_thinking)
-        # v10.15: 错误冒泡显示（独立窗口也要有红框错误气泡）
-        self.chat_service.message_failed.connect(self._on_message_failed)
-        # v1.1(agent): 授权弹窗 + 工具轨迹
-        self.chat_service.agent_authorization_requested.connect(self._on_agent_authorization_requested)
-        self.chat_service.agent_tool_event.connect(self._on_agent_tool_event)
-        # v1.2(A9): 主动陪伴 -> 托盘静默气泡（气泡渲染经 gui_session.message_added 已发生）
-        self.chat_service.proactive_message.connect(self._on_proactive_ready)
-        # v1.6(P0-3): 反馈三键内容源 —— 浮窗消息流末尾挂动作行（不入会话存档）
-        try:
-            self.chat_service.proactive_feedback_ready.connect(self._on_proactive_feedback_ready)
-            self._feedback_bars: list = []
-        except Exception:
-            self._feedback_bars = []
+        """接线：与 ``chat_service`` 无关的通道**不受其缺失影响**。
 
-        # v1.2(A-11)(B5): 托盘 tooltip 随心情更新（最小实现：复用现有托盘图标，
-        # 只做 tooltip 文案，无数值红线；无 bridge 则静默跳过）
-        try:
-            bridge = getattr(self.app_ctx, "companion_bridge", None)
-            if bridge is not None and hasattr(bridge, "mood_changed") \
-                    and hasattr(bridge.mood_changed, "connect"):
-                bridge.mood_changed.connect(self._on_tray_mood_changed)
-        except Exception:
-            logger.debug("静默降级：_connect_signals 中忽略异常", exc_info=True)
-
-        gui_session = getattr(self.app_ctx, "gui_session", None)
-        if gui_session is not None:
-            gui_session.message_added.connect(self._on_message_added)
-
-        theme_engine = getattr(self.app_ctx, "theme_engine", None)
-        if theme_engine is not None:
-            theme_engine.theme_changed.connect(self._on_theme_changed)
-
-        # v2.1(UI-P2): 角色生效 → 气泡人名（given_name）缓存失效（浮窗独立订阅，
-        # 保证浮窗单独使用时也能跟上角色切换；解析次数 = 角色切换次数，非气泡条数）
-        try:
-            _rb = getattr(self.app_ctx, "role_bridge", None)
-            if _rb is not None and hasattr(_rb, "role_changed") \
-                    and hasattr(_rb.role_changed, "connect"):
-                _rb.role_changed.connect(self._on_role_changed)
-        except Exception:
-            logger.debug("静默降级：_connect_signals 中忽略异常", exc_info=True)
-
-        # v1.3(P1-1): TTS 朗读归属变化 -> 刷新浮窗气泡「朗读/停止」按钮态
-        tts = getattr(self.app_ctx, "tts", None)
-        if tts is not None and hasattr(tts, "state_changed"):
+        v2.2.2(缺陷·脆弱耦合)：此前首行 `if self.chat_service is None: return`
+        会让 theme_changed / gui_session.message_added / role_bridge.role_changed /
+        tts.state_changed / companion_bridge.mood_changed **一并**跳过 —— 这些订阅
+        只依赖 app_ctx 上的**其它**对象。真实路径下 chat_service 恒有值（main.py
+        注入），症状不可观测；但任一注入失败都会连带断掉全部通道。现改为「判空只
+        保护依赖它的那一组连接」+ 每组一次性标记（重复 connect 会让同一槽被调多
+        次），同型修法见 gui/pages/page_home.py::_connect_companion。
+        """
+        # --- 通道①：依赖 chat_service 的流式 / 工具 / 授权事件（缺失只跳过本组）---
+        if self.chat_service is not None and not self._svc_connected:
+            self.chat_service.message_stream_started.connect(self._on_stream_started)
+            self.chat_service.message_chunk_received.connect(self._on_chunk)
+            self.chat_service.message_stream_finished.connect(self._on_stream_finished)
+            self.chat_service.message_cancelled.connect(self._on_stream_cancelled)
+            self.chat_service.thinking_indicator.connect(self._on_thinking)
+            # v10.15: 错误冒泡显示（独立窗口也要有红框错误气泡）
+            self.chat_service.message_failed.connect(self._on_message_failed)
+            # v1.1(agent): 授权弹窗 + 工具轨迹
+            self.chat_service.agent_authorization_requested.connect(self._on_agent_authorization_requested)
+            self.chat_service.agent_tool_event.connect(self._on_agent_tool_event)
+            # v1.2(A9): 主动陪伴 -> 托盘静默气泡（气泡渲染经 gui_session.message_added 已发生）
+            self.chat_service.proactive_message.connect(self._on_proactive_ready)
+            # v1.6(P0-3): 反馈三键内容源 —— 浮窗消息流末尾挂动作行（不入会话存档）
             try:
-                tts.state_changed.connect(self._on_tts_state_changed)
+                self.chat_service.proactive_feedback_ready.connect(self._on_proactive_feedback_ready)
             except Exception:
                 logger.debug("静默降级：_connect_signals 中忽略异常", exc_info=True)
+            self._svc_connected = True
+        # v1.6(P0-3): 未点击的反馈动作行追踪。与 chat_service 无关，故搬出上面那组
+        #   无条件初始化 —— 此前 chat_service 缺失时该属性从未建立。
+        if not hasattr(self, "_feedback_bars"):
+            self._feedback_bars: list = []
+
+        # --- 通道②：v1.2(A-11)(B5) 托盘 tooltip 随心情更新（最小实现：复用现有托盘
+        #   图标，只做 tooltip 文案，无数值红线；无 bridge 则静默跳过）---
+        if not self._mood_connected:
+            try:
+                bridge = getattr(self.app_ctx, "companion_bridge", None)
+                if bridge is not None and hasattr(bridge, "mood_changed") \
+                        and hasattr(bridge.mood_changed, "connect"):
+                    bridge.mood_changed.connect(self._on_tray_mood_changed)
+                    self._mood_connected = True
+            except Exception:
+                logger.debug("静默降级：_connect_signals 中忽略异常", exc_info=True)
+
+        # --- 通道③：会话消息广播 ---
+        if not self._session_connected:
+            gui_session = getattr(self.app_ctx, "gui_session", None)
+            if gui_session is not None:
+                gui_session.message_added.connect(self._on_message_added)
+                self._session_connected = True
+
+        # --- 通道④：换肤（不依赖 chat_service）---
+        if not self._theme_connected:
+            theme_engine = getattr(self.app_ctx, "theme_engine", None)
+            if theme_engine is not None:
+                theme_engine.theme_changed.connect(self._on_theme_changed)
+                self._theme_connected = True
+
+        # --- 通道⑤：v2.1(UI-P2) 角色生效 → 气泡人名（given_name）缓存失效（浮窗独立
+        #   订阅，保证浮窗单独使用时也能跟上角色切换；解析次数 = 角色切换次数，非气泡
+        #   条数）---
+        if not self._role_connected:
+            try:
+                _rb = getattr(self.app_ctx, "role_bridge", None)
+                if _rb is not None and hasattr(_rb, "role_changed") \
+                        and hasattr(_rb.role_changed, "connect"):
+                    _rb.role_changed.connect(self._on_role_changed)
+                    self._role_connected = True
+            except Exception:
+                logger.debug("静默降级：_connect_signals 中忽略异常", exc_info=True)
+
+        # --- 通道⑥：v1.3(P1-1) TTS 朗读归属变化 -> 刷新浮窗气泡「朗读/停止」按钮态 ---
+        if not self._tts_connected:
+            tts = getattr(self.app_ctx, "tts", None)
+            if tts is not None and hasattr(tts, "state_changed"):
+                try:
+                    tts.state_changed.connect(self._on_tts_state_changed)
+                    self._tts_connected = True
+                except Exception:
+                    logger.debug("静默降级：_connect_signals 中忽略异常", exc_info=True)
 
     def _adjust_input_height(self) -> None:
         """v1.4.6: 输入框随内容多行增高（48~120）。"""
@@ -574,47 +643,36 @@ class ChatWindow(QWidget):
     # ------------------------------------------------------------------
     # v2.2(缺陷1)：配色基因（QSS 串只在此处生成，换肤期重新生成即生效）
     # ------------------------------------------------------------------
-    def _flat_text_button_qss(self, color_key: str, hover_key: str) -> str:
-        """无底文字按钮（表情/导出/语音）的 QSS。
-
-        前景取「浅底上的强调文字」类令牌（``accent_text`` / ``info``），
-        **不能**用 ``accent_light``：那是浅色主题下的**底色**令牌，
-        当文字色用时对比度只有 ~1.1。
-        v2.2(补修·悬停态取色同类)：``hover_key`` 同样**不能**用 ``accent`` /
-        ``primary`` —— 它们是「实底用色」，当文字色压在浅色容器底（bg_card）上，
-        ui_cream 实测只有 2.163、ui_minimal 3.267、ui_whale 3.245（仅 ui_night 因
-        卡片底本身是深色才达标）。故悬停字色一律改取 ``accent_text``：四套主题
-        4.844 / 4.924 / 6.507 / 4.935，全部 ≥4.5。
-        代价：悬停时不再「变浅」（旧行为恰是把对比度变差的那一步），悬停反馈由
-        指针形状承担；若日后需要更强的悬停反馈，正解是加 ``bg_light`` 浅底 chip，
-        但那会引入 padding → 影响工具栏几何，需单独评审（见回传「残留」）。
-        """
-        fg = theme_color(self.app_ctx, color_key, "#FF9EB5")
-        fg_hover = theme_color(self.app_ctx, hover_key, "#FF69B4")
-        return (
-            "QPushButton { background: transparent; border: none;"
-            f" color: {fg}; font-size: 12px; }}"
-            f"QPushButton:hover {{ color: {fg_hover}; }}"
-        )
-
     def _idle_tool_button_qss(self, hover_color_key: str) -> str:
-        """标题栏小图标按钮（置顶/合并）常态 QSS：次要文字色 + 悬停实底。"""
+        """标题栏小图标按钮（置顶/合并）常态 QSS：次要文字色 + 悬停实底。
+
+        v2.2.1(黑框修复·二轮)：补 ``padding: 0px``。本组按钮 ``setFixedSize(28, 28)``，
+        而应用级 ``QPushButton { padding: 8px 20px; }`` 光左右就吃掉 40px ⇒ 内容区
+        （``SE_PushButtonContents``）实测 **-12×12**，``📌`` / ``🔗`` 结构上不可能绘制
+        （字形像素 0 → 独立重扫补 ``padding:0`` 后 28 px）。与 base.qss §1e-bis 同一缺陷类。
+        ⚠ 只补 padding：尺寸 / 底色 / 字色 / 圆角 / 字号一律不动 —— 违反会位移标题栏版式。
+        """
         idle = theme_color(self.app_ctx, "text_secondary", "#888888")
         hover_bg = theme_color(self.app_ctx, "bg_light", "#F5F5F5")
         hover_fg = theme_color(self.app_ctx, hover_color_key, "#FF6B9D")
         return (
             "QPushButton { background: transparent; border: none; border-radius: 6px;"
+            " padding: 0px;"
             f" color: {idle}; font-size: 12px; }}"
             f"QPushButton:hover {{ background: {hover_bg}; color: {hover_fg}; }}"
         )
 
     def _pinned_tool_button_qss(self) -> str:
-        """置顶生效态的按钮 QSS（强调底 + 强调文字）。"""
+        """置顶生效态的按钮 QSS（强调底 + 强调文字）。
+
+        padding 归零的理由与 :meth:`_idle_tool_button_qss` 完全一致（同一 28×28 按钮的
+        另一态）—— 漏掉这一支会让「置顶生效」时字形又消失。
+        """
         bg = theme_color(self.app_ctx, "bg_light", "#FFF0F3")
         fg = theme_color(self.app_ctx, "accent_text", "#FF6B9D")
         hover_bg = theme_color(self.app_ctx, "accent_light", "#FFE4EC")
         return (
-            "QPushButton { border: none; border-radius: 6px;"
+            "QPushButton { border: none; border-radius: 6px; padding: 0px;"
             f" background: {bg}; color: {fg}; font-size: 12px; }}"
             f"QPushButton:hover {{ background: {hover_bg}; color: {fg}; }}"
         )
@@ -644,13 +702,16 @@ class ChatWindow(QWidget):
                 "}"
             )
         if getattr(self, "icon_label", None) is not None:
-            self.icon_label.setStyleSheet(f"font-size: 16px; color: {accent_text};")
+            self.icon_label.setStyleSheet(
+                f"background: transparent; font-size: 16px; color: {accent_text};")
         if getattr(self, "title_label", None) is not None:
             self.title_label.setStyleSheet(
-                f"QLabel {{ color: {accent_text}; font-size: 15px; font-weight: 600; }}")
+                f"QLabel {{ background: transparent; color: {accent_text};"
+                f" font-size: 15px; font-weight: 600; }}")
         if getattr(self, "subtitle_label", None) is not None:
             self.subtitle_label.setStyleSheet(
-                f"QLabel {{ color: {text_secondary}; font-size: 11px; margin-left: 4px; }}")
+                f"QLabel {{ background: transparent; color: {text_secondary};"
+                f" font-size: 11px; margin-left: 4px; }}")
         if getattr(self, "pin_btn", None) is not None:
             self.pin_btn.setStyleSheet(
                 self._pinned_tool_button_qss() if self._is_pinned
@@ -692,14 +753,17 @@ class ChatWindow(QWidget):
         close_hover_bg = theme_color(self.app_ctx, "state_warn", "#E5A02E")
         close_hover_fg = theme_color(self.app_ctx, "text_on_accent", "#1C1C1E")
 
-        for btn, (_symbol, tooltip, font_size) in zip(
+        for btn, (_symbol, tooltip, font_size, _icon_name) in zip(
             (self.min_btn, self.max_btn, self.close_btn), _TITLE_BUTTONS
         ):
             if btn is None:
                 continue
             btn.setToolTip(tooltip)
             btn.setStyleSheet(
+                # v2.2.1(黑框修复·二轮)：窗口控制键 32×26 定尺寸，通用 padding 8/20
+                #   把内容区压成 -8×10（字形 0 → 补 padding:0 后 22/44/81 px）→ 补 `padding: 0px`。
                 "QPushButton { background: transparent; border: none; border-radius: 6px;"
+                " padding: 0px;"
                 " color: %s; font-size: %dpx; font-weight: bold; }"
                 "QPushButton:hover { background: %s; color: %s; }"
                 % (
@@ -755,6 +819,14 @@ class ChatWindow(QWidget):
         # v2.2(缺陷1)：补标题栏 / 输入区容器的重刷点（此前无，换肤后残留旧色）。
         self._apply_title_bar_theme()
         self._update_hint_theme()
+        # v2.2.2(P2/P5 缺陷)：换肤 / 主题变更点必须重取「图标字形」与「标题人名」——
+        #   这两者在改前都只在构造期求值一次（字形走 `icons.text_glyph`，标题是
+        #   硬编码字面量），样式表刷新不会带上它们 ⇒ 换肤后仍是旧值。
+        #   顺序：`_refresh_title_text()` 必须**晚于** `_apply_title_bar_theme()`
+        #   （后者重设 `title_label` 的样式表；先写名再刷样式虽也成立，但把「先样式
+        #    后内容」固定下来可避免将来有人在样式里带 `setText` 时互相覆盖）。
+        self._refresh_icon_glyphs()
+        self._refresh_title_text()
 
         # v2.1(UI-Fix-0913) 输入区主题化：输入框 + 发送按钮。
         #   这两处在 _init_ui 里是硬编码粉色，切主题时若不重刷就会残留。
@@ -801,6 +873,8 @@ class ChatWindow(QWidget):
                     f"  color: {_on_accent};"
                     f"  border: none;"
                     f"  border-radius: 20px;"
+                    # v2.2.1(黑框修复·二轮)：padding 归零（与 _init_ui 同源，换肤期重刷不漏）。
+                    f"  padding: 0px;"
                     f"  font-size: 16px;"
                     f"  font-weight: bold;"
                     f"}}"
@@ -810,24 +884,16 @@ class ChatWindow(QWidget):
                 )
         except Exception:
             logger.debug("静默降级：_apply_theme 中忽略异常", exc_info=True)
-        # 表情面板 / 表情按钮 / 快捷回复：均在 _init_ui 的循环内创建（无 self 引用），
-        # 故用 findChildren 取回再刷。
+        # 快捷回复：在 _init_ui 的循环内创建（无 self 引用），故用 findChildren 取回再刷。
+        # v2.2.2(裁决2)：原「表情面板 + 其 12 格」那一段随浮窗表情面板一并移除
+        #   （`QWidget#emojiPanel` 与 44×36 格子都已不在本窗）。
         try:
-            _e_bg = theme_engine.get_color("bg_card", "#FFFFFF")
             _e_bg_l = theme_engine.get_color("bg_light", "#FFF0F5")
             _e_txt = theme_engine.get_color("text", "#4A4A4A")
             # v2.2(缺陷1)：文字色用 accent_text（浅底强调文字令牌），
             #   原 accent/primary 在浅色主题的浅底上只有 ~2.8，仍 <3。
             _e_ac_txt = theme_engine.get_color("accent_text", "#FF69B4")
             _e_ac_l = theme_engine.get_color("accent_light", "#FFB6C1")
-            if getattr(self, "emoji_panel", None) is not None:
-                self.emoji_panel.setStyleSheet(
-                    f"QWidget#emojiPanel {{ background: {_e_bg}; border-radius: 12px; }}")
-                for _b in self.emoji_panel.findChildren(QPushButton):
-                    _b.setStyleSheet(
-                        f"QPushButton {{ background: {_e_bg_l}; border: 1px solid {_e_ac_l};"
-                        f" border-radius: 8px; font-size: 14px; color: {_e_txt}; }}"
-                        f"QPushButton:hover {{ background: {_e_ac_l}; }}")
             for _b in self.findChildren(QPushButton, "quickReplyBtn"):
                 _b.setStyleSheet(
                     f"QPushButton#quickReplyBtn {{ background: {_e_bg_l}; color: {_e_ac_txt};"
@@ -837,24 +903,72 @@ class ChatWindow(QWidget):
                     f" color: {_e_txt}; }}")
         except Exception:
             logger.debug("静默降级：_apply_theme 中忽略异常", exc_info=True)
-        # 底部文字按钮（表情 / 语音）与导出按钮 —— 均改走主题令牌生成器。
-        try:
-            if getattr(self, "emoji_btn", None) is not None:
-                self.emoji_btn.setStyleSheet(self._flat_text_button_qss("accent_text", "accent_text"))
-            if getattr(self, "voice_btn", None) is not None:
-                self.voice_btn.setStyleSheet(self._flat_text_button_qss("accent_text", "accent_text"))
-            if getattr(self, "export_btn", None) is not None:
-                self.export_btn.setStyleSheet(self._flat_text_button_qss("info", "info"))
-        except Exception:
-            logger.debug("静默降级：_apply_theme 中忽略异常", exc_info=True)
-
     def _update_hint_theme(self) -> None:
         """更新快捷键提示标签颜色。"""
         theme_engine = getattr(self.app_ctx, "theme_engine", None)
         color = "#CCCCCC"
         if theme_engine is not None:
             color = theme_engine.get_color("text_secondary", "#CCCCCC")
-        self._hint_label.setStyleSheet(f"QLabel {{ color: {color}; font-size: 11px; }}")
+        # v2.2.2(缺陷2)：提示语裸 QLabel 同样被 ${bg} 刷底（它坐在 bg_card 输入区上）。
+        self._hint_label.setStyleSheet(
+            f"QLabel {{ background: transparent; color: {color}; font-size: 11px; }}")
+
+    def _refresh_icon_glyphs(self) -> None:
+        """重新解析本窗所有「图标字体字形」文本（换肤 / 主题变更点调用）。
+
+        v2.2.2(P2 缺陷·字形晚注册)：`icons.text_glyph()` 的调用点原**只在构造期求值一次**，
+        而 `_apply_theme` / `_on_theme_changed` 只重设样式表、**从不重取文本** ⇒ 图标字体
+        缺失、或注册晚于建窗时，这 8 个位**永久停在 emoji / Unicode 兜底态**：之后注册
+        字体、切多少次主题都不会恢复。实测（真实平台，四主题一致）见
+        `_evidence_b/out_p2p3p5_real_*.txt`：未注册字体建窗 → 注册 + `icons.configure`
+        + 换肤两轮，改前 5 个文本**一字未变**（缺陷）；改后全部恢复 remixicon 字形。
+
+        幂等：`setText` 是整体覆盖而非追加，字形已就位的位重复写入同一字符，零副作用。
+        """
+        for _attr, _name, _fallback in _GLYPH_SLOTS:
+            _w = getattr(self, _attr, None)
+            if _w is None:
+                continue
+            try:
+                _w.setText(icons.text_glyph(_name, _fallback))
+            except Exception:
+                logger.debug("静默降级：_refresh_icon_glyphs 中忽略异常", exc_info=True)
+        # 标题栏窗口控制键：图标名 / Unicode 兜底 / 字号同源于 `_TITLE_BUTTONS`
+        #   （唯一真值源，不在此另写一套字面量）。
+        _btns = (getattr(self, "min_btn", None), getattr(self, "max_btn", None),
+                 getattr(self, "close_btn", None))
+        for _btn, (_sym, _tooltip, _fs, _icon_name) in zip(_btns, _TITLE_BUTTONS):
+            if _btn is None:
+                continue
+            try:
+                _btn.setText(
+                    icons.text_glyph(_icon_name, _sym) if _icon_name else _sym)
+            except Exception:
+                logger.debug("静默降级：_refresh_icon_glyphs 中忽略异常", exc_info=True)
+
+    def _refresh_title_text(self) -> None:
+        """标题显示「与<当前角色人名>的对话」（**运行期**刷新，换肤 / 切角色各一次）。
+
+        v2.2.2(P5 缺陷)：标题原为硬编码字面量「与女仆的对话」（本文件 `title_label`
+        的 `setText` 调用点实测 **0** 处，`_on_role_changed` 只刷副标题）⇒ 切角色后
+        标题恒定不变；且「女仆」是角色**类型标签**、不是人名，违反本仓 v1.9 硬规则
+        「显示谁说话一律取当前角色 `given_name`」。
+
+        人名唯一来源 = :func:`resolve_default_speaker_name`（**既有解析器**，三级兜底：
+        `role.given_name` → 预设 `given_name` → 产品名「码铃」；`given_name` 为空是
+        **合法状态**，**不会**退化成 `role.name` 这种人设标签）。
+        解析器抛异常 / 返回空串时**保留原标题文案**（不写「与的对话」这种半截文案）。
+        """
+        _label = getattr(self, "title_label", None)
+        if _label is None:
+            return
+        try:
+            _name = (resolve_default_speaker_name() or "").strip()
+        except Exception:
+            logger.debug("静默降级：_refresh_title_text 中忽略异常", exc_info=True)
+            return
+        if _name:
+            _label.setText(f"与{_name}的对话")
 
     def _load_history(self) -> None:
         """加载已有会话历史到窗口。"""
@@ -962,41 +1076,9 @@ class ChatWindow(QWidget):
                 messages.append((widget.role, widget.get_text(), widget.timestamp))
         return messages
 
-    def _on_export_chat(self) -> None:
-        """导出当前窗口聊天记录（Markdown / TXT / JSON）。"""
-        messages = self._collect_messages()
-        if not messages:
-            QMessageBox.information(self, "导出", "当前没有消息可导出")
-            return
-
-        path, selected_filter = QFileDialog.getSaveFileName(
-            self, "导出聊天记录", "chat_export.md",
-            "Markdown (*.md);;文本文件 (*.txt);;JSON (*.json)",
-        )
-        if not path:
-            return
-        if selected_filter.startswith("Markdown"):
-            fmt = "markdown"
-        elif selected_filter.startswith("文本"):
-            fmt = "txt"
-        else:
-            fmt = "json"
-
-        if ChatExporter.export(messages, fmt, path, "与女仆的对话"):
-            QMessageBox.information(self, "导出成功", f"聊天记录已导出到:\n{path}")
-        else:
-            QMessageBox.warning(self, "导出失败", "导出聊天记录失败，请检查文件路径")
-
-    def _on_toggle_emoji_panel(self) -> None:
-        """切换表情选择面板的显示/隐藏。"""
-        self.emoji_panel.setVisible(not self.emoji_panel.isVisible())
-
-    def _on_emoji_clicked(self, emoji: str) -> None:
-        """点击表情按钮，插入到输入框光标位置。"""
-        cursor = self.input_edit.textCursor()
-        cursor.insertText(emoji)
-        self.input_edit.setTextCursor(cursor)
-        self.input_edit.setFocus()
+    # v2.2.2(裁决2)：原 `_on_emoji_clicked()`（表情插入输入框光标处）随浮窗表情面板
+    #   一并移除 —— 它在浮窗内唯一调用者就是被删面板的 12 个格子。主面板同名方法
+    #   `ChatPanelWidget._on_emoji_clicked`（`interactions.py:285`）不受影响。
 
     def _on_quick_reply(self, text: str) -> None:
         """点击快捷回复按钮，填入输入框并触发发送。"""
@@ -1005,11 +1087,17 @@ class ChatWindow(QWidget):
 
     def _on_role_changed(self, role_id: str, avatar_path: str = "",
                          base_expr: str = "normal") -> None:
-        """v2.1(UI-P2): 角色生效广播 → 只清人名缓存（历史气泡不追溯）。"""
+        """v2.1(UI-P2): 角色生效广播 → 清人名缓存（历史气泡不追溯）。
+
+        v2.2.2(P5 缺陷)：此前**只**清缓存、标题不动 ⇒ 切角色后标题恒定。
+        现在同点重取标题人名（清缓存 → 重取，两步同序，才不会读到旧缓存值）。
+        """
         try:
             invalidate_default_speaker_name()
         except Exception:
             logger.debug("静默降级：_on_role_changed 中忽略异常", exc_info=True)
+        # v2.2.2(P5)：运行期挂点 —— 切角色即刷新标题（不是只改构造期字面量）
+        self._refresh_title_text()
 
     def _on_message_added(self, role: str, content: str) -> None:
         # R1: 发送方已抑制回声（面板/窗口直插气泡）时跳过，避免双气泡
@@ -1448,20 +1536,3 @@ class ChatWindow(QWidget):
                 lines.append(f"重复 {duplicate} 个已跳过")
             QMessageBox.information(self, "拖拽上传", "\n".join(lines))
         event.acceptProposedAction() if added else event.ignore()
-
-    def _on_voice_input(self) -> None:
-        """点击语音按钮：探测后端，缺失弹说明，对话框就绪后启动录音。"""
-        backend_ok, device_ok, desc = voice_input_mod.diagnose_voice_input()
-        if not backend_ok or not device_ok:
-            QMessageBox.warning(
-                self,
-                "语音输入不可用",
-                voice_input_mod.build_unavailable_message(),
-            )
-            return
-        dlg = voice_input_mod.VoiceInputDialog(self.app_ctx, self)
-        if self._exec_modal_fade(dlg) == voice_input_mod.VoiceInputDialog.Accepted:
-            text = dlg.transcript
-            if text:
-                self.input_edit.setPlainText(text)
-                self.input_edit.setFocus()

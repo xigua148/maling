@@ -241,6 +241,30 @@ QWidget#settingsSection QPushButton#secondaryBtn {
     padding: 2px 10px;
 }
 
+/* ---------- 1e-bis. 定尺寸图标 / 单字符按钮：通用 padding 必须归零 ----------
+   与 §1c / §1d 同类（都是「肤感层通用 QPushButton 的 padding 吃掉了按钮内区」），
+   本段是它的**极端档**：按钮被 setFixedSize 钉成 20~28px 的小方块，而
+   ui_*.qss 的 `QPushButton { padding: 8px 20px; }` 光左右就吃掉 40px
+   → 内容区（SE_PushButtonContents）变成 ≤ 0，字形 / 图标**结构上不可能绘制**。
+   实测（真实平台、四主题一致）：计划页 `+` 28×28 → 内容区 -12×12、内区字形 0/784；
+   同尺寸补 `padding: 0` → 内容区 28×28、字形 20/784；同尺寸裸按钮同样 20/2244。
+   判据 = 内容区 ≤ 0；全仓扫描共 6 处命中，即本段这 6 个 id（四处 QSS 下均已复现）。
+   ⚠ 只收 padding：尺寸 / 字号 / 背景 / 字色 / 圆角一律不动。**刻意不写通用
+   `QPushButton { padding: ... }`** —— 那会改掉全站所有文字按钮的版式；必须走 id 规则
+   （id 特异性 > 类型选择器，稳压各肤感层，与加载顺序无关）。
+   ⚠ 本组多数实例自带**控件级** setStyleSheet，但其中都**没有声明 padding**
+   （见 ui_build/_apply_chat_theme、session_tabs._apply_style、attachment_bar
+   ._apply_remove_btn_style、proactive_feedback._apply_style）→ 未声明的属性仍从
+   应用级 QSS 继承，故本段对全部 6 处一致生效。 */
+QPushButton#planNewBtn,
+QPushButton#newSessionBtn,
+QPushButton#toggleSidebarBtn,
+QPushButton#sessionTabsNewBtn,
+QPushButton#attachmentChipRemove,
+QPushButton#feedbackSpark {
+    padding: 0px;
+}
+
 /* ---------- 1e. 设置页「外观与效果」控件密度与圆角 ----------
    这四个下拉框不应依赖各肤感层的通用 QComboBox：通用规则的 radius_sm、
    6px 上下 padding 在不同字体度量下会显得生硬，且与 28px 定高操作按钮不协调。
@@ -286,6 +310,170 @@ QWidget#settingsSection QComboBox#settingsAnimationCombo QAbstractItemView {
 QWidget#settingsSection QToolButton#settingsStyleSwatch,
 QWidget#settingsSection QToolButton#settingsAccentSwatch {
     border-radius: ${radius_sm};
+}
+
+/* ---------- 1f. 「发送 / 确定 / 取消」类按钮：方角 → 圆角（v2.2.2） ----------
+   用户原话：「发送，确定和取消按钮的框，若是方形的，能不能改成圆角，这样视觉效果平滑
+   一点」。
+   根因（**真实平台、不 show()、`QStyle.drawControl(CE_PushButton)` → QImage 实测**，
+   静态扫描 QSS 抓不到）：**Qt QSS 的 `border-radius` 只在 `radius <= min(宽, 高) / 2`
+   时才绘制；一旦超出，四角**完全不被削**（形状退回矩形，而非钳制成胶囊）**。
+   本仓 `radius_pill` = 24 / 24 / 24 / 26px（ui_minimal / ui_cream / ui_night / ui_whale），
+   而「发送 / 主操作」这类按钮定高 33~40px，一半只有 16.5~20px ⇒ 用 `radius_pill` 的
+   按钮**实际渲染一律是方角**（各主题肤感层的 `border-radius: ${radius_pill}` 写了等于没写）。
+   本轮自测矩阵（半径 × 控件高，脚本 `_probe/radius_matrix_final.py`；判据：
+   第 0 行/列「更近填充色（而非纯白）」的首个像素位置 ≈ 实际生效半径，
+   旁证 = 左上 4×4 中等于填充色的像素数，方角恒为 16）：
+         h=26  半径 ≤13 圆角 / ≥14 方角       h=33  半径 ≤16 圆角 / ≥17 方角
+        h=28  半径 ≤14 圆角 / ≥15 方角       h=35  半径 ≤17 圆角 / ≥18 方角
+                                             h=40  半径 ≤20 圆角 / ≥21 方角
+   阈值边界实测为**闭区间**（`_probe/radius_boundary.py`）：h=26/r=13 圆角、r=14 方角；
+   h=40/r=20 圆角、r=21 方角；窄控件 w=24 / h=40 时 r=12 圆角、r=14 方角
+   ⇒ 判据确为 `min(宽, 高) / 2`（取等号仍圆角）。
+   ⚠ 机制注记：**观测行为已确证**（21 组矩阵 + 11 组边界，读数见上）；
+     至于 Qt 内部究竟是「丢弃该 radius」还是别的路径，**未读源码确证**，
+     此段只写实测数据，不写未取证的机制描述。
+   ⚠ 反例辨析（曾据此误判「阈值已被证伪」）：`#quickReplyBtn` 高 26、主题层声明
+     `${radius_pill}`=24px，本轮实测**确实是方角**（与上面矩阵一致，不是反例）。
+     此前「半径 24 / 高 26 仍有可见弧」的读数来自该控件的**控件级内联样式**覆盖：
+     `gui/widgets/chat_panel_parts/ui_build.py` 的 `_qr_css` 声明 `border-radius: 10px`
+     （10 ≤ 13 ⇒ 圆角生效）。即生效半径是 **10 而非 24**，故不构成阈值反例。
+   本段只覆盖用户点名的这一组**实测为方角**的 id，取值复用既有令牌 `radius_sm`
+   （ui_minimal / ui_cream / ui_night / ui_whale = 8 / 10 / 8 / 10px，实测
+   `_probe/_qss_lint3.txt`；对下面这些真机定高 33~40px 的按钮全部 ≤ 半高，圆角生效）。
+   ⚠ 目标按钮真机尺寸实测（`_probe/sizes_1f_1g.py`，宿主 MainWindow 已 show）：
+     `#sendBtn` 128×40、`#primaryBtn` 128×35、`#dangerBtn` 92×33、
+     弹窗 `#cardPreviewOk` / `#cardPreviewCancel` 100×30 —— 即「定高 33~40px」的出处。
+   ⚠ 选择器为何要带一个**类型祖先**（`QWidget …` / `QDialog …`）：
+     各主题肤感层自带 `QPushButton#sendBtn` / `QPushButton#primaryBtn`（特异性 (1,0,1)）
+     且声明 `${radius_pill}`，而 base.qss 排在肤感层**之前** ⇒ 同特异性的 base id 规则
+     压不住它。补一个类型祖先把特异性抬到 (1,0,2) 才生效；`QDialog QPushButton` 为
+     (0,0,2) > 通用 `QPushButton` (0,0,1)，一次覆盖各弹窗与 `QMessageBox`（QDialog 子类）
+     的确定 / 取消 —— 含用户此前点名的**退出确认弹窗**两个按钮。
+     此写法只需 base.qss 一处，**未改四份主题 qss、未动通用 `QPushButton`**，避免逐主题漂移。
+   ⚠ 只写 `border-radius`：padding / 尺寸 / 底色 / 字色 / 字号一律不动（几何零位移）。
+   ⚠ 未纳入：定尺寸**图标**按钮里实测**已**为圆角者（如 `#toggleSidebarBtn`，20×60，
+     半径 8~10 ≤ 10 = 半高）；其余「方形纯色底」实例见 §1g。
+   ---- `#secondaryBtn` 归属实测（`_probe/_secbtn_geom3.txt`：真机 `show()` + 布局后取几何，
+     四主题 × 14 实例 = 56 条，**四主题尺寸逐项一致**）—— 必须按「父容器 / 真机高度」分两档，
+     **不得混讲**（本条即订正早前把两档混写在一条里造成的口径混乱）：
+     · **28px 档 = §1g 命中组**（5 个实例）：设置页 `QFrame#settingsSection` 74×28 ×2、
+       角色页侧栏 `QWidget#roleSidebar` 196×28 ×3；两处均 `setFixedHeight(28)`，
+       半高恒 14.0 —— 该档读数详见 §1g 注释（真机描边跨度实测：minimal / night 圆角、
+       cream / whale 方角）。
+     · **35px 档 = 本段涉及的其余实例**（9 个，`maximumHeight=16777215` 即无固定高）：
+       角色页正文 `QWidget#rolePage` 94×35 / 107×35、提示词区 `QFrame#roleSection`
+       739×35 / 783×35、工具箱 `QWidget#toolboxPage` 68×35 / 94×35、
+       计划 `QFrame#planSection` 108×35 / 121×35。半高 17.5：
+       minimal / cream / night 的 `radius_md`(14 / 16 / 14) ≤ 17.5 ⇒ 圆角；
+       **ui_whale 的 18 > 17.5 ⇒ 方角**（真机描边跨度实测 [0,738] / [0,782]×2 / [0,106] /
+       [0,93]，`_probe/_secbtn5_span.txt`）。
+   ---- **上列 35px 档已裁决「不修」（终局结论，勿再重提）**，理由三条：
+     ① `#secondaryBtn` 是**透明底 + 描边**的幽灵按钮，**不属于**用户点名的「方形**纯色底**
+        按钮」⇒ 本就不在诉求范围内（§1g 注释已述同一事实）。
+     ② 要修必须把 `ui_whale` 的 `radius_md` 由 18 降到 ≤17，而 `radius_md` 是**全仓令牌**，
+        会连带改动全部消费点（含另三主题已成形的观感）⇒ **爆炸半径与收益完全不成比例**。
+     ③ 用户诉求 =「把所有的方形纯色底按钮，换成圆角」；§1g 的逐按钮对账已证
+        **实底按钮方角数 = 0**（改前各主题 12 个）⇒ **诉求已 100% 达成**，
+        剩下的仅是幽灵按钮的既有形态。
+   ⚠ 口径纪律：本段与 §1g 的读数**同源**（同一 harness：几何用 `show()`、圆角与描边用
+     `drawControl`），不存在「两套口径并列、不能互证」的问题；上述两档已按父容器 +
+     真机尺寸拆开。 */
+QDialog QPushButton,
+QWidget QPushButton#sendBtn,
+QWidget QPushButton#primaryBtn,
+QWidget QPushButton#dangerBtn {
+    border-radius: ${radius_sm};
+}
+
+/* ---------- 1g. 其余「方形纯色底」按钮：方角 → 圆角（v2.2.2 二轮） ----------
+   用户原话：「把**所有的**方形纯色底按钮，换成圆角，更自然和符合主题的颜色底」。
+   §1f 只覆盖了 `QDialog QPushButton` 与 `#sendBtn/#primaryBtn/#dangerBtn`；逐 id 渲染实测
+   （`_probe/square_btn_scan.py`：四主题 × 14 个页面 × 浮窗 × 弹窗，逐按钮
+   `QStyle.drawControl(CE_PushButton)` → QImage）后，四主题**一致**仍有一批「有实底色、
+   但四角为方」的按钮 —— 它们都只吃到各主题**类型选择器**
+   `QPushButton { border-radius: ${radius_pill} }`（24/24/24/26px），而控件高 28~33px
+   ⇒ 半径 > min(宽,高)/2 ⇒ 按 §1f 的实测规律被丢弃：
+     · `QFrame#settingsSection` 的**直系子**按钮：纪念日「清除」×2、更新「检查更新」
+       「清理更新缓存」
+     · `PageHelp` / `PageAbout` 的「返回首页」
+     · `QFrame#aboutCard` 的 `#checkUpdateBtn`、`QWidget#modelEditArea` 的 `#modelSaveBtn`
+     · `QWidget#roleSidebar` 的「➕ 新建角色」、`#planNewBtn`、`#styleSwitchBtn`
+   底色本就是主题主色 `${primary}`（= 各肤感层 accent），无需换色；本段**只加圆角**。
+   ⚠ 为什么不用一条 `QWidget QPushButton` 兜底：那会把 `QDialog` 子类里的
+     `#cardPreviewOk` / `#cardPreviewCancel` 一并纳入，而 `tests/test_v22_2_btn_radius.py`
+     的对抗性用例要求「摘掉 §1f 后这 8 个目标必须回落方角」—— 兜底会让该判据失效。
+   ⚠ `QFrame#settingsSection > QPushButton` 用的是**子选择器** `>`（Qt QSS 支持，已用
+     `_probe/child_selector.py` 正负对照实测：直系子圆角 / 孙代方角）。用意是**排开**
+     厂商卡片 `#providerCard` / `#providerCardSelected`（`${radius_md}`，237×88，嵌在更深的
+     `ModelConfigPanel` 里）—— 实测未被本规则命中（改后其判定/填充色/切点/角像素逐项不变）。
+   ⚠ 只写 `border-radius`：padding / 尺寸 / 底色 / 字色 / 字号一律不动（几何零位移）。
+   ⚠ 本轮改前/改后**逐按钮对账**（同一脚本 `_probe/square_btn_scan.py` 改前/改后各跑一次、
+     各导出一份 TSV：`_probe/sq_before.tsv` / `_probe/sq_after.tsv`；「改前」用
+     `--strip-1g` 把本段从**已加载的应用级 QSS** 上摘掉，故两次运行的差别**只有本段**。
+     规模：四主题 × 188 个可见按钮 = 752 行（旧读数 191 / 764，差额 3 个/主题 = 浮窗三按钮
+     已移除；行数就是可见按钮数，重复只出现在「唯一键」口径上）。含 14 个页面 + 聊天窗 +
+     角色卡预览 + 退出弹窗；
+     判据 = 判定 + 填充色 + 拐角切点 + 左上 4×4 非白像素数）。
+     逐行 diff（旧版 `_probe/_sq_diff.txt`；当前版已复跑，见 `_probe/cur_before.tsv` /
+     `_probe/cur_after.tsv`、差异清单 `_probe/cur_1g_diff.txt`）：**48 行有差异 = 4 主题 ×
+     12 个实例**（按唯一键口径 40 = 4 × 10：四主题共 404 键，键 = `oid` + 文本 + 尺寸 +
+     父链去重，`quickReplyBtn` 等同类多实例共用一键），
+     **全部且仅为「方角 → 圆角」**（verdict 非 方角→圆角 者 0 行）；
+     改后**实底按钮方角数 = 0**，改前各主题 12 个（实底色按钮数：ui_minimal 59 /
+     ui_cream 59 / ui_night 88 / ui_whale 71）。
+     命中明细（四主题一致，9 组 id/文本 × 尺寸、共 12 个实例）：
+       `(none)`「清除」66×33 ×2、「检查更新」92×33、「清理更新缓存」118×33、
+       「返回首页」92×33 ×2、「➕ 新建角色」196×28、
+       `#checkUpdateBtn` 92×33、`#modelSaveBtn` 140×29（cream/whale 148×33）、
+       `#planNewBtn` 28×28、`#styleSwitchBtn` 32×28 ×2。
+     严格排他：`w` / `h` 全 752 行**完全相同**（几何零位移）、`fill` 全 752 行完全相同，
+     且**所有改前非方角的行**其 `inset` / `corner_px` 亦逐项相同 ⇒ 无副作用。
+     对账里另有一类改动必须排除，否则就是误伤：
+     `QWidget#roleSidebar QPushButton`（角色页侧栏 3 个 `#secondaryBtn`）与
+     `QFrame#settingsSection > QPushButton`（设置页 2 个 `#secondaryBtn`）都是 (1,0,2)，
+     会盖掉 §1b `QPushButton#secondaryBtn` 的 (1,0,1) `${radius_md}` ——
+     而 `#secondaryBtn` 是**透明底 + 描边**的幽灵按钮，不在用户点名的「纯色底」范围内。
+     故紧随其后按同特异性补回原值。本段实际会碰到的 `#secondaryBtn` 共 **5 个真机实例**
+     （角色页侧栏 3 + 设置页 2），全部为**透明底 + 描边**的幽灵按钮。
+     排他性做 A/B 复核（`_probe/secondarybtn_ab.py`；夹具 = 74×28 定尺，判据 = 第 0 行
+     描边跨度：方角 ⇒ [0, w-1]，圆角 r ⇒ [r, w-1-r]）：4 组夹具 × 四主题，
+     带本段 vs 摘掉本段**逐项一致 = 四主题全 True**，读数
+       ui_minimal (11,62) ← radius_md=14 ≤ 14（半高）⇒ 生效
+       ui_night   (8,64)  ← radius_md=14 ≤ 14        ⇒ 生效
+       ui_cream   (0,73)  ← radius_md=16 >  14        ⇒ 方角（现状）
+       ui_whale   (0,73)  ← radius_md=18 >  14        ⇒ 方角（现状）
+     后两行的 cream / whale 方角，是这两套主题 `radius_md` 大于 28px 半高（14）的必然结果，
+     本段**不改动**它们（即「不改动既有取值」）。
+     ⚠ 上述 74×28 夹具**就是真机尺寸**，不是另造口径：本段命中的 5 个实例实测为
+       设置页 `QFrame#settingsSection` 74×28 ×2、角色页侧栏 `QWidget#roleSidebar` 196×28 ×3
+       （四主题逐项一致，均 `setFixedHeight(28)` ⇒ 半高恒 14.0）。
+       并已在**真机实例上**用同一判据直接复量（`_probe/_secbtn5_span.txt`，非夹具）：
+         ui_minimal 28px 档 跨度 [9,64] / [9,186]    ← radius_md=14 ≤ 14 ⇒ 圆角
+         ui_night   28px 档 跨度 [10,63] / [10,185]  ← radius_md=14 ≤ 14 ⇒ 圆角
+         ui_cream   28px 档 跨度 [0,73] / [0,195]    ← radius_md=16 >  14 ⇒ 方角
+         ui_whale   28px 档 跨度 [0,73] / [0,195]    ← radius_md=18 >  14 ⇒ 方角
+       ⇒ 夹具读数与真机读数**同源且逐项一致**，故 cream / whale 的方角结论成立。
+     ⚠ 另有 **9 个 35px 高**的 `#secondaryBtn`（rolePage 94×35 / 107×35、roleSection
+       739×35 / 783×35、toolboxPage 68×35 / 94×35、planSection 108×35 / 121×35，半高 17.5）
+       **不属于本段作用域**：本段既不改动、也不裁断它们。
+       其中 ui_whale（18 > 17.5）为方角 —— 该档**已裁决「不修」**，理由见 §1f 注释末尾。 */
+QWidget QPushButton#styleSwitchBtn,
+QWidget QPushButton#planNewBtn,
+QWidget QPushButton#modelSaveBtn,
+QWidget QPushButton#checkUpdateBtn,
+QWidget#roleSidebar QPushButton,
+PageHelp QPushButton,
+PageAbout QPushButton,
+QFrame#settingsSection > QPushButton {
+    border-radius: ${radius_sm};
+}
+
+/* 见上：把幽灵按钮排除出 §1g 的作用域（同特异性、后写者胜 → 盖回 `${radius_md}`，
+   与 §1b 的取值一致；`#memoryBookBtn` 同族，一并列入以免同类漂移）。 */
+QWidget QPushButton#secondaryBtn,
+QWidget QPushButton#memoryBookBtn {
+    border-radius: ${radius_md};
 }
 
 /* ---------- 2. 首页「模型设置」快捷入口（U-4 最小入口） ---------- */
@@ -449,6 +637,19 @@ QScrollBar::sub-page:horizontal {
 }
 
 /* ---------- 3. 输入框五态（normal/焦点由肤感层给；此处补 hover / disabled） ---------- */
+/* v2.2.1(三轮订正·防误读)：本段 ``QLineEdit:hover`` 取 ``${focus_accent}``，
+   但它**不可能**成为「焦点环看不见」的成因 ——
+   合并顺序是 **base.qss 在前、主题 qss 在后**（``gui/theme_engine.py:484``：
+   ``qss = f"{base_qss}\n{theme_qss}"``），同特异性**后写者胜**；而各主题 qss 里的
+   ``QLineEdit:focus { border-color: ${accent_text}; }``（如 ui_cream.qss:331）排在
+   本规则之后 ⇒ 稳压本规则。**hover + focus 同时成立时，胜出的永远是
+   ``${accent_text}``，不可能是 ``${focus_accent}``。**
+   ⚠ 二轮曾把「ui_cream/light 上读到 889px ``#F5E6DC``」记成本条 hover 规则 —— **不成立**：
+     `${focus_accent}` 在 ui_cream/light 实测是 ``#FF8FA3``，而 ``#F5E6DC`` 恰恰是
+     ``${border}``（常态描边）。那一读数的真实来源是**未聚焦 / 窗口未激活**态。
+     聚焦态隔离实测（见 ``_fix_blackbox/ring_report.txt`` §A/B）：
+       ui_cream/light 环 = ``#B45062``（= `${accent_text}`）228px，vs 卡片白 4.92:1；
+       ui_whale/light 环 = ``#247A8F`` 228px，vs 卡片白 4.93:1 —— 环**是画出来的**。 */
 QLineEdit:hover {
     border-color: ${focus_accent};
 }
@@ -472,18 +673,51 @@ QComboBox:disabled {
     border-color: ${divider};
 }
 
-/* ---------- 5. 按钮 focus 态（键盘可达性，v2.1 上线收口） ----------
-   此前此处为 `QPushButton:focus { outline: none; }` —— 全局移除焦点圈，键盘 Tab 到按钮时
-   **零视觉反馈**（QSS 无 :focus-visible，无法只对鼠标点击隐藏）。本轮改为「保留一个可见但
-   克制的焦点圈」：
-     · 用 outline（不动 border / background / padding → 焦点切换零版式位移；且各 id 按钮规则
-       均未声明 outline，故本规则对全部按钮生效，不会被 `QPushButton#id` 抢走）；
-     · 取色 `${text}`：Qt 的焦点圈绘制在控件**内容区边缘**、压在按钮自身底色上，而四套新风格的
-       focus_accent 与 primary 同值（实底主按钮上描边会被同色底吃掉，实测 diff=4px≈不可见）；
-       `${text}` 是唯一在「primary 实底」与「bg_card / 透明底」两类按钮上都不退化的前景语义键。
-     · 1px、无动画（QSS 天然静态 → off 档同样可见）。 */
+/* ---------- 5. 按钮 focus 态（键盘可达性 + 鼠标零描边，v2.2.1 收口） ----------
+   演进史：
+     · v2.1 之前此处是 `QPushButton:focus { outline: none; }` —— 键盘 Tab 到按钮时
+       **零视觉反馈**（任务 #280）。
+     · v2.2.0 改成 `outline: 1px solid ${text}` 保留焦点圈，但四套主题的 `${text}` 在浅色
+       模式下都是**近黑色**（ui_minimal #1C1C1E / ui_cream #3D2E2A / ui_whale #12303F），
+       于是**鼠标点一下按钮**就会在按钮内缘贴出一圈近黑矩形（实测聚焦前后 134px、
+       `#C57792 → #1C1C1E`）；用户报的「退出确认弹窗上两个选项的黑框」即此
+       （`QPushButton:focus` 对弹窗按钮同样命中）。
+   v2.2.1 口径（用户原话「这个项目所有类似选定黑框的都可以不用存在，原来的按压提示
+   也够用的」）：**按「焦点来源」分流**。
+     · 默认（鼠标 / 程序性焦点）：`outline: none` → 指针路径零黑框；
+     · `[keyboardNav="true"]`（Tab / Shift+Tab / 助记键）：仍给一圈 1px 焦点环，
+       键盘可达性不丢（#280 的诉求由这条承接）。
+   ⚠ 环色取 `${text_on_accent}` —— **既不是** `${accent_text}` **也不是** v2.2.0 的 `${text}`：
+     Qt 的 outline 画在**按钮自己的填充上**（真机实测「环像素替换掉的底色」正是 `#C57792`
+     = `${primary}`），故这里唯一有意义的对照底色就是**按钮填充本身**。
+     四主题 × 明/暗 = **八档**，实测「环色 vs 按钮填充」（`_fix_blackbox/ring_contrast_calc.txt`）：
+       `${accent_text}`    1.48 / 1.13 / 2.28 / 1.12 / 1.00 / 1.00 / 1.52 / 1.53 : 1  ← 八档全 <3，
+                                                ui_night 两档因 accent_text ≡ primary 恒 1.00
+                                                **一个像素都没画出来**（diff=0）→ 键盘焦点等于没有；
+       `${text}`(v2.2.0)   5.21 / 2.47 / 5.98 / 1.62 / 2.35 / 2.35 / 4.26 / 1.84 : 1  ← 暗色档仅 1.6~2.5；
+       `${text_on_accent}` 5.21 / 5.89 / 5.98 / 8.79 / 6.48 / 6.48 / 5.19 / 6.50 : 1  ← 八档全 ≥5.19 ✅
+   ⚠ 二轮订正（v2.2.1 复验）：本条此前写「5.21 / 5.89 / 5.98 / 8.79 / 6.48 / 5.19 / 6.50」共
+     **7** 个数却称「八档」—— ui_night 明/暗同值（6.48）被并成一个了，上面已按八档逐一列出。
+     另：`${text_on_accent}` 在**暗色档压在页底上**时只有 1.01~1.28:1，但 outline 画在按钮
+     填充**之内**、外沿不与页底相邻，故 §5 这一处不受影响（受影响的只有 §9b 的滑杆手柄）。
+     （`${text_on_accent}` 本就是「压在强调色上的文字色」，全 7 套主题均有定义，
+       base.qss 已有 3 处引用。）
+   `keyboardNav` 是 MainWindow.eventFilter（应用级焦点过滤器，读 `QFocusEvent.reason()`）
+   打的动态属性；Qt QSS 无 `:focus-visible`，属性选择器是唯一可用手段。
+   ⚠ 取舍（三轮·owner 裁决，**不要**再当缺陷报）：键盘路径这圈 1px 环，在**浅色主题**下
+     就是**近黑**（ui_whale `#05202A`、ui_minimal `#1C1C1E`、ui_cream `#3D2E2A`…）——
+     因为 `outline` 画在按钮**自己的浅色强调填充**上（`${primary}`），要可见就只能取深色。
+     用户口径是「鼠标点一下不要有黑框」，**鼠标路径已实测 0 px**；键盘路径保留这圈深色环
+     是**有意为之**的可达性提示（Tab 用户不看这圈就没有任何焦点指示）。
+     「浅色填充 + 深色环」是固有取舍，**不做**颜色替换、也不因「近黑」回退本规则。
+   ⚠ 两处都不动 border / background / padding → 焦点切换零版式位移；
+   ⚠ 未声明 outline 的具名按钮规则依旧不受影响（本段特异性 (0,0,1,1) / (0,1,1,1)，
+     仅在 id 规则自己声明 outline 时才被抢走 —— 全仓无此情况）。 */
 QPushButton:focus {
-    outline: 1px solid ${text};
+    outline: none;
+}
+QPushButton[keyboardNav="true"]:focus {
+    outline: 1px solid ${text_on_accent};
 }
 
 /* ---------- 6. 复选框五态（normal/checked 由肤感层给；补 hover / focus / disabled） ---------- */
@@ -580,10 +814,34 @@ QTextEdit:focus,
 QPlainTextEdit:focus {
     border: 1px solid ${accent_text};
 }
-/* 滑杆：焦点落在手柄上 → 给手柄加一圈描边（不改变手柄尺寸/位置）；
-   取色 ${text}（手柄本身即 ${primary} 填充，用 focus_accent 会被同色吃掉） */
-QSlider::handle:horizontal:focus {
-    border: 1px solid ${text};
+/* 滑杆：焦点落在手柄上 → 给手柄加一圈描边。
+   v2.2.1 收口：`QSlider` 默认 focusPolicy = ClickFocus|TabFocus（实测 focusPolicy()==11），
+   **鼠标点一下滑杆就给焦点** → 原「无条件 `border: 1px solid ${text}`」会让鼠标路径也
+   出现一圈近黑描边（真机实测鼠标聚焦帧差 85~87px）。与 §5 按钮同一口径分流：
+     · 鼠标 / 程序性焦点：**不声明 border**（= 与未聚焦态逐像素相同 —— 实测 0 px 差异，
+       且连原来那 85~87px 的 1px 手柄内缩一并消失，零几何位移）；
+     · `[keyboardNav="true"]`：`border: 2px solid ${text_on_accent}`。
+   ⚠ 取 2px 与 `${text_on_accent}` 都是被实测逼出来的，不是随手写：
+     · 手柄填充即 `${primary}` → 环色取「压在强调色上的文字色」。八档「环 vs 手柄填充」实测
+       5.21 / 5.89 / 5.98 / 8.79 / 6.48 / 6.48 / 5.19 / 6.50 : 1（全 ≥5.19）——
+       `${text}` 在暗色档只有 1.6~2.5、`${accent_text}` 更是 1.00~2.28（见 §5）；
+     · ⚠ **二轮订正 + 未决项**：`border` 画在手柄**边缘**，其外沿紧邻的是滑杆所在**页底**
+       `${bg}`。八档「环 vs 页底」实测 15.89 / 1.05 / 12.31 / 1.01 / 1.08 / 1.08 / 15.40 /
+       1.28 : 1 —— **五个档只有 1.01~1.28**（三个 dark 档 + ui_night 明/暗）。原注释只写
+       「5.19 ~ 6.50 : 1」未标对照底色，容易被读成「任何底色下都达标」，故此处补齐两个对照列。
+       为何不当场修：穷举八档**现有**色值键后，「同时 ≥3:1 vs `${primary}` 且 vs `${bg}`」的键
+       只有 ui_minimal / ui_cream / ui_whale 的 **light** 档存在；其余五档**一个都没有** ——
+       要同时满足必须**新增色值键**，按本轮纪律「需新增色值键的不改」处理，已列入
+       **需 owner 决策**，不在本次改动内。
+     · `outline` 在 `::handle` 子控件上**根本不渲染**（实测把 outline 设成 2px #FF0000
+       后帧差 **0 px**），所以只能用 `border`；
+     · `border: 1px` 时环色纯像素只有 **4 px**（其余全被抗锯齿吃掉）→ 等于没有指示；
+       改 2px 后纯环像素 20 px、总变化 146 px，键盘用户才真的看得见。
+   `QTabBar::tab:selected:focus`（§9）**不在本次收口范围**：`QTabBar` 默认 focusPolicy
+   实测为 TabFocus（`QTabWidget` 的 tabBar 亦然）→ 鼠标点击根本不给焦点，那条近黑下划线
+   只可能出现在键盘导航路径上，正是要保留的可达性提示。 */
+QSlider[keyboardNav="true"]::handle:horizontal:focus {
+    border: 2px solid ${text_on_accent};
 }
 
 /* ============================================================

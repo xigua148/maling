@@ -290,6 +290,13 @@ class ChatExtrasMixin:
 
     # ----- 语音输入 -----
     def _on_voice_input(self) -> None:
+        # v2.2.2(P6-A)：提示级别**统一为 `information`** —— 这是「本环境缺少可选的语音
+        #   组件」的能力说明（应用本身完好、其它功能不受影响），不是操作失败；本文件里
+        #   `warning` 只留给**真失败**（如导出写盘失败）。同族入口（拍照 / 小游戏）也
+        #   一律 `information`，故此处保持并统一到 `information`。
+        #   ⚠ 浮窗那一份「语音输入不可用」提示（原为 `warning`，级别更高的那一份）已随
+        #   浮窗三按钮一并删除（见 `chat_window.py` 的 v2.2.2(需求·用户指令) 注释）
+        #   ⇒ 全仓只剩本处，不存在第二处需要对齐的级别。
         backend_ok, device_ok, desc = voice_input_mod.diagnose_voice_input()
         if not backend_ok or not device_ok:
             QMessageBox.information(

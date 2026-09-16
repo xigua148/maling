@@ -72,6 +72,9 @@ class ChatUiBuildMixin:
 
         # 新会话圆球：中心显示白色「＋」大号粗体，直观表达「新增会话」（避免空球歧义）。
         self.new_session_btn = QPushButton("＋")
+        # v2.2.1(黑框修复 WP1)：补 id —— 24×24 定尺寸下通用 padding 8/20 会把内容区
+        # 压成 -16×8，「＋」字形不绘制（空球）。padding 归零收口在 base.qss §1c。
+        self.new_session_btn.setObjectName("newSessionBtn")
         self.new_session_btn.setFixedSize(24, 24)
         self.new_session_btn.setCursor(Qt.PointingHandCursor)
         self.new_session_btn.setToolTip("新建会话")
@@ -88,6 +91,9 @@ class ChatUiBuildMixin:
 
         # 折叠按钮
         self.toggle_sidebar_btn = QPushButton("◀")
+        # v2.2.1(黑框修复 WP1)：补 id —— 20×60 定尺寸下通用 padding 8/20 会把内容区
+        # 压成 -20×44，「◀」字形不绘制。padding 归零收口在 base.qss §1c。
+        self.toggle_sidebar_btn.setObjectName("toggleSidebarBtn")
         self.toggle_sidebar_btn.setFixedSize(20, 60)
         self.toggle_sidebar_btn.setCursor(Qt.PointingHandCursor)
         self.toggle_sidebar_btn.clicked.connect(self._on_toggle_sidebar)
@@ -574,9 +580,20 @@ class ChatUiBuildMixin:
         def _ss(name: str, css: str) -> None:
             _ssw(getattr(self, name, None), css)
 
+        # --- 顶栏文字标签：去自带底色（应用级 ${bg} 会盖在页底上）---
+        # 实测（真实平台 + 不 show + render 到哨兵底）：控件级只写
+        # `QLabel { background: transparent; }` **不会**压掉主题里的
+        # `QLabel#chatStatusLabel { color/font-size }`（两态渲染色 37px 完全一致），
+        # 故无需在此重复颜色，避免造第二处取色源。
+        _ss("title_label", "QLabel { background: transparent; }")
+        _ss("status_label", "QLabel { background: transparent; }")
+
         # --- 左侧会话侧栏 ---
+        # v2.2.2(缺陷2)：「会话」标题裸 QLabel 被应用级 ${bg} 刷底，而 #sessionSidebar
+        #   的底是 bg_card（四套主题二者均不同值）→ 与侧栏底不同色的一条色块。
         _ss("sidebar_title_label",
-            f"QLabel {{ font-size: 12px; font-weight: bold; color: {_txt2}; }}")
+            f"QLabel {{ background: transparent; font-size: 12px;"
+            f" font-weight: bold; color: {_txt2}; }}")
 
         _ss("new_session_btn",
             f"QPushButton {{ background: {_ac_l}; color: {_txt}; border: none;"
@@ -661,13 +678,27 @@ class ChatUiBuildMixin:
             f"  background: {_ac}; color: {_on_ac}; border-color: {_ac};"
             "}")
 
+        # 风格切换按钮（🎨，与 export/tabMode/expand 同排同尺寸 32×28）：
+        # v2.2.1(黑框修复·二轮)：本控件是全仓**唯一**没有控件级 sheet 的同排按钮 ——
+        #   于是整条样式都回落到应用级通用 `QPushButton`（含 `padding: 8px 20px`）⇒
+        #   内容区实测 **-8×12**，🎨 一个像素都画不出来（补 padding:0 后 111 px）。
+        #   三个兄弟早已各自声明 `padding: 0px`，此处只补这一条，**不动** 底色 / 字色 /
+        #   圆角 / 字号（它们本就是通用按钮观感，本次不改观感）。
+        _ss("style_btn",
+            "QPushButton#styleSwitchBtn {"
+            "  padding: 0px;"
+            "}")
+
         # --- 表情面板 / 快捷回复（多控件，逐个覆盖） ---
         # 表情按钮常态底 bg_light、悬停底 divider，二者均**随主题翻转**（深色下是深底）；
         # 本 sheet 原未声明 color → 常态回落 app 级 QPushButton 的 text_on_accent
         # （「亮强调实底上的深字」）→ 深底深字，深色四风格实测 1.089~1.360 近不可见。
         # 与 bg_light 配对的文字键是 text（同样随主题翻转），显式补上。
         _emoji_css = (
+            # v2.2.1(黑框修复·二轮)：补 padding 归零 —— 本组按钮 setFixedSize(44, 36)，
+            #   通用 padding 8/20 把内容区压成 2×18，emoji 只剩 4~11 个像素（「一排空白方块」）。
             f"QPushButton {{ background: {_bg_l}; color: {_txt}; border: 1px solid {_div};"
+            " padding: 0px;"
             " border-radius: 8px; font-size: 14px; }"
             f"QPushButton:hover {{ background: {_div}; color: {_txt}; }}"
         )
@@ -808,6 +839,16 @@ class ChatUiBuildMixin:
         _ss("watch_btn", _sw_css)
         _ss("computer_btn", _sw_css)
 
+        # v2.2.2(P4 根因的兜底重出图)：本方法是面板内联样式的**唯一取色入口**，
+        #   构造期与换肤期都经由它 ⇒ 在此重出一次顶栏图标。实测（`_evidence_b/
+        #   out_p4_real_*.txt`）：换肤路径本已由 `ChatInteractionsMixin._on_theme_changed`
+        #   调过一次 `_apply_title_icons()`（`interactions.py:572`），本次追加是**幂等
+        #   兜底** —— 目的是让「取色入口」这一条出口自洽（不依赖另一个 mixin 记得调），
+        #   并在将来 `main.py` 顺序变动时仍有一次重出图机会。
+        #   ⚠ 真正把四键从纯黑救回来的不是这一行（本方法在构造期同样早于
+        #   `icons.configure`），而是上面 `_apply_title_icons()` 的**显式传色**。
+        self._apply_title_icons()
+
     # ==================================================================
     # v2.1(I-2/D-V21-06): 顶栏按钮图标化（矢量图标 + emoji 回退 + hover 重着色）
     # ==================================================================
@@ -816,7 +857,18 @@ class ChatUiBuildMixin:
 
         · ``icons.available()`` 为假（字体缺失 / 未注册）→ 回落原 emoji 文本（不空白）；
         · 尺寸与原占位对齐（16px，按钮 32x28 不变），功能与信号零变更；
-        · 取色唯一入口：``color=None`` → ``theme_color(app_ctx, "text")``。
+        · 取色唯一入口：**显式传色** —— ``theme_color(self.app_ctx, "text")``。
+          v2.2.2(P4 根因·跨文件注册顺序)：原先传 ``color=None``，让 ``icons.icon()``
+          自己去 ``icons._app_ctx`` 取色；而 ``icons._app_ctx`` 由 ``gui/main.py``
+          的 ``icons.configure(app_ctx)`` 注入，**晚于** ``MainWindow`` 构造
+          （实测：``main.py:1633`` 构造 → ``:1640`` configure）。构造期那一刻
+          ``icons._app_ctx is None`` ⇒ ``theme_color`` 回落
+          ``icons._FALLBACK_TEXT_COLOR = "#000000"``，纯黑 pixmap 被写进
+          ``QPixmapCache``（键含色值，故此后不会自动失效）⇒ 默认流程（不换肤）
+          四键**整个会话纯黑**，深色主题下近乎不可见。
+          面板自己的 ``app_ctx`` 从构造起就可用、且 ``theme_engine`` 与
+          ``icons._app_ctx.theme_engine`` 是同一个 ⇒ 显式传色**语义完全等价**，
+          但不再依赖任何跨文件的初始化顺序。
         """
         self._icon_buttons = {}
         try:
@@ -829,7 +881,11 @@ class ChatUiBuildMixin:
                 continue
             if use_vector:
                 try:
-                    ic = icons.icon(name, self._TITLE_ICON_SIZE, None)
+                    # v2.2.2(P4 根因)：显式传本面板 `text` 令牌色，不依赖
+                    # `icons.configure()` 是否已跑过（见 docstring 的取色说明）。
+                    ic = icons.icon(
+                        name, self._TITLE_ICON_SIZE,
+                        theme_color(self.app_ctx, "text", "#000000"))
                 except Exception:
                     ic = None
                 if ic is not None and not ic.isNull():
@@ -854,7 +910,11 @@ class ChatUiBuildMixin:
                 color = theme_color(self.app_ctx, color_key, "#FFFFFF")
                 ic = icons.icon(name, self._TITLE_ICON_SIZE, color)
             else:
-                ic = icons.icon(name, self._TITLE_ICON_SIZE, None)
+                # v2.2.2(P4 根因·同类)：同一缺陷类 —— 别处也不许再以 `color=None`
+                #   出图（那会退回依赖 `icons._app_ctx`）。显式传本面板 `text` 令牌色。
+                ic = icons.icon(
+                    name, self._TITLE_ICON_SIZE,
+                    theme_color(self.app_ctx, "text", "#000000"))
             if ic is not None and not ic.isNull():
                 btn.setIcon(ic)
         except Exception:
@@ -911,6 +971,20 @@ class ChatUiBuildMixin:
         self.voice_btn.setCursor(Qt.PointingHandCursor)
         self.voice_btn.setFixedHeight(28)
         self.voice_btn.setToolTip("语音输入（依赖 SpeechRecognition + 麦克风）")
+        # v2.2.2(P6-B)：依赖缺失时**置灰 + tooltip 写明原因** —— 此前按钮恒可点，用户
+        #   要先付出一次无效点击才看到说明框。诊断走 `voice_input` 的既有入口
+        #   （`voice_input_button_state()`，内部复用 `diagnose_voice_input()`，
+        #   未另写一套探测），形态与「免提」按钮一致
+        #   （见 `chat_panel_parts/extras.py::_init_handsfree` 的 setEnabled + 原因 tooltip）。
+        #   ⚠ 只改**可用性呈现**：`_on_voice_input` 的运行时守卫保留（托盘等其它入口仍
+        #   可触达），识别逻辑零改动。
+        try:
+            from gui.widgets import voice_input as _voice_mod
+            _voice_ok, _voice_tip = _voice_mod.voice_input_button_state()
+            self.voice_btn.setEnabled(_voice_ok)
+            self.voice_btn.setToolTip(_voice_tip)
+        except Exception:
+            logger.debug("静默降级：语音入口可用性诊断失败，保持默认可点", exc_info=True)
         self.voice_btn.clicked.connect(self._on_voice_input)
         quick_layout.addWidget(self.voice_btn)
 

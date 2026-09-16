@@ -68,8 +68,10 @@ class TestChannelTable:
 
     def test_stable_and_beta_differ(self):
         assert u.CHANNEL_URLS["stable"] != u.CHANNEL_URLS["beta"]
-        assert "/main/version.json" in u.CHANNEL_URLS["stable"]
-        assert "/main/beta/version.json" in u.CHANNEL_URLS["beta"]
+        # v2.2.1：由 /main/ 改指 /master/（仓库默认分支一直是 master；详见
+        # gui/update_checker.py 的 CHANNEL_URLS 注释与 v2.2.0 发布报告 §1）。
+        assert "/master/version.json" in u.CHANNEL_URLS["stable"]
+        assert "/master/beta/version.json" in u.CHANNEL_URLS["beta"]
 
     def test_all_channel_urls_https_and_allowed(self):
         for url in u.CHANNEL_URLS.values():

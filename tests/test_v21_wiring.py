@@ -9,6 +9,9 @@
   · ``NAV_ITEMS`` 每项长度为 4，且 ``[0]key``/``[1]label`` 与改动前一致；
   · 图标不可用时侧栏回退文本非空（绝不空白）；
   · 切页过渡在 ``motion`` off 档下直接终态（不创建动画 / 不残留 effect）；
+  · 切页过渡在 ``motion`` standard 档下：**毛玻璃关**保留淡入、**毛玻璃开**不做
+    透明度淡入（v2.2.1 黑框修复 WP2 —— 玻璃开时整页半透明 = 整片无人绘制 = 屏幕级纯黑，
+    起帧实测 82.22%）。
   · ``main.py`` 外观段三处调用存在**且均在 try/except 内**（异常被吞）；
   · 回归：侧栏导航信号按键发出、``set_active_page`` 不递归发信号、
     主窗 ``theme_changed`` 既有状态栏行为不变。
@@ -274,9 +277,18 @@ def test_page_switch_off_sets_terminal_without_animation(main_window):
 
 
 def test_page_switch_standard_creates_fade_then_cleans_effect(main_window, qapp):
-    """⑤ standard 档：创建淡入动画，结束后移除 effect（R-P 防残留）。"""
+    """⑤ standard 档：创建淡入动画，结束后移除 effect（R-P 防残留）。
+
+    v2.2.1（黑框修复 WP2）更新：切页淡入**只在毛玻璃关时**保留 —— 毛玻璃开时
+    `#glassCentralOuter/#glassCentralSplitter/#glassPageStack` 都是 transparent，
+    「opacity<1 的整页」等于整片区域无人绘制 = 屏幕级纯黑（起帧实测 82.22%）。
+    故本用例显式把 glass 置为关，让断言不再随宿主机的 DWM 能力漂移
+    （原版未设 glass，在本机 glass 生效时**恒失败**）；glass 开的对应口径见
+    `test_page_switch_glass_on_skips_fade_and_stays_opaque`。
+    """
     motion.configure("standard")
     win = main_window
+    win.setProperty("glass", None)          # 毛玻璃关：保留 v2.1 淡入
     win._on_page_switched("home")
     page = win.pages["home"]
     assert motion.running_count() >= 1
@@ -291,6 +303,24 @@ def test_page_switch_standard_creates_fade_then_cleans_effect(main_window, qapp)
         time.sleep(0.01)
     assert motion.running_count() == 0
     assert page.graphicsEffect() is None
+
+
+def test_page_switch_glass_on_skips_fade_and_stays_opaque(main_window):
+    """v2.2.1（WP2）：毛玻璃开时切页**不做**透明度淡入，且新页立刻完全不透明。
+
+    判据 = 「没有任何在跑的淡入动画」+「新页不挂 opacity effect」：只要两者成立，
+    新页就是完全不透明的，屏幕级纯黑（起帧 82.22%）无从出现。
+    """
+    motion.configure("standard")
+    win = main_window
+    win.setProperty("glass", "on")
+    for key in ("settings", "plan"):
+        win._on_page_switched(key)
+        page = win.pages[key]
+        assert motion.running_count() == 0, f"{key}: glass=on 时仍创建了淡入动画"
+        assert not isinstance(page.graphicsEffect(), QGraphicsOpacityEffect), (
+            f"{key}: glass=on 时新页仍挂着 opacity effect → 会复现起帧黑屏")
+        assert win._page_fade_anims == {}, f"{key}: 仍留有在跑的淡入动画"
 
 
 def test_page_switch_rapid_same_page_no_crash(main_window, qapp):

@@ -289,7 +289,10 @@ class ChatSessionsMixin:
         dialog.setWindowTitle("新建群聊（选择 2-3 个成员）")
         dialog.setMinimumWidth(280)
         lay = QVBoxLayout(dialog)
-        lay.addWidget(QLabel("选择群聊成员（最多 3 个）："))
+        # v2.2.2(缺陷2)：弹窗底是 bg_card，裸 QLabel 吃 ${bg} → 异色块。
+        _mb_hint = QLabel("选择群聊成员（最多 3 个）：")
+        _mb_hint.setStyleSheet("QLabel { background: transparent; }")
+        lay.addWidget(_mb_hint)
         checks: List[QCheckBox] = []
         for role in roles:
             cb = QCheckBox(role.name or role.id)
@@ -297,7 +300,8 @@ class ChatSessionsMixin:
             lay.addWidget(cb)
             checks.append(cb)
         hint = QLabel("")
-        hint.setStyleSheet("QLabel { color: #FF6B9D; font-size: 11px; }")
+        hint.setStyleSheet(
+            "QLabel { background: transparent; color: #FF6B9D; font-size: 11px; }")
         lay.addWidget(hint)
 
         def _validate() -> None:

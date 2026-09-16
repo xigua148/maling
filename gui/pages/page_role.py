@@ -28,6 +28,11 @@ logger = logging.getLogger("maid_coder.gui")
 # 字体不可用时回落原 emoji 文案（不空白、不崩）。
 _ROLE_BTN_ICON_SIZE = 14
 
+# v2.2.1(第五判据·尺寸类)：右列三个角色输入框的最小高度（px）。
+# 自然高度 = 字体行高(fontMetrics 19) + QSS padding 6px×2 + 边框 1px×2 ≈ 35；
+# 取 36 留 1px 抗锯齿余量。这是**尺寸**下限，不涉及字号（字号由 QSS 给）。
+_ROLE_INPUT_MIN_H = 36
+
 
 def _vector_icon(app_ctx, name: str, size: int, color):
     """取矢量 ``QIcon``；字体/名字不可用或渲染失败 → ``None``（调用方回落 emoji）。"""
@@ -1135,6 +1140,18 @@ class PageRole(QWidget):
         given_row.addWidget(self.given_name_edit, 1)
         name_desc_layout.addLayout(given_row)
 
+        # v2.2.1(第五判据·尺寸类)：三个角色输入框的自然高度由「字体行高 + QSS
+        # padding 6px×2 + 边框 1px×2」决定（实测 sizeHint = 35px）。右列无滚动
+        # 容器时，窗口高度不足会把缺额摊到最小尺寸最小的控件上 —— 实测
+        # MainWindow 1200×800（= 本仓 MainWindow.minimumSize）里这三个框被压到
+        # **11px**（内容区为负，字形一个像素都画不出来），旁边「角色名称 /
+        # 角色描述 / 角色名字」三个标签同高被压到 11px（需 20px）同属一类。
+        # QLineEdit 默认纵向 sizePolicy = Fixed，但布局在空间不足时仍会压过
+        # sizeHint；setMinimumHeight 给的是**硬下限**，钉住后布局无法再压。
+        # 这是尺寸修复，不动字号（字号仍由 QSS 的 font-size 决定）。
+        for _edit in (self.name_edit, self.desc_edit, self.given_name_edit):
+            _edit.setMinimumHeight(_ROLE_INPUT_MIN_H)
+
         avatar_row.addLayout(name_desc_layout, 1)
         info_layout.addLayout(avatar_row)
 
@@ -1292,7 +1309,22 @@ class PageRole(QWidget):
         right_layout.addLayout(btn_row)
         right_layout.addStretch()
 
-        main_layout.addWidget(self.right_panel, 1)
+        # v2.2.1(第五判据·可达性类)：右列（角色信息 / 系统提示词 / 人设工坊 /
+        # 性格参数 / 操作按钮）自然高度实测 837px，而 MainWindow.minimumSize
+        # 1200×800 只给页面 1015×739 —— 差 98px。此前右列没有任何滚动容器，
+        # 缺额被硬摊到页内控件上（三个 QLineEdit 压到 11px、字形画不出来）。
+        # 改用与 page_about / page_home / page_memories / page_memory_book 完全
+        # 相同的口径：内容放进 QScrollArea，高度不足时出纵向滚动条。
+        # ⚠ 四套主题 QSS 均已声明
+        #   `QScrollArea { border: none; background-color: transparent; }`
+        # ⇒ 外观零位移；页内控件、文案、objectName 一字未动。
+        # 横向滚动条恒关：内容宽度由 widgetResizable 撑满视口，不会出现横向滚动。
+        self.right_scroll = QScrollArea()
+        self.right_scroll.setWidgetResizable(True)
+        self.right_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.right_scroll.setWidget(self.right_panel)
+        main_layout.addWidget(self.right_scroll, 1)
 
     def _create_section(self, title: str) -> QFrame:
         frame = QFrame()

@@ -647,12 +647,22 @@ QPushButton#sidebarBottomBtn:disabled {
     color: ${disabled_text};
     border-color: ${divider};
 }
-QPushButton#quickBtn:focus,
-QPushButton#expandChatBtn:focus,
-QPushButton#quickReplyBtn:focus,
-QPushButton#quickActionBtn:focus,
-QPushButton#copyBtn:focus,
-QPushButton#copyCodeBtn:focus {
+/* 焦点：**只给键盘导航**留环（v2.2.1 二轮口径）。
+   本段此前是**全仓唯一**没走 `[keyboardNav="true"]` 门控的 :focus 规则 ——
+   用户第 3 条原话「这个项目所有类似选定黑框的都可以不用存在，原来的按压提示也够用」，
+   口径是「鼠标路径一律不留选定框」，不看颜色深浅。实测该处鼠标点击后同样
+   `hasFocus()==True`，帧差 732~758 px、新色 #247A8F（其中 #expandChatBtn
+   落底对比度仅 1.52:1，最扎眼）。故本段与 base.qss §5 / §9b 统一走
+   `MainWindow.eventFilter` 打的动态属性（Qt QSS 无 `:focus-visible`，
+   属性选择器是唯一手段）。
+   ⚠ 只加属性门控：颜色（${accent_text}）/ 描边宽度 / 版式一律不动 ——
+     键盘 Tab 进来的观感与本次修复前完全一致。 */
+QPushButton#quickBtn[keyboardNav="true"]:focus,
+QPushButton#expandChatBtn[keyboardNav="true"]:focus,
+QPushButton#quickReplyBtn[keyboardNav="true"]:focus,
+QPushButton#quickActionBtn[keyboardNav="true"]:focus,
+QPushButton#copyBtn[keyboardNav="true"]:focus,
+QPushButton#copyCodeBtn[keyboardNav="true"]:focus {
     border-color: ${accent_text};
 }
 

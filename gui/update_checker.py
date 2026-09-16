@@ -55,10 +55,16 @@ GITHUB_REPO = "maling"
 CHANNEL_STABLE = "stable"
 CHANNEL_BETA = "beta"
 
-# 频道 → version.json URL（beta 走同仓库 main/beta/version.json，Q-U8）
+# 频道 → version.json URL（beta 走同仓库 master/beta/version.json，Q-U8）
+# v2.2.1：分支由 `main` 改为 `master` —— 本仓库的默认分支自始至今就是 master。
+#   历史事故（2026-09-15 定位）：代码写 `main` 而仓库只有 `master` → 线上 404 →
+#   **v2.0.0 起所有已装客户端的「检查更新」恒失败**。该 URL 是**构建期快照**，
+#   所以改代码救不了存量客户端。
+#   ⚠ 因此：`main` **仍须作为镜像分支每版同步推送**（发版脚本已双推 + 双 raw 验证），
+#     否则 v2.0.0~v2.2.0 的存量用户会再次静默收不到更新。
 CHANNEL_URLS = {
-    "stable": f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/version.json",
-    "beta": f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/main/beta/version.json",
+    "stable": f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/master/version.json",
+    "beta": f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/master/beta/version.json",
 }
 # design-v20 §D-V20-07 命名别名（契约冻结：两个名字指向同一张表）
 VERSION_JSON_URLS = CHANNEL_URLS
