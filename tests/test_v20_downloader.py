@@ -245,17 +245,38 @@ class TestPureFunctions:
         ]
 
     def test_build_url_chain_allowed_check_injection(self):
-        """域名白名单权威在域1；本模块通过 allowed_check 注入，不重复实现。"""
+        """域名白名单权威在域1；本模块通过 allowed_check 注入，不重复实现。
+
+        v2.3.2 起 `version.json` 声明的镜像 host 会**额外放行**（见下面两个用例），
+        所以这里改为：
+        ① allowed_check 拒绝一切 → 主链被拒，**镜像仍因"发布方声明"而进链**；
+        ② 关掉镜像（use_mirror=False）→ 链为空，证明 allowed_check 对主链确实生效。
+        """
         asset = {
             "url": "https://github.com/o/r/x.zip",
             "mirror": "https://mirror.example.com/x.zip",
         }
-        allow = lambda u: "github.com" in u  # noqa: E731
-        assert dl.build_url_chain(asset, allowed_check=allow) == [asset["url"]]
+        assert dl.build_url_chain(
+            asset, allowed_check=lambda _u: False
+        ) == [asset["mirror"]]
+        assert dl.build_url_chain(
+            asset, use_mirror=False, allowed_check=lambda _u: False
+        ) == []
 
-    # -- 镜像 host 白名单缺口（工程师 A 报的跨域集成缺口）-----------------
-    def test_mirror_host_rejected_when_extra_hosts_empty(self, monkeypatch):
-        """① extra_hosts 为空 → 非 github 镜像被白名单拒绝，不含在链中。"""
+    # -- 发布方镜像（version.json 的 assets.*.mirror）的放行语义（v2.3.2 修正）-----
+    def test_mirror_host_from_version_json_is_allowed(self, monkeypatch):
+        """① `version.json` 声明的镜像 host **无需用户自配**即进链。
+
+        背景（本用例原名 `test_mirror_host_rejected_when_extra_hosts_empty`）：
+        原实现只放行「GitHub 系 + 用户自配 `cfg.mirror_url` 的 host」，于是发布方在
+        `assets.*.mirror` 里给的镜像**一律被域名白名单拒掉**、备用链形同虚设 ——
+        而 `gui/main.py` 又是**显式传入** allowed_check 的，连默认路径都绕不过去。
+        该用例把这个缺口固化成了断言，现按「发布方声明即放行」改正。
+
+        安全性说明：这**不削弱**实际防线 —— `version.json` 同时给出 URL 与 `sha256`，
+        攻击者要利用它必须同时改 sha256（即已控制仓库，那时 primary 也能随便改）；
+        真正拦下坏包的是下载后的 **sha256 校验**。此外仍强制 https。
+        """
         import gui.update_checker as uc
 
         monkeypatch.setattr(uc, "is_allowed_url", _fake_is_allowed_url, raising=False)
@@ -264,8 +285,9 @@ class TestPureFunctions:
             "mirror": "https://mirror.example.com/x.zip",
         }
         chain = dl.build_url_chain(asset, extra_hosts=[])
-        assert chain == [asset["url"]]
-        assert asset["mirror"] not in chain
+        assert chain == [asset["url"], asset["mirror"]]
+        # 用户仍可用 use_mirror 开关把它关掉
+        assert dl.build_url_chain(asset, use_mirror=False, extra_hosts=[]) == [asset["url"]]
 
     def test_mirror_host_allowed_when_injected_via_extra_hosts(self, monkeypatch):
         """② 传入 extra_hosts=[镜像 host] → 结果含镜像，且顺序在主链之后（Q-U3）。"""
@@ -279,8 +301,13 @@ class TestPureFunctions:
         chain = dl.build_url_chain(asset, extra_hosts=["mirror.example.com"])
         assert chain == [asset["url"], asset["mirror"]]
 
-    def test_default_is_fail_closed_rejects_non_github_mirror(self, monkeypatch):
-        """⑤ 默认（都不传 allowed_check / extra_hosts）→ 非 github 镜像被**拒绝**（fail-closed）。"""
+    def test_default_allows_version_json_mirror_host(self, monkeypatch):
+        """⑤ 默认（都不传 allowed_check / extra_hosts）→ 声明的镜像 host 仍进链。
+
+        v2.3.2 前的行为是"fail-closed 拒绝非 GitHub 镜像"，但那条规则**拦不住
+        primary**（primary 同样来自 version.json、同样可以是非 GitHub 域），
+        所以它并没有换来实质保护，只是让"发布方提供备用链"这条路走不通。
+        """
         import gui.update_checker as uc
 
         monkeypatch.setattr(uc, "is_allowed_url", _fake_is_allowed_url, raising=False)
@@ -289,8 +316,19 @@ class TestPureFunctions:
             "mirror": "https://mirror.example.com/x.zip",
         }
         chain = dl.build_url_chain(asset)          # 不传 extra_hosts：默认吃白名单
+        assert chain == [asset["url"], asset["mirror"]]
+
+    def test_non_https_mirror_is_still_rejected(self, monkeypatch):
+        """安全边界未被放宽：非 https 的镜像**照样被拒**。"""
+        import gui.update_checker as uc
+
+        monkeypatch.setattr(uc, "is_allowed_url", _fake_is_allowed_url, raising=False)
+        asset = {
+            "url": "https://github.com/o/r/releases/download/v2/x.zip",
+            "mirror": "http://mirror.example.com/x.zip",
+        }
+        chain = dl.build_url_chain(asset)
         assert chain == [asset["url"]]
-        assert asset["mirror"] not in chain
 
     def test_explicit_allowed_check_takes_precedence(self, monkeypatch):
         """① 显式 allowed_check 完全接管（优先于默认白名单），即使 extra_hosts 为空。"""
@@ -301,14 +339,14 @@ class TestPureFunctions:
             "url": "https://github.com/o/r/x.zip",
             "mirror": "https://mirror.example.com/x.zip",
         }
-        # allowed_check 放行一切 → 即使 extra_hosts=[] 也保留非 github 镜像（证明 ①>②）
+        # allowed_check 放行一切 → 主链 + 镜像都在
         assert dl.build_url_chain(
             asset, allowed_check=lambda _u: True, extra_hosts=[]
         ) == [asset["url"], asset["mirror"]]
-        # allowed_check 拒绝一切 → 即使 extra_hosts 给了镜像也拒绝（证明 ① 优先）
+        # allowed_check 拒绝一切 → 主链被拒；镜像因 version.json 的声明仍放行（v2.3.2）
         assert dl.build_url_chain(
             asset, allowed_check=lambda _u: False, extra_hosts=["mirror.example.com"]
-        ) == []
+        ) == [asset["mirror"]]
 
     def test_make_download_worker_forwards_extra_hosts(self, monkeypatch, tmp_path):
         """★ make_download_worker 把 extra_hosts 透传到 build_url_chain（核对）。"""
@@ -323,12 +361,17 @@ class TestPureFunctions:
             "sha256": "a" * 64,
             "size": 1,
         }
-        w_blocked = dl.make_download_worker(asset, "2.0.0")            # 默认 fail-closed
-        assert list(w_blocked._urls) == [asset["url"]]                 # noqa: SLF001
+        # v2.3.2：镜像来自 version.json 的声明 → 默认即进链（不再依赖 extra_hosts 才放行）
+        w_default = dl.make_download_worker(asset, "2.0.0")
+        assert list(w_default._urls) == [asset["url"], asset["mirror"]]   # noqa: SLF001
+        # 用户关掉镜像 → 只剩主链
+        w_nomirror = dl.make_download_worker(asset, "2.0.0", use_mirror=False)
+        assert list(w_nomirror._urls) == [asset["url"]]                   # noqa: SLF001
+        # extra_hosts 仍被透传（对"用户自配镜像"这条来源照旧生效）
         w_ok = dl.make_download_worker(
             asset, "2.0.0", extra_hosts=["mirror.example.com"]
         )
-        assert list(w_ok._urls) == [asset["url"], asset["mirror"]]     # noqa: SLF001
+        assert list(w_ok._urls) == [asset["url"], asset["mirror"]]        # noqa: SLF001
 
     def test_make_allowed_check_forwards_extra_hosts(self, monkeypatch):
         """make_allowed_check 以 extra_hosts 关键字委托域1 权威实现。"""

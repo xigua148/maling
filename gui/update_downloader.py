@@ -158,8 +158,45 @@ def build_url_chain(
     if use_mirror and isinstance(mirror, str) and mirror.strip():
         candidates.append(mirror.strip())
 
+    # v2.3.2: **version.json 里声明的镜像 host 也必须放行** —— 否则 `assets.*.mirror`
+    # 形同虚设：备用链会被域名白名单整条拦掉。
+    # （Q-U3 记的就是这个坑，但当时只处理了「用户自配 `cfg.mirror_url`」这一条来源，
+    #   漏了「发布方在 version.json 的 `assets.*.mirror` 里给的镜像」——
+    #   而 gui/main.py 是**显式传入** allowed_check 的，所以光改默认路径也不生效。）
+    #
+    # 信任边界：version.json 来自本项目自己的仓库（HTTPS），其声明的 host 可视为发布方
+    # 意图，与用户自配的 mirror_url 同级。这里做的是**叠加**而非绕过 ——
+    # 调用方传入的 allowed_check 对主链照旧生效，只是额外放行镜像 host。
+    mirror_hosts: list[str] = []
+    if use_mirror and isinstance(mirror, str) and mirror.strip():
+        try:
+            from gui.update_checker import extract_host  # 延迟 import：避免顺序耦合
+            h = extract_host(mirror)
+            if h:
+                mirror_hosts.append(h)
+        except Exception:
+            logger.info("取镜像 host 失败：镜像链将走默认白名单（大概率被拒）")
+
     # fail-closed：显式 allowed_check 优先；否则默认也吃域名白名单（不再 fail-open）
-    check = allowed_check if allowed_check is not None else make_allowed_check(extra_hosts)
+    base_check = allowed_check if allowed_check is not None else make_allowed_check(extra_hosts)
+
+    def check(url: str) -> bool:
+        """调用方检查 **或** 「version.json 声明的镜像 host」——任一放行即通过。
+
+        ⚠️ 这里**不能**写成 `make_allowed_check(mirror_hosts)(url)`：那个工厂的默认
+        白名单里含 GitHub 系域名，会把**主链**也一并放行，等于让调用方的拒绝失效
+        （实测被单测抓到：`allowed_check=lambda _u: False` 时主链仍进链）。
+        所以这里只做一件事 —— 比对 host 是否等于声明的镜像 host。
+        """
+        if base_check(url):
+            return True
+        if not mirror_hosts:
+            return False
+        try:
+            from gui.update_checker import extract_host  # 延迟 import：避免顺序耦合
+            return extract_host(url) in mirror_hosts
+        except Exception:
+            return False
 
     out: list[str] = []
     for url in candidates:
