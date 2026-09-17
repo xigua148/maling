@@ -343,6 +343,16 @@ class TrayManager(QObject):
                 chat_service.shutdown()
             except Exception:
                 logger.debug("静默降级：_on_quit 中忽略异常", exc_info=True)
+        # v2.2.3(内置 SillyTavern): 停掉内置页持有的 node 子进程 —— 托盘是「唯一真退出
+        # 入口」，此处漏掉就会留下孤儿 node.exe（方案 §12 验收 3）。页面侧 shutdown()
+        # 幂等；主窗 closeEvent 与 QApplication.aboutToQuit 另有两道兜底。
+        if mw is not None:
+            _st_shutdown = getattr(mw, "shutdown_sillytavern", None)
+            if callable(_st_shutdown):
+                try:
+                    _st_shutdown()
+                except Exception:
+                    logger.debug("静默降级：_on_quit 中忽略异常", exc_info=True)
         # v1.7(F3/D-V17-02/Q-C5): 深夜晚安托盘气泡（保存退出前、图标仍在时发；
         # 一次性、可关、错过不补、无气泡入会话）
         self._maybe_goodnight_ritual()

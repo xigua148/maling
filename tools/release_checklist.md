@@ -55,6 +55,12 @@
 - [ ] `pyinstaller --noconfirm --clean maid_coder_gui_onefile.spec` → `MaLing_single.exe`。
 - [ ] **门禁**：内含内嵌 updater **且** 内含字体 datas（见第 4/5 步核验项，⚠-10 修复）。
 - [ ] ⚠ **onefile 为便携模式，不内置 Pi 编程引擎**（Q-U10 裁决）——无需对 onefile 跑第 4b 步。
+- [ ] ⚠ **同一裁决的连带后果：便携版的内置酒馆（Silly Tavern）不可用**——ST 的启动依赖
+      `pi_runtime/node.exe`，而便携版不含 pi_runtime，故 `tavern_backend.find_bundled_node_exe()`
+      三个候选全部落空，点开「Silly Tavern」只会给出可读文案「找不到捆绑的 node.exe」（不崩溃）。
+      **处置（v2.2.3 裁决 A）**：第 7 步 Release 说明须**如实写明**「便携版不含内置酒馆，
+      需要该功能请下载桌面版 zip」。若将来改为在便携版内置酒馆：给 `maid_coder_gui_onefile.spec`
+      的 datas 补 `('_internal/pi_runtime', 'pi_runtime')`，代价是单文件包从 221MB 涨到约 400~500MB。
 
 ### 6. 压缩 onedir + 算 sha256 + 生成片段（一条命令）
 - [ ] `python tools/build_release.py --version X.Y.Z --dist-dir dist --out release`

@@ -46,3 +46,11 @@ class PageManager(QObject):
 
     def current_page_key(self) -> Optional[str]:
         return self._current_key
+
+    def page(self, key: str) -> Optional[QWidget]:
+        """按 key 取页面对象（不存在返回 ``None``），**不触发导航**。
+
+        v2.2.5 新增：供"非导航"场景使用 —— 目前是内置酒馆的启动预热
+        （要在用户没打开该页时，从外部戳一下它的 :meth:`warmup`）。
+        """
+        return self._pages.get(key)

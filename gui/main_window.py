@@ -52,6 +52,8 @@ from gui.pages.page_plan import PagePlan
 from gui.pages.page_memories import PageMemories  # v1.3(P2-3): 高光回忆册
 from gui.pages.page_memory_book import PageMemoryBook  # v1.6(P0-1): 透明记忆中心
 from gui.pages.page_tavern import PageTavern  # v2.2(V22-09): 酒馆（AI 陪伴叙事）
+# v2.2.3(内置 SillyTavern): 独立前端嵌入页（与上面旧酒馆页互不相干，方案 §14）
+from gui.pages.page_sillytavern import PageSillyTavern
 from gui.pages.onboarding import OnboardingDialog
 
 logger = logging.getLogger("maid_coder.gui")
@@ -340,6 +342,9 @@ class MainWindow(QMainWindow):
             ("tools", PageToolbox, "工具箱"),
             ("plan", PagePlan, "计划编辑器"),
             ("tavern", PageTavern, "酒馆"),  # v2.2(V22-09)
+            # v2.2.3(内置 SillyTavern): 侧栏入口名 = 用户指定的「Silly Tavern」。
+            # 构造只搭空壳（不起 node 进程），首次进入本页才启动（见页面 on_enter）。
+            ("sillytavern", PageSillyTavern, "Silly Tavern"),
         ]
 
         for key, cls, title in page_classes:
@@ -1232,4 +1237,24 @@ class MainWindow(QMainWindow):
                     chat_service.shutdown()
                 except Exception as exc:
                     logger.warning("关闭事件 shutdown 失败: %s", exc)
+        # v2.2.3(内置 SillyTavern): 关窗即真退出（无托盘 / close_quits=True）时，
+        # 停掉本页持有的 node 子进程 —— 否则退出后留下孤儿 node.exe（方案 §12 验收 3）。
+        # 托盘退出路径由 TrayManager._on_quit 负责；两处均幂等，重复调用无副作用。
+        self.shutdown_sillytavern()
         event.accept()
+
+    def shutdown_sillytavern(self) -> None:
+        """停掉内置 SillyTavern 页持有的 node 子进程（**幂等**，失败绝不阻断退出）。
+
+        页面可能尚未创建（早期异常）或从未启动过 —— 两种情况都静默跳过。
+        退出链共三处调用（本方法 / ``TrayManager._on_quit`` / 页面自身的
+        ``QApplication.aboutToQuit`` 收口），互为兜底。
+        """
+        try:
+            pages = getattr(self, "pages", None) or {}
+            page = pages.get("sillytavern") if hasattr(pages, "get") else None
+            fn = getattr(page, "shutdown", None)
+            if callable(fn):
+                fn()
+        except Exception:
+            logger.debug("静默降级：shutdown_sillytavern 中忽略异常", exc_info=True)

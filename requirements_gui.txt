@@ -21,6 +21,9 @@
 
 # ---- GUI 核心（必需）----
 PySide6>=6.5
+# v2.2.3: 内置 SillyTavern 页的内嵌浏览器（QWebEngineView）；版本与上面的 PySide6 对齐，
+#         不拉新版（两个包必须同版本，否则 Qt 运行库不匹配）。
+PySide6-WebEngine>=6.5
 pygments>=2.16
 
 # ---- 可选：联网搜索（不装则搜索命令降级）----

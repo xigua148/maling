@@ -1,0 +1,56 @@
+api:
+  provider: deepseek
+  key: ''
+  url: https://api.deepseek.com/chat/completions
+  model: deepseek-v4-flash
+  max_tokens: 4096
+  temperature: 0.7
+  retry_times: 3
+session:
+  max_history_rounds: 8
+  summary_interval: 5
+  auto_save: true
+  workspace: .
+output:
+  speed: normal
+  colors: true
+  debug: false
+  show_token_usage: true
+  stream_mode: false
+multi_model:
+  enabled: false
+  parallel_gen_review: true
+  judge_threshold: 0.7
+web_search:
+  enabled: true
+  max_results: 5
+  # v1.5.0 搜索引擎优先级：博查(填了 key 才启用) > cn.bing.com 网页解析(默认) > ddgs(海外备选)
+  # 博查 API Key 申请：https://open.bochaai.com ；留空则走 Bing 解析，无需任何配置
+  bocha_api_key: ''
+code:
+  exec_enabled: false
+  exec_timeout: 5
+safety:
+  command_safety_mode: blacklist
+agent:
+  enabled: false
+  max_steps: 8
+  # v1.2(C1): run_command 单条命令超时（秒），超时即 kill 进程树
+  # 注：run_command 命令白名单(python/python3/pytest/node)为 design-v12 D3 定稿常量集，
+  #     不开放配置，需调整走代码 review。
+  command_timeout: 30
+  # v1.2(C2): 步骤失败后 C2 内层自愈最大轮数，超限即该步 failed 并上报卡点（不自动跳过）
+  max_retries: 3
+  # v1.2(A9): 有节制主动陪伴（运行态计数存 companion.json.proactive，本段只存偏好/阈值）
+  proactive:
+    enabled: true
+    quiet:
+      start: "22:30"
+      end: "08:00"
+    daily_cap: 3
+    idle_minutes: 90
+    cooldown_minutes: 60
+    llm_enhance: false
+    # v1.3(P1-4): Idle 问候（系统全局空闲恢复时一句迎接；与 A9 共享冷却/上限）
+    idle_return_enabled: true
+    system_idle_minutes: 30

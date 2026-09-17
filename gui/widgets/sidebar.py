@@ -125,7 +125,26 @@ class SidebarWidget(QWidget):
         #   · U+2699 与设置语义同族（gui/pages/page_home.py:728 的「⚙ 模型设置」同字符）。
         ("tools",       "工具",     "tune",         "\U0001F527"),  # 🔧
         ("settings",    "设置",     "settings",     "\u2699"),      # ⚙
+        # v2.2.3(内置 SillyTavern): 用户指定的入口名 —— 就是字符串「Silly Tavern」
+        #   （含空格，**不**译成中文、不改写）。**纯追加**在末位：既有 11 项的
+        #   key/label/顺序逐项零变更（v2.2 的「tavern 是 plan→agent 之间的纯插入」
+        #   契约因此不受影响）。
+        #   图标：矢量取 question_answer（对话气泡，manifest 已登记语义名），与旧
+        #   「酒馆」项的 glass（酒杯）不重名；图标字体不可用时回退 🎭（扮演 —— ST 是
+        #   角色扮演前端），两项的回退字符亦不重复。
+        ("sillytavern", "Silly Tavern", "question_answer", "\U0001F3AD"),  # 🎭
     ]
+
+    #: 侧栏条目的悬停说明（v2.2.3）。键与 NAV_ITEMS 的 key 对齐，未登记则无提示。
+    #: **刻意独立于 NAV_ITEMS**：后者的 4 元结构自 v2.1 起冻结（[0]key / [1]label 语义
+    #: 被多处测试断言），塞第 5 个元素会打破契约，故另开一张表。
+    #: 这里同时承担「语义区分」职责 —— 「旧酒馆」与「Silly Tavern」都是角色扮演向入口，
+    #: 用户容易混，悬停一句话说清各自定位（前者是项目自研的轻量剧情引擎，后者是原样
+    #: 捆绑的第三方专业前端）。
+    NAV_TOOLTIPS = {
+        "tavern": "内置轻量剧情引擎：本地成书式文字冒险，角色与进度都存本机",
+        "sillytavern": "SillyTavern 1.19.0（专业角色扮演前端）：独立进程，仅本机回环访问",
+    }
 
     def __init__(self, app_context, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -172,6 +191,9 @@ class SidebarWidget(QWidget):
             item.setData(_ROLE_LABEL, label)
             item.setData(_ROLE_FALLBACK, fallback_text)
             self._apply_nav_item_icon(item, selected=False, enabled=True)
+            _tip = self.NAV_TOOLTIPS.get(key)
+            if _tip:
+                item.setToolTip(_tip)
             self.list_widget.addItem(item)
 
         self.list_widget.currentRowChanged.connect(self._on_row_changed)

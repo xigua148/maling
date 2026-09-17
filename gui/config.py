@@ -56,6 +56,12 @@ class GuiConfig:
         self.hotkey_toggle: str = "Ctrl+Alt+M"       # 全局呼出/隐藏主窗
         self.hotkey_screenshot: str = "Ctrl+Alt+S"   # 截图提问热键
         self.close_quits: bool = False               # 「关闭窗口直接退出」默认不勾 = X 隐藏到托盘
+        # ---- v2.2.5: 内置酒馆启动预热 ----
+        # 冷启动实测 14~52s（webpack 编译前端是每次启动的固定成本），"点开才开始启"会让
+        # 用户对着加载态干等。开启后在应用启动满 WARMUP_DELAY_S 秒时**后台**预启（走既有
+        # 的异步启动线程，不卡 UI），用户点开时通常已就绪。
+        # 代价：若用户始终不开酒馆，会常驻一个 node 进程（约 30~50MB）—— 故做成开关。
+        self.tavern_warmup: bool = True
         # ---- v1.3 P2-7: 外观模式 ----
         self.theme_mode: str = "light"               # light / dark / system（默认浅色，不改旧用户观感）
         # ---- v1.9 A(D-V19-11/Q-E2): 进入 C 深色夜间（ui_night）前的原外观模式暂存 ----
@@ -175,6 +181,8 @@ class GuiConfig:
             "hotkey_toggle": self.hotkey_toggle,
             "hotkey_screenshot": self.hotkey_screenshot,
             "close_quits": self.close_quits,
+            # v2.2.5: 内置酒馆启动预热开关
+            "tavern_warmup": self.tavern_warmup,
             # v1.3 P2-7 / P2-5
             "theme_mode": self.theme_mode,
             # v1.9 A(D-V19-11): C 深色夜间进出暂存原外观模式

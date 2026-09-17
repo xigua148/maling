@@ -645,6 +645,7 @@ def _quit_stop_services(app_ctx: AppContext) -> None:
     顺序契约：先停产生事件的源（QTimer / worker 线程 / 音频），再动 UI 对象。
     每步 try/except 独立包裹（单步失败不阻断后续），日志留 QUIT-stop-* 轨迹。
     幂等：托盘退出（tray._on_quit）已调 chat_service.shutdown()，此处重复无害。
+    v2.2.3 追加第 6 步（内置 SillyTavern 的 node 子进程停机），更新编排仍为末步。
     """
     # 1) proactive_scheduler：QTimer.stop（aboutToQuit 在主线程 ✓；防退出后 tick 再触 UI/交付）
     try:
@@ -705,7 +706,19 @@ def _quit_stop_services(app_ctx: AppContext) -> None:
             ctrl.shutdown()
     except Exception as exc:
         logger.warning("退出时番茄钟控制器停表失败: %s", exc)
-    # 6) v2.0(D-V20-09/V20-13): 更新编排末步 —— 待安装且校验通过则写 plan.json 并拉起 sidecar。
+    # 6) v2.2.3(内置 SillyTavern): 停掉该页持有的 node 子进程 —— 否则退出后留下孤儿
+    #    node.exe（方案 §12 验收 3）；且须**早于**更新编排（node 位于安装目录内，
+    #    留着会干扰 sidecar 换包）。页面 shutdown() 幂等，与托盘 / 主窗 closeEvent
+    #    两道调用互为兜底；无主窗 / 无该页时静默跳过。
+    try:
+        mw = getattr(app_ctx, "main_window", None)
+        shutdown_st = getattr(mw, "shutdown_sillytavern", None)
+        if callable(shutdown_st):
+            shutdown_st()
+            logger.info("QUIT-stop-sillytavern: 内置酒馆 node 子进程已停")
+    except Exception as exc:
+        logger.warning("QUIT-stop-sillytavern 失败（继续）: %s", exc)
+    # 7) v2.0(D-V20-09/V20-13): 更新编排末步 —— 待安装且校验通过则写 plan.json 并拉起 sidecar。
     #    ⚠ 严格追加在既有 5 步之后（既有顺序与实现零变更，R-D）；本步 try/except，失败静默。
     try:
         _maybe_launch_updater(app_ctx)
@@ -1068,6 +1081,35 @@ def _arm_confirm_handshake(app: QApplication, app_ctx: AppContext) -> None:
         QTimer.singleShot(0, _do)
     except Exception as exc:
         logger.warning("更新举手装配失败（忽略）: %s", exc)
+
+
+#: v2.2.5: 内置酒馆启动预热的延迟（秒）。取值兼顾两头 —— 足够晚，别和启动期的更新
+#: 编排/首屏渲染抢 IO；足够早，让"启动后先看两眼再点酒馆"这一常见节奏能命中已就绪。
+TAVERN_WARMUP_DELAY_S = 60
+
+
+def _arm_tavern_warmup(app_ctx: AppContext) -> None:
+    """安排一次内置酒馆启动预热（v2.2.5）。
+
+    这里只负责"延迟到点后戳一下页面"，**不复制**任何启动逻辑：开关判断、是否已启动、
+    失败静默、退出清理全在 ``PageSillyTavern`` 自己身上（它的 ``warmup`` 与 ``boot``
+    共用同一条启动路径与同一套降级）。拿不到页面就静默跳过 —— 这是优化项。
+    """
+    try:
+        from PySide6.QtCore import QTimer
+
+        manager = getattr(app_ctx, "page_manager", None)
+        page = manager.page("sillytavern") if manager is not None else None
+        if page is None or not hasattr(page, "warmup"):
+            logger.debug("未找到内置酒馆页，跳过启动预热")
+            return
+        # 把 page 作为 context 传入：万一页面先于定时器销毁，回调直接不执行，
+        # 不会去访问已释放的 Qt 对象（同类悬垂引用已在本批次踩过一次）。
+        QTimer.singleShot(int(TAVERN_WARMUP_DELAY_S * 1000), page, page.warmup)
+        logger.info("内置酒馆预热已安排（%d 秒后触发，可在设置里关闭）",
+                    TAVERN_WARMUP_DELAY_S)
+    except Exception as exc:  # noqa: BLE001 - 优化项，任何异常都不该影响启动
+        logger.debug("安排内置酒馆预热失败（忽略）: %s", exc)
 
 
 def _start_update_check(app_ctx: AppContext, window, state=None) -> None:
@@ -1482,6 +1524,17 @@ def main() -> int:
     # 高 DPI 适配
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 
+    # v2.2.3(内置 SillyTavern / 方案 §13「QtWebEngine 初始化顺序」):
+    # QtWebEngine 必须在 **QApplication 创建之前** 完成一次 import —— 否则
+    # QtWebEngineCore 的初始化时机不对，QWebEngineView 可能创建失败或白屏。
+    # 页面侧仍是惰性 import（只在真正上屏时建控件），此处只做「提前 import 一次」。
+    try:
+        import PySide6.QtWebEngineWidgets  # noqa: F401
+        logger.info("QtWebEngine 已提前初始化（内置 SillyTavern 页使用）")
+    except Exception as exc:
+        # 缺 PySide6-WebEngine 不阻断启动：该页会显示「缺少内置浏览器组件」+ 重试按钮。
+        logger.warning("QtWebEngine 不可用（内置 SillyTavern 页将不可用）: %s", exc)
+
     app = QApplication(sys.argv)
     app.setApplicationName("MaLing")
     app.setApplicationDisplayName("码铃")
@@ -1666,6 +1719,9 @@ def main() -> int:
 
     # v2.0(D-V20-14/L1-1): 启动检查段——24h 节奏闸 + 生效频道（主窗已显示后异步，绝不阻塞）。
     _start_update_check(app_ctx, window, state=_update_state)
+
+    # v2.2.5: 内置酒馆启动预热（延迟触发；开关/降级/清理都在页面自己身上）。
+    _arm_tavern_warmup(app_ctx)
 
     return app.exec()
 

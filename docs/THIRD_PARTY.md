@@ -14,6 +14,15 @@
 | 2048（tangentecode/2048-pyqt6） | https://github.com/tangentecode/2048-pyqt6 | main @ 6c5e67c0642bd94e91c4595565bdfca1ecc98a76 | MIT | `Copyright (c) 2024 jøhann` | `gui/widgets/games/game_2048.py` + `docs/third_party_licenses/tangentecode_2048-pyqt6.txt` | PyQt6 → PySide6 单文件 QWidget；去 StartWindow 选单与 3x3/5x5/6x6；固定 4x4；WASD/方向键保留；经典瓦片配色保留；仅保留局内「当前得分」（Q-A1 豁免，不落盘）；壳面换 theme_color；合成 2048 一句庆祝 | 2026-09-04 | 工程师 A（寇豆码） |
 | 扫雷（dawsonbooth/pynsweeper） | https://github.com/dawsonbooth/pynsweeper | master @ 618c22b32c1f2c146978893ef38639f68baf685a | MIT | `Copyright (c) 2020 Dawson Booth` | `gui/widgets/games/game_minesweeper.py` + `docs/third_party_licenses/dawsonbooth_pynsweeper.txt` | PyQt5 → PySide6 单文件 QWidget；去 Windows XP 复古皮图片资产（全部重绘，A4 评审项 ④）；去计时器/胜利记录/ScoreBoard；保留剩余雷数 + 右键标旗 + 零扩散翻开；默认 9x9/10 雷（首版无难度切换）；棋盘/数字中性色 + 壳面 theme_color | 2026-09-04 | 工程师 A（寇豆码） |
 | Pi Coding Agent Runtime（@earendil-works/pi-coding-agent） | https://github.com/earendil-works/pi | npm 0.85.1（随桌面包分发） | MIT | `Copyright (c) 2025 Mario Zechner` | `dist/maling/_internal/pi_runtime/node_modules/@earendil-works/pi-coding-agent/` + `docs/third_party_licenses/earendil-works_pi-coding-agent.txt` | 作为独立 Node.js Agent Runtime 随发行包分发；本项目未修改其源码 | 2026-09-14 | 主理人 |
+| SillyTavern（内置酒馆） | https://github.com/SillyTavern/SillyTavern | `release` 分支 @ `06bde939fb1e9c4c8d8641d810f0a916b5bce127`（tag `1.19.0` = `7e8663cd9c184a550b37238218bdd32c6efc68e9`） | **AGPL-3.0**（⚠️ 非白名单许可，经「纯外部运行时依赖」口径 R-H 豁免后纳入，见下） | 见 `vendor/sillytavern/LICENSE`（AGPL-3.0 标准版权行） | `vendor/sillytavern/`（源码树；`node_modules/` 为构建输入、由 .gitignore 排除）+ `docs/third_party_licenses/sillytavern_AGPL-3.0.txt` | **零改动**：与上游发布包逐字节一致。作为独立 Node.js 进程仅在本机回环（127.0.0.1）提供服务，由应用内嵌浏览器经本机 HTTP 访问；本项目未修改、未链接、未派生其代码 | 2026-09-17 | 主理人（R-H 豁免） |
+
+> **R-H 豁免说明（SillyTavern）**：第 4 行白名单针对的是「**移植 / 改写他人源码进本项目**」。
+> SillyTavern 属于第 6 行已预留的「**纯外部运行时依赖**」形态（与 PySide6/LGPL 同口径）：
+> 独立进程 + 本机 HTTP + 未修改源码，**不构成衍生作品**，故不落入白名单的排除范围。
+> 本项经主理人于 2026-09-17 援引该既有口径签发豁免，并配套完成：AGPL 全文随包
+> （`_internal/sillytavern/LICENSE`）+ 源树副本（`docs/third_party_licenses/sillytavern_AGPL-3.0.txt`）
+> + 仓库根 `NOTICE` 第五节登记 + `package-lock.json` 哈希固定的可复现配方。
+> **边界**：一旦形态改变（同进程加载、链接其代码、或修改其源码），豁免立即失效，须转 §7 流程重评。
 
 ### 核验记录
 
@@ -25,6 +34,17 @@
   - 仓库页 https://github.com/dawsonbooth/pynsweeper （README License 段指向 LICENSE）
   - LICENSE 原文 https://raw.githubusercontent.com/dawsonbooth/pynsweeper/master/LICENSE （2026-09-04 读取，MIT License / Copyright (c) 2020 Dawson Booth）
   - 源码：`src/constants.py` / `src/main.py` / `src/utils.py`（无文件级版权头，版权行以 LICENSE 为准）
+- **SillyTavern**：本地树声明 `"license": "AGPL-3.0"`（`vendor/sillytavern/package.json`），
+  随树的 `LICENSE` 首行为 `GNU AFFERO GENERAL PUBLIC LICENSE / Version 3, 19 November 2007`。核验：
+  - **版本锚点（可验证，非仅引用）**：本地 `package-lock.json` 的 sha256 =
+    `5ee4095a82d2b326e30290480b33529553cba60d2f418bc086ed3c08d874d888`，与上游
+    `release` 分支 HEAD（`06bde939…`）及 tag `1.19.0`（`7e8663cd…`）取回的同一文件
+    **逐字节一致**（2026-09-17 经 GitHub API 取回比对）→ 坐实本地树对应上述 commit。
+  - **零改动**：与上游发布包逐字节比对，1010 个源码文件 0 内容差异 / 0 缺失 / 0 多余
+    （独立复核，不采信 mtime 论证）。
+  - **依赖树**：`node_modules` 667 个非 dev 包与 `package-lock.json` 闭包对账 **0 缺失**；
+    许可审计覆盖 730 个真实包，728 个为宽松许可。
+  - **源码获取**：分发包内已随附完整源码（含 `node_modules`），上游对应版本见上表 commit / tag。
 
 ### 评审清单（design-v14 共享知识 19 逐条）
 

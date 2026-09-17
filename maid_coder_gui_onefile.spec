@@ -15,6 +15,25 @@
 
 block_cipher = None
 
+# 首次运行的配置模板（gui/main.py:97 以相对路径 Path("config.yaml") 读写）。
+# ⚠️ config.yaml 被 .gitignore 忽略（可能含用户 API Key）→ **从仓库 clone 后它并不存在**，
+# 而 datas 指向不存在的文件会让构建直接失败（开源后"别人 clone 下来构建不了"的经典坑）。
+# 故：优先用本机 config.yaml，缺失则回退到入库的 config.example.yaml，并统一**暂存为
+# config.yaml** 再入包 —— datas 只能指定「源文件 + 目标目录」、无法重命名，不暂存的话
+# 包里会变成 config.example.yaml，而应用读的是 config.yaml。
+# 暂存目录落在 build/ 下（已被 .gitignore 覆盖），不污染仓库根。
+from pathlib import Path as _Path
+import shutil as _shutil
+
+_SPEC_DIR = _Path(globals().get("SPECPATH", "."))
+_cfg_src = _SPEC_DIR / "config.yaml"
+if not _cfg_src.is_file():
+    _cfg_src = _SPEC_DIR / "config.example.yaml"
+_CFG_STAGE = _SPEC_DIR / "build" / "_cfg_stage"
+_CFG_STAGE.mkdir(parents=True, exist_ok=True)
+_CONFIG_TEMPLATE = _CFG_STAGE / "config.yaml"
+_shutil.copy(_cfg_src, _CONFIG_TEMPLATE)
+
 a = Analysis(
     ['gui/main.py'],
     pathex=[],
@@ -35,9 +54,10 @@ a = Analysis(
         # ("assets/maling.ico") 落空 -> setWindowIcon 静默失败 -> 任务栏/托盘
         # 显示默认图标（gui/main.py:368 app.setWindowIcon）
         ('gui/assets/maling.ico', 'assets'),
-        # 首次运行的配置模板：gui/main.py:97 以相对路径 Path("config.yaml") 读写，
+        # 首次运行的配置模板：源文件由上方 _CONFIG_TEMPLATE 决定（优先 config.yaml，
+        # 缺失则回退 config.example.yaml，见该处注释）。
         # 实际生效的是 exe 同目录下自动生成的副本（见 README「路径行为」小节）
-        ('config.yaml', '.'),
+        (_CONFIG_TEMPLATE, '.'),
         # v1.4.8: 版本号单源
         ('version.json', '.'),
         # v2.1.1: 单文件自解压目录内也提供 NOTICE / LICENSE，确保分发组件归属可查。
@@ -67,6 +87,27 @@ a = Analysis(
         # onefile 下 datas 进自解压 _MEIPASS → 运行时 _MEIPASS/updater/maling_updater.exe；
         # 与 gui/main.py:977 get_resource_path("updater") + ensure_self_installed 布局对齐。
         ('dist_updater/maling_updater.exe', 'updater'),
+        # ---- v2.2.x: 内置 SillyTavern（施工方案 §10；与 onedir.spec 对齐）----
+        # ST 整包（含 node_modules）收进自解压 _MEIPASS → 运行时 _MEIPASS/sillytavern/。
+        # 目标目录必须**恰好**是 'sillytavern'（与 onedir.spec 一致），否则
+        # tavern_backend.find_bundled_st_dir() 在打包态找不到 server.js。
+        # ⚠️ **onefile 便携版不内置 Pi 运行时**（发版清单第 5 步 Q-U10 裁决：无需对 onefile
+        # 跑第 4b 步 `copy_pi_runtime.py --dist`）。而 ST 的启动依赖 pi_runtime/node.exe，
+        # 故本包内**没有** _MEIPASS/pi_runtime/node.exe → tavern_backend.find_bundled_node_exe()
+        # 三个候选全部落空 → 便携版的「Silly Tavern」入口会给出可读文案「找不到捆绑的 node.exe」
+        # （不崩溃，但功能不可用）。Release 说明须如实写明这一点。
+        # 保留本 datas 的理由：① 与 onedir.spec 保持一致，避免将来改动漏项；② 一旦决定给
+        # onefile 补 pi_runtime（代价：便携包 221MB → 约 400~500MB），ST 已在位即可直接工作。
+        # ⚠️ 取舍（方案 §13）：onefile 每次启动都要把这 500~600MB 解压到临时目录，首启会
+        # 明显变慢。正式分发建议只用 onedir（maid_coder_gui.spec）。
+        # ⚠️ 本阶段**不做任何裁剪**：不要排除 *.md / sourcemap —— 排除 *.md 会批量删掉
+        # 第三方 LICENSE 文件，违反 AGPL-3.0 §4 "keep intact all notices"。裁剪留到后续独立任务。
+        ('vendor/sillytavern', 'sillytavern'),
+        # Node 运行时兼容补丁：tavern_backend 以 `node --require <此文件>` 注入。
+        # onefile 下 datas 进 _MEIPASS → 运行时 _MEIPASS/maling_node_compat.cjs，与
+        # tavern_backend.node_compat_candidates() 的第一候选一致。
+        # 缺它会让 ST 在非 ASCII 路径下 fs.cpSync 静默硬崩溃（nodejs/node#54476），故必须随包分发。
+        ('maling_node_compat.cjs', '.'),
     ],
     hiddenimports=[
         # ---- 语音输入（动态导入，必须显式声明）----

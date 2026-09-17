@@ -907,6 +907,12 @@ class PageSettings(QWidget):
         # v2.0(D-V20-03/§5.1): 更新区（检查三态 / 频道 / 开关 / 更新源 / 清理缓存）
         self._build_update_section(layout)
 
+        # v2.2.5: 内置酒馆区（启动预热开关）
+        self._build_tavern_section(layout)
+
+        # v2.2.5: 诊断区（导出诊断包，排障时一次收齐证据）
+        self._build_diagnostics_section(layout)
+
         # 关于
         about_frame = self._create_section("关于")
         about_layout = about_frame.layout()
@@ -949,6 +955,93 @@ class PageSettings(QWidget):
     # ==================================================================
     # v2.0(D-V20-03 / design-v20 §5.1): 「更新」区
     # ==================================================================
+    # ==================================================================
+    # v2.2.5: 内置酒馆
+    # ==================================================================
+    def _build_tavern_section(self, layout) -> None:
+        """「内置酒馆」分区：启动预热开关。
+
+        冷启动需 15~50 秒（其中编译前端是每次启动的固定成本），"点开才开始启"会让用户
+        对着加载态干等。预热把这段等待挪到用户看不见的地方；代价是若用户始终不开酒馆，
+        会常驻一个 node 进程（约 30~50MB）—— 所以做成开关而不是写死。
+        """
+        frame = self._create_section("内置酒馆")
+        box = frame.layout()
+
+        self.tavern_warmup_check = QCheckBox("启动后预热（约 1 分钟后后台预启，点开即用）")
+        self.tavern_warmup_check.setToolTip(
+            "冷启动需要 15~50 秒（编译前端）。开启后会在你还没打开酒馆时先把它启起来，\n"
+            "点开后通常已就绪；代价是常驻一个 node 进程（约 30~50MB）。\n"
+            "关闭后改为「点开时才启动」。")
+        self.tavern_warmup_check.stateChanged.connect(self._on_tavern_warmup_changed)
+        box.addWidget(self.tavern_warmup_check)
+
+        layout.addWidget(frame)
+
+    def _on_tavern_warmup_changed(self, state: int) -> None:
+        """预热开关变更 → 写配置并落盘（与页内其他开关同款即时保存模式）。"""
+        config = getattr(self.app_ctx, "config", None)
+        if config is None:
+            return
+        config.tavern_warmup = self.tavern_warmup_check.isChecked()
+        try:
+            config.save()
+        except Exception:
+            logger.debug("静默降级：_on_tavern_warmup_changed 中忽略异常", exc_info=True)
+
+    # ==================================================================
+    # v2.2.5: 诊断包
+    # ==================================================================
+    def _build_diagnostics_section(self, layout) -> None:
+        """「诊断」分区：一键导出诊断包。
+
+        收的是排障真正要用的东西：应用日志尾部、**内置酒馆的服务端输出**（由
+        ``page_sillytavern`` 注册的 provider 提供 —— 日志侧因 handler 级别是 INFO
+        而落不了盘）、环境与路径、进程树、以及**脱敏后**的配置。凭据类值一律替换为
+        ``<redacted>``，可直接发给开发者定位问题。
+        """
+        frame = self._create_section("诊断")
+        box = frame.layout()
+
+        tip = QLabel("遇到问题时导出诊断包：内含日志、内置酒馆输出、环境与进程信息，"
+                     "配置中的凭据类值已脱敏。")
+        tip.setWordWrap(True)
+        box.addWidget(tip)
+
+        row = QHBoxLayout()
+        self.diag_btn = QPushButton("导出诊断包")
+        self.diag_btn.setCursor(Qt.PointingHandCursor)
+        self.diag_btn.clicked.connect(self._on_export_diagnostics)
+        row.addWidget(self.diag_btn)
+        self.diag_hint = QLabel("")
+        self.diag_hint.setWordWrap(True)
+        row.addWidget(self.diag_hint, 1)
+        box.addLayout(row)
+
+        layout.addWidget(frame)
+
+    def _on_export_diagnostics(self) -> None:
+        """生成诊断包 → 提示路径并打开所在目录（失败给可读文案，**绝不抛到界面上**）。"""
+        self.diag_hint.setText("正在收集…")
+        try:
+            from gui.diagnostics import build_bundle
+
+            providers = getattr(self.app_ctx, "diagnostics_providers", None) or {}
+            path = build_bundle(providers=providers, app_ctx=self.app_ctx)
+            self.diag_hint.setText(f"已导出 {path.name}（在 {path.parent}）")
+            logger.info("诊断包已导出: %s", path)
+            # 顺手打开所在目录，省得用户去翻路径（打不开不影响导出本身）
+            try:
+                from PySide6.QtCore import QUrl
+                from PySide6.QtGui import QDesktopServices
+
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
+            except Exception:
+                logger.debug("打开诊断包目录失败（忽略）", exc_info=True)
+        except Exception as exc:  # noqa: BLE001 - 导出失败不能让设置页崩
+            logger.warning("导出诊断包失败: %s", exc, exc_info=True)
+            self.diag_hint.setText(f"导出失败：{exc}")
+
     def _build_update_section(self, layout) -> None:
         """构建「更新」区（当前版本 / 检查三态 / 频道 / 开关 / 更新源 / 清理缓存）。"""
         from gui.update_checker import detect_install_form
@@ -1860,6 +1953,14 @@ class PageSettings(QWidget):
                 logger.debug("静默降级：_load_settings 中忽略异常", exc_info=True)
         if hasattr(self, "close_quits_check"):
             self.close_quits_check.setChecked(bool(getattr(config, "close_quits", False)))
+        # v2.2.5: 内置酒馆启动预热开关回显（阻塞信号：回显不该触发保存）
+        if hasattr(self, "tavern_warmup_check"):
+            self.tavern_warmup_check.blockSignals(True)
+            try:
+                self.tavern_warmup_check.setChecked(
+                    bool(getattr(config, "tavern_warmup", True)))
+            finally:
+                self.tavern_warmup_check.blockSignals(False)
         # v2.1(P1/D-V21-01): 滚轮守卫开关回显（阻塞信号：回显不触发保存/即时生效）
         if hasattr(self, "wheel_guard_check"):
             self.wheel_guard_check.blockSignals(True)

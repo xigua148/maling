@@ -73,7 +73,39 @@ Apache-2.0 许可全文见 gui/assets/icons/LICENSE 与 docs/third_party_license
 如需各依赖的完整许可文本，请访问其对应的 PyPI / 上游仓库页面。
 
 
-五、参考但未复制代码的项目
+五、SillyTavern（AGPL-3.0，原样捆绑的独立 Node 服务）
+------------------------------------------------------
+
+| 组件 | 来源 | 许可 | 版本 / 锚点 | 随包位置 |
+|---|---|---|---|---|
+| SillyTavern | github.com/SillyTavern/SillyTavern | **AGPL-3.0** | 1.19.0（`release` 分支 @ `06bde939fb1e9c4c8d8641d810f0a916b5bce127`；tag `1.19.0` = `7e8663cd9c184a550b37238218bdd32c6efc68e9`） | 桌面版 `_internal/sillytavern/` |
+
+SillyTavern（含其 `node_modules/` 依赖树）由本项目**原样捆绑、未做任何修改**，作为独立的
+Node.js 进程仅在本机回环地址（127.0.0.1）提供服务，由应用内嵌浏览器访问。本项目与它之间
+仅通过本机 HTTP 交互，不构成衍生作品。
+
+- **未修改声明**：随包的 SillyTavern 源码树与上游发布包**逐字节一致**（独立比对：1010 个源码
+  文件，0 内容差异 / 0 缺失 / 0 多余），本项目未增删改其中任何文件。
+- **AGPL-3.0 全文**：随包于 `_internal/sillytavern/LICENSE`；源树副本见
+  `docs/third_party_licenses/sillytavern_AGPL-3.0.txt`。
+- **源码获取**：本分发包内**已随附 SillyTavern 的完整源码**（即 `_internal/sillytavern/` 整棵树，
+  含全部 `node_modules`）。上游对应版本源码见上述 commit / tag。
+- **可复现配方**：`package.json` + `package-lock.json`（其 sha256 =
+  `5ee4095a82d2b326e30290480b33529553cba60d2f418bc086ed3c08d874d888`，已独立复核）+ `npm ci --omit=dev`。
+- **依赖树**：`node_modules` 共 667 个非 dev 包；许可审计结论为 728/730 属宽松许可，唯一需登记的
+  关注项是 `ip-matching`（LGPL-3.0-only，用户可直接替换该目录下的模块；LGPL-3.0 许可文本见
+  https://www.gnu.org/licenses/lgpl-3.0.html）。
+- **WebAssembly 依赖清单**（AGPL §1 对 Corresponding Source 从严解释时宜一并提供；下列包本身均为
+  宽松许可，不触发 AGPL 的源码提供义务）：`@jsquash/avif@1.3.0`、`@jsquash/jpeg@1.5.0`、
+  `@jsquash/oxipng@2.3.0`、`@jsquash/png@3.0.1`、`@jsquash/webp@1.4.0`（均 Apache-2.0）、
+  `onnxruntime-web@1.14.0`（MIT）、`sillytavern-transformers@2.14.6`（Apache-2.0）、
+  `tiktoken@1.0.22`（MIT）。源码可自 npm registry 或各自上游仓库获取。
+- **⚠️ 原样捆绑的边界**：**不得**对 `vendor/sillytavern` 按 `*.md` 之类的通配规则排除文件 ——
+  大量依赖包的许可文本名为 `LICENSE.md` / `README.md`，删除会违反 AGPL-3.0 §4
+  "keep intact all notices"，并把"原样捆绑"变成"已修改"。本阶段不做任何裁剪。
+
+
+六、参考但未复制代码的项目
 ----------------------------
 
 | 参考 | 说明 |

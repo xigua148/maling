@@ -34,3 +34,10 @@ class AppContext:
     current_project_root: Optional[str] = None
     current_file_path: Optional[str] = None
     current_role: str = "default"
+
+    # v2.2.5: 诊断包（gui/diagnostics.py）的**运行时信息段**：段名 -> 取文本的可调用。
+    # 页面在这里注册"只有它自己拿得到"的信息 —— 典型是内置酒馆的服务端输出：
+    # tavern_backend 以 DEBUG 级记录 node 的 stdout，而文件 handler 是 INFO 级，
+    # 于是打包态**根本落不了盘**（v2.2.3 排障时就因此少了一条关键线索）。
+    # 诊断包按段名各写一个文件，单个段取失败只降级该段、不影响整包。
+    diagnostics_providers: dict = field(default_factory=dict)

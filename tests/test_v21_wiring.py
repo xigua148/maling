@@ -6,7 +6,9 @@
     **移除 glass 动态属性且不设材质**（monkeypatch glass 模块级函数）；
   · 不支持 / 应用失败环境**不崩、不黑窗**（不设属性 → 纯色）；
   · 透明度互斥：玻璃生效 → 锁 100%；不生效 → 恢复 ``cfg.window_opacity``；
-  · ``NAV_ITEMS`` 每项长度为 4，且 ``[0]key``/``[1]label`` 与改动前一致；
+  · ``NAV_ITEMS`` 每项长度为 4，且 ``[0]key``/``[1]label`` 与改动前一致
+    （v2.2.3 起口径 = **契约超集**：既有基线按原顺序逐项保留 + 新入口在列，
+    不再写死导航项总数 —— 详见 ``test_nav_items_are_four_tuples_key_label_unchanged``）；
   · 图标不可用时侧栏回退文本非空（绝不空白）；
   · 切页过渡在 ``motion`` off 档下直接终态（不创建动画 / 不残留 effect）；
   · 切页过渡在 ``motion`` standard 档下：**毛玻璃关**保留淡入、**毛玻璃开**不做
@@ -43,6 +45,11 @@ _NAV_BASELINE = [
     ("plan", "计划"), ("tavern", "酒馆"), ("agent", "角色"),
     ("tools", "工具"), ("settings", "设置"),
 ]
+
+#: v2.2.3 新增的侧栏入口（用户指定文案「Silly Tavern」，含空格；纯追加在末位）。
+#: 矢量图标 = ``question_answer``（对话气泡，icons_manifest.json 已登记语义名）；
+#: 回退字符 = U+1F3AD（🎭 扮演 —— ST 是角色扮演前端，与旧酒馆项的 🍷 不重复）。
+_SILLYTAVERN_NAV_ITEM = ("sillytavern", "Silly Tavern", "question_answer", "\U0001F3AD")
 
 
 # ---------------------------------------------------------------------------
@@ -433,15 +440,30 @@ def test_status_bar_text_intact_and_icons_hidden_when_unavailable(main_window, m
 # V21-09 · NAV_ITEMS 4 元组 + 回退链
 # ---------------------------------------------------------------------------
 def test_nav_items_are_four_tuples_key_label_unchanged():
-    """③ 每项长 4；[0]key/[1]label 与改动前一致；[3]回退文本非空。"""
+    """③ 每项长 4；[0]key/[1]label 与改动前一致；[3]回退文本非空。
+
+    v2.2.3（内置 Silly Tavern）把断言口径从「恰好 11 项 + 逐项全等」放宽为
+    **契约超集**（导航项会继续增长，写死总数的守卫每次都要改，且改法极易退化成
+    恒真）。放宽后的两条判据都是真契约：
+
+    ① 既有 11 项（``_NAV_BASELINE``）必须是新列表的**前缀**（逐项 + 逐序 + 逐长相等）
+       → 守住「零变更、零重排、只允许在末位追加」；
+    ② 新入口必须在列 → 守住「加了但没加进侧栏」这类假接线。
+
+    QA P2-7：① 原写成「子序列」判定（``_is_subsequence``），**单独看明显更弱**
+    （中间插入、重复项都会放行）；已收紧为前缀判定 —— **同样不写死总数**。
+    """
     from gui.widgets.sidebar import SidebarWidget
 
     items = SidebarWidget.NAV_ITEMS
-    assert len(items) == 11
     for item in items:
         assert len(item) == 4, f"NAV_ITEMS 项非 4 元组：{item!r}"
         assert item[3], f"回退文本为空：{item!r}"
-    assert [(i[0], i[1]) for i in items] == _NAV_BASELINE
+    pairs = [(i[0], i[1]) for i in items]
+    assert pairs[:len(_NAV_BASELINE)] == _NAV_BASELINE, (
+        f"既有导航项被改动 / 重排 / 未保持前缀：{pairs!r}")
+    assert _SILLYTAVERN_NAV_ITEM in items, (
+        f"NAV_ITEMS 缺少内置 Silly Tavern 入口：{_SILLYTAVERN_NAV_ITEM!r}")
 
 
 def _bare_ctx():
@@ -455,7 +477,10 @@ def test_sidebar_fallback_text_non_empty_when_icons_unavailable(qapp, monkeypatc
     """④ 图标不可用 → 回退 emoji 文本（不空白、不崩）。"""
     monkeypatch.setattr(sidebar_mod, "_icons", None)
     side = sidebar_mod.SidebarWidget(_bare_ctx())
-    assert side.list_widget.count() == 11
+    # 口径放宽（v2.2.3）：不写死 11，改判「列表行数 == NAV_ITEMS 项数」—— 仍是真契约
+    # （侧栏为每个导航项建且仅建一行），新增入口无需再改本守卫。
+    assert side.list_widget.count() == len(sidebar_mod.SidebarWidget.NAV_ITEMS)
+    assert side.list_widget.count() >= len(_NAV_BASELINE)
     for i, (_key, label, _name, fallback) in enumerate(sidebar_mod.SidebarWidget.NAV_ITEMS):
         text = side.list_widget.item(i).text()
         assert text, "导航项文本为空"
@@ -482,7 +507,11 @@ def test_sidebar_set_active_page_no_recursive_emit(qapp, monkeypatch):
     side.item_clicked.connect(got.append)
     side.set_active_page("settings")
     assert got == []
-    assert side.list_widget.currentRow() == 10
+    # 高亮必须落在 "settings" 那一行：按 key 现取行号，不写死索引 —— v2.2.3 起导航项
+    # 会继续增长，写死索引的守卫会随每次新增入口误红（同 test_v21_wiring 的放宽口径）。
+    rows = [side.list_widget.item(i).data(Qt.UserRole)
+            for i in range(side.list_widget.count())]
+    assert side.list_widget.currentRow() == rows.index("settings")
 
 
 # ---------------------------------------------------------------------------

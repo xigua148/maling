@@ -15,6 +15,25 @@
 
 block_cipher = None
 
+# 首次运行的配置模板（gui/main.py:97 以相对路径 Path("config.yaml") 读写）。
+# ⚠️ config.yaml 被 .gitignore 忽略（可能含用户 API Key）→ **从仓库 clone 后它并不存在**，
+# 而 datas 指向不存在的文件会让构建直接失败（开源后"别人 clone 下来构建不了"的经典坑）。
+# 故：优先用本机 config.yaml，缺失则回退到入库的 config.example.yaml，并统一**暂存为
+# config.yaml** 再入包 —— datas 只能指定「源文件 + 目标目录」、无法重命名，不暂存的话
+# 包里会变成 config.example.yaml，而应用读的是 config.yaml。
+# 暂存目录落在 build/ 下（已被 .gitignore 覆盖），不污染仓库根。
+from pathlib import Path as _Path
+import shutil as _shutil
+
+_SPEC_DIR = _Path(globals().get("SPECPATH", "."))
+_cfg_src = _SPEC_DIR / "config.yaml"
+if not _cfg_src.is_file():
+    _cfg_src = _SPEC_DIR / "config.example.yaml"
+_CFG_STAGE = _SPEC_DIR / "build" / "_cfg_stage"
+_CFG_STAGE.mkdir(parents=True, exist_ok=True)
+_CONFIG_TEMPLATE = _CFG_STAGE / "config.yaml"
+_shutil.copy(_cfg_src, _CONFIG_TEMPLATE)
+
 a = Analysis(
     ['gui/main.py'],
     pathex=[],
@@ -35,9 +54,10 @@ a = Analysis(
         # ("assets/maling.ico") 落空 -> setWindowIcon 静默失败 -> 任务栏/托盘
         # 显示默认图标（gui/main.py:368 app.setWindowIcon）
         ('gui/assets/maling.ico', 'assets'),
-        # 首次运行的配置模板：gui/main.py:97 以相对路径 Path("config.yaml") 读写，
+        # 首次运行的配置模板：源文件由上方 _CONFIG_TEMPLATE 决定（优先 config.yaml，
+        # 缺失则回退 config.example.yaml，见该处注释）。
         # 实际生效的是 exe 同目录下自动生成的副本（见 README「路径行为」小节）
-        ('config.yaml', '.'),
+        (_CONFIG_TEMPLATE, '.'),
         # v1.4.8: 版本号单源
         ('version.json', '.'),
         # v2.1.1: 发包可审计性 —— 根目录 NOTICE 汇总第三方组件/许可，
@@ -73,6 +93,23 @@ a = Analysis(
         # = _internal）以及 maling_updater.ensure_self_installed(src_dir) 期望的
         # src_dir/maling_updater.exe 布局严格对齐。
         ('dist_updater/maling_updater.exe', 'updater'),
+        # ---- v2.2.x: 内置 SillyTavern（施工方案 §10）----
+        # ST 整包（含 node_modules）原样收进 onedir 的 _internal/sillytavern/；运行时由
+        # tavern_backend.py 用捆绑的 _internal/pi_runtime/node.exe 直接 `node server.js`
+        # 起服务，用户机器不需要 npm。
+        # 目标目录必须**恰好**是 'sillytavern'：tavern_backend.find_bundled_st_dir() 在
+        # 打包态（__file__ 基准 = sys._MEIPASS = _internal）找的是
+        # <_internal>/sillytavern/server.js。写错会让内置酒馆永远报「找不到 sillytavern 目录」。
+        # ⚠️ 本阶段**不做任何裁剪**（用户要求"先完整跑通再瘦身"）：不要排除 *.md /
+        # sourcemap —— 排除 *.md 会批量删掉第三方 LICENSE 文件，违反 AGPL-3.0 §4
+        # "keep intact all notices"，并把"原样捆绑"变成"已修改"。裁剪留到后续独立任务。
+        ('vendor/sillytavern', 'sillytavern'),
+        # Node 运行时兼容补丁：tavern_backend 以 `node --require <此文件>` 注入。
+        # 目标目录 '.' → 打包态落在 <app>/_internal/maling_node_compat.cjs，与
+        # tavern_backend.node_compat_candidates() 的第一候选一致。
+        # 缺它会让 ST 在非 ASCII 路径下 fs.cpSync 静默硬崩溃（nodejs/node#54476）——
+        # 中文 Windows 用户必现，故**必须**随包分发，不能当可选优化。
+        ('maling_node_compat.cjs', '.'),
     ],
     hiddenimports=[
         # ---- 语音输入（动态导入，必须显式声明）----

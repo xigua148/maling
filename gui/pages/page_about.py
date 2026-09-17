@@ -20,6 +20,10 @@ _THIRD_PARTY_ITEMS = [
     # v2.1(license): 随桌面包内置的 Node.js Agent Runtime，必须在应用内也可见。
     "Pi Coding Agent Runtime —— earendil-works/pi（MIT，Copyright (c) 2025 Mario Zechner）",
     "　　仓库：https://github.com/earendil-works/pi　用途：Agent 工具循环运行时",
+    # v2.2.3(内置酒馆): 原样捆绑的独立 Node 服务（AGPL-3.0，经「纯外部运行时依赖」口径
+    # R-H 豁免后纳入）。AGPL 全文随包（_internal/sillytavern/LICENSE），登记见 NOTICE 第五节。
+    "SillyTavern 内置酒馆 —— SillyTavern/SillyTavern（AGPL-3.0，1.19.0）",
+    "　　仓库：https://github.com/SillyTavern/SillyTavern　用途：本地角色扮演前端（独立进程，仅本机回环）",
     # v1.9 B/R-L②: 内置字体（OFL 1.1，许可副本随包 docs/third_party_licenses/）
     "资源圆体 Resource Han Rounded —— CyanoHao/Resource-Han-Rounded（OFL 1.1）",
     "　　仓库：https://github.com/CyanoHao/Resource-Han-Rounded　用途：正文 / 界面默认字体",

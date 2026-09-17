@@ -1095,3 +1095,13 @@ QLabel#timeLabel {
     color: ${text_hint};
     padding-left: 8px;
 }
+
+/* ===========================================================================
+   §11d. 内置 SillyTavern 页（`gui/pages/page_sillytavern.py`）
+   ---------------------------------------------------------------------------
+   纪律：该页的**字号只在此处定义**（页面侧零字号赋值，见 test_v21_qss_font.py
+   的字号守卫）；颜色不在此定义 —— 页面按活动色板经 theme_color 读时现取
+   （换肤即时生效），此处只兜「字号 / 字重」这一类与主题无关的排版量。
+   =========================================================================== */
+QLabel#sillyTavernStatus { font-size: 13px; }
+QPushButton#sillyTavernRetryBtn { font-size: 14px; font-weight: bold; }
