@@ -93,17 +93,22 @@ a = Analysis(
         # = _internal）以及 maling_updater.ensure_self_installed(src_dir) 期望的
         # src_dir/maling_updater.exe 布局严格对齐。
         ('dist_updater/maling_updater.exe', 'updater'),
-        # ---- v2.2.x: 内置 SillyTavern（施工方案 §10）----
-        # ST 整包（含 node_modules）原样收进 onedir 的 _internal/sillytavern/；运行时由
-        # tavern_backend.py 用捆绑的 _internal/pi_runtime/node.exe 直接 `node server.js`
-        # 起服务，用户机器不需要 npm。
-        # 目标目录必须**恰好**是 'sillytavern'：tavern_backend.find_bundled_st_dir() 在
-        # 打包态（__file__ 基准 = sys._MEIPASS = _internal）找的是
-        # <_internal>/sillytavern/server.js。写错会让内置酒馆永远报「找不到 sillytavern 目录」。
-        # ⚠️ 本阶段**不做任何裁剪**（用户要求"先完整跑通再瘦身"）：不要排除 *.md /
-        # sourcemap —— 排除 *.md 会批量删掉第三方 LICENSE 文件，违反 AGPL-3.0 §4
-        # "keep intact all notices"，并把"原样捆绑"变成"已修改"。裁剪留到后续独立任务。
-        ('vendor/sillytavern', 'sillytavern'),
+        # ---- v2.3.1: SillyTavern 改为「构建后复制」，不再走 PyInstaller datas ----
+        # 原因：ST 树 19,744 个文件（占 onedir 总文件数的 **54%**），而 PyInstaller 对它
+        # **不做任何处理** —— 不编译、不分析、不裁剪，纯粹逐文件搬运 + 记 TOC。
+        # 改由 `python copy_st.py --dist dist/maling` 在构建后用 robocopy 搬运：
+        #   · onedir 的 COLLECT 文件数从 ~4 万降到 ~1.7 万 → 热构建 <1 分钟；
+        #   · 冷构建那 48 分钟的大头（首次落盘 + 杀软逐文件扫描）随之削掉；
+        #   · robocopy 原生支持长路径与中断续传（ST 树含 >260 字符的深路径）。
+        #
+        # 目标位置不变，仍是 <app>/_internal/sillytavern/server.js —— 与
+        # tavern_backend.find_bundled_st_dir() 的打包态候选一致。
+        #
+        # ⚠️ 复制脚本**整树原样搬运、不做任何裁剪**：不得按 *.md 通配排除（会批量删掉
+        # 第三方 LICENSE 文件，违反 AGPL-3.0 §4 "keep intact all notices"，
+        # 并把「原样捆绑」变成「已修改」—— 那会直接击穿 R-H 豁免的前提）。
+        # ⚠️ 发版清单第 4b 步必须**同时**跑 copy_pi_runtime.py 与本脚本（漏做=包内无酒馆）。
+        # ('vendor/sillytavern', 'sillytavern'),
         # Node 运行时兼容补丁：tavern_backend 以 `node --require <此文件>` 注入。
         # 目标目录 '.' → 打包态落在 <app>/_internal/maling_node_compat.cjs，与
         # tavern_backend.node_compat_candidates() 的第一候选一致。

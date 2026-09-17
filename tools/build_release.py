@@ -59,6 +59,10 @@ CHUNK = 1024 * 1024
 # 才会把 pi_runtime 落进 <onedir>/_internal/。实测源 `_internal/pi_runtime` 与
 # v1.9.0 分发目录均为 13,567 个文件（历史上曾漏跑而少 61MB）。取 10000 为下限。
 PI_RUNTIME_MIN_FILES = 10000
+#: v2.3.1: 内置酒馆的 SillyTavern 树同样改为「打包后复制」，同样需要门禁。
+#: 实测 19,744 个文件（`vendor/sillytavern`）；取 10000 作下限，既能拦住"漏跑"，
+#: 也容忍将来上游增删包导致的正常浮动。
+SILLYTAVERN_MIN_FILES = 10000
 # sidecar（maling_updater.exe）落包体积 ≈7.24MB（实测 7,592,326 B）→ 给宽容区间。
 SIDECAR_MIN_BYTES = 6_000_000
 SIDECAR_MAX_BYTES = 12_000_000
@@ -111,6 +115,37 @@ def guard_pi_runtime(onedir_src: Path, skip: bool) -> None:
             f"Pi 运行时文件数异常: {runtime} 仅 {n} 个（下限 {PI_RUNTIME_MIN_FILES}）"
             "—— 疑似收集不完整/长路径残留，请重跑 copy_pi_runtime.py 后重试")
     print(f"[guard] Pi 运行时核验通过: {runtime}（{n} 个文件）")
+
+
+def guard_sillytavern(onedir_src: Path, skip: bool) -> None:
+    """fail-fast：onedir 产物必须已含内置酒馆的 ST 树（万级文件），否则拒发。
+
+    v2.3.1 起 ST 与 Pi 同样是「打包后复制」——两个主 spec 都不含 `vendor/sillytavern`
+    datas（ST 树占 onedir 总文件数的 54%，而 PyInstaller 对它只是逐文件搬运）。
+    缺失 = 漏跑 `python copy_st.py --dist <onedir_src>`，产出包的「Silly Tavern」入口
+    必然报「找不到内置的 sillytavern 目录」。
+
+    除文件数外还校验 `server.js`（运行时必需）与 `LICENSE`（合规必需，AGPL-3.0 §4）。
+    """
+    if skip:
+        print("WARNING: --skip-pi-check 已开启 → 跳过 sillytavern 核验"
+              "（仅用于有意出精简包；正式发版切勿使用）")
+        return
+    st = onedir_src / "_internal" / "sillytavern"
+    if not st.is_dir():
+        raise RuntimeError(
+            f"onedir 缺少内置酒馆目录: {st} —— 疑似漏跑 "
+            f"`python copy_st.py --dist {onedir_src}`；"
+            "缺 ST 的包不得发布（如确需精简包请显式 --skip-pi-check）")
+    for must, why in (("server.js", "运行时入口"), ("LICENSE", "AGPL-3.0 合规义务")):
+        if not (st / must).is_file():
+            raise RuntimeError(f"内置酒馆目录缺少 {must}（{why}）: {st / must}")
+    n = count_files_long_path(st)
+    if n < SILLYTAVERN_MIN_FILES:
+        raise RuntimeError(
+            f"内置酒馆文件数异常: {st} 仅 {n} 个（下限 {SILLYTAVERN_MIN_FILES}）"
+            "—— 疑似复制不完整/长路径残留，请重跑 copy_st.py 后重试")
+    print(f"[guard] 内置酒馆核验通过: {st}（{n} 个文件，含 server.js + LICENSE）")
 
 
 def guard_sidecar(onedir_src: Path, sidecar_src) -> None:
@@ -228,6 +263,7 @@ def main(argv=None) -> int:
     # ---- fail-fast 守卫（V20-17）：绝不静默产出缺 Pi / 缺 sidecar 的包 ----
     try:
         guard_pi_runtime(onedir_src, args.skip_pi_check)
+        guard_sillytavern(onedir_src, args.skip_pi_check)
         guard_sidecar(onedir_src, args.sidecar_src)
     except RuntimeError as exc:
         print(f"ERROR: {exc}")

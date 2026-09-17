@@ -40,15 +40,25 @@
 - [ ] `pyinstaller --noconfirm --clean maid_coder_gui.spec`（默认 → `dist/maling/`）。
 - [ ] **门禁**：`dist/maling/_internal/updater/maling_updater.exe` 存在（内嵌 sidecar）。
 
-### 4b. 复制 Pi 运行时到 onedir（⚠ **硬步骤，V20-17 新增，漏做=包少 61MB+**）
+### 4b. 复制 Pi 运行时**与内置酒馆**到 onedir（⚠ **硬步骤**：漏做=包少 61MB+ 且内置酒馆不可用）
 - [ ] `python copy_pi_runtime.py --dist dist/maling`
       ⚠ Pi 运行时是**「打包后复制」**机制：两个主 spec **都不含** `pi_runtime` datas，
       必须构建完 onedir 后再跑本步，才会把 `pi_runtime`（node.exe + Pi 依赖树）
       落进 `dist/maling/_internal/`。**历史上已因漏跑此步出过"zip 少 61MB"的事故**。
       （`--dist` 接的是 **app 目录 `dist/maling`**，不是 `dist` 根；脚本内部会顺带把
       `pi_gateway/maling_gate.js` 兜底复制进 `_internal/pi_gateway/`。）
+- [ ] `python copy_st.py --dist dist/maling`（**v2.3.1 新增**：内置酒馆源码树）
+      ⚠ ST 树同样是**「打包后复制」**机制（v2.3.1 起）：两个主 spec 都**不含**
+      `vendor/sillytavern` datas。原因：ST 树有 **19,744** 个文件（占 onedir 总文件数的
+      **54%**），而 PyInstaller 对它不做任何处理（纯逐文件搬运）—— 移出 COLLECT 后
+      热构建 <1 分钟、冷构建那 48 分钟的大头（首次落盘+杀软扫描）随之削掉；
+      robocopy 还顺带解决了长路径与中断续传。
+      ⚠️ 该脚本**整树原样搬运、不做任何裁剪**（不得按 `*.md` 通配排除，会删掉第三方
+      LICENSE 文件、违反 AGPL-3.0 §4，并击穿 R-H 豁免的前提）。
 - [ ] **门禁（压缩前必过）**：确认 `dist/maling/_internal/pi_runtime/` 存在且文件数为**万级**
       （实测源与 v1.9.0 分发目录均为 **13,567** 个文件；`find dist/maling/_internal/pi_runtime -type f | wc -l`）。
+      **同时**确认 `dist/maling/_internal/sillytavern/` 存在且文件数为**万级**（实测 **19,744**），
+      且 `server.js` 与 `LICENSE` 都在（前者运行时必需、后者合规必需）。
       **不达标不得进入第 6 步压缩**（`tools/build_release.py` 已内置同款 fail-fast 守卫，会直接拦下）。
 
 ### 5. 构建 onefile
