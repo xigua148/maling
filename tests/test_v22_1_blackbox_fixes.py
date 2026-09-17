@@ -1518,7 +1518,7 @@ _WP5_PANEL_FLAT_ATTRS = (
     ("emoji_btn", "😊 表情", "quickActionBtn"),
     ("voice_btn", "🎤 语音", "quickActionBtn"),
 )
-#: 反事实放宽的高度（px）。实测（四主题一致，曲线见 `_release_v220/_qa_wp1/probe_ink_curve.txt`）：
+#: 反事实放宽的高度（px）。实测（四主题一致，曲线见 `_release_work/_qa_wp1/probe_ink_curve.txt`）：
 #: `#quickActionBtn` 定高 28 → 内容区 22 / 墨迹 9；加高 16px 后墨迹**仍是 9**
 #: `#exportChatBtn`  32×28 → 内容区 26 / 墨迹 10；加高 16px 后墨迹**仍是 10**
 #: ⇒ 「放宽高度后墨迹不再变多」可用来判「没被纵向裁字」。
@@ -1785,7 +1785,7 @@ def test_wp5_flat_button_metric_is_not_vacuous(qapp, isolated_env):
 
     v2.2.2(retarget)：样本换成**主面板真实控件** `#quickActionBtn`（`emoji_btn`，定高 28，
     主题层 `padding: 2px 8px`）。实测曲线（ui_minimal / ui_whale 一致，
-    `_release_v220/_qa_wp1/probe_ink_curve.txt`）：
+    `_release_work/_qa_wp1/probe_ink_curve.txt`）：
         h=28 → 内容区 22 / 墨迹 9   ← 自然档，判据必须判**合格**
         h=14 → 内容区  8 / 墨迹 7   ← **部分裁字**（墨迹仍 > 0，就是「8 > 4」那类盲区）
         h= 6 → 内容区  0 / 墨迹 0

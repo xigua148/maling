@@ -25,7 +25,7 @@ r"""v2.2.2 浮窗接线守卫 —— 两条不变量，专治「没有守卫的�
     「测试表达式提到 chat_service」的 `if` 里。这样即使将来有人换个写法重新
     把通道塞回判空块，也会在这里炸，而不是等到用户在某条降级路径上发现换肤失效。
 
-对抗性自检（本轮已实跑，输出见回传 / `_release_v220/_evidence_b/`）：
+对抗性自检（本轮已实跑，输出见回传 / `_release_work/_evidence_b/`）：
   ① 把不变量 B 的一次性标记摘掉（`if not self._theme_connected:` → `if True:`）
      ⇒ `test_connect_signals_is_idempotent` 必红；
   ② 把 `theme_changed` 那条连接塞回 `if self.chat_service is not None:` 块内
