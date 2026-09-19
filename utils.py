@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -24,16 +25,43 @@ if TYPE_CHECKING:  # 仅类型检查期解析（本模块启用 future annotatio
 
 
 def _atomic_write_json(path: str, data: dict) -> None:
-    """原子写入 JSON（先写 .tmp 再重命名）。"""
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, path)
+    """原子写入 JSON（先写临时文件再重命名）。
+
+    v2.5(D-V25-02): 临时文件名加 pid+线程 id 后缀。原实现固定用 ``path + ".tmp"``，
+    两个进程同时保存会撞同一个临时文件 —— 交错写入后 ``os.replace`` 会把**混合
+    内容**落成正式档。加后缀后各写各的，replace 仍是同目录原子操作。
+    """
+    tmp = "%s.tmp.%d.%d" % (path, os.getpid(), threading.get_ident())
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        # v2.5(D-V25-02): Windows 上并发 replace 同一目标会抛 WinError 5
+        #（共享冲突：另一写者/读者正持有该文件）。真实场景存在——CLI 与 GUI
+        # 各持一个 MemoryManager 指向同一份 user_memory.json。有界重试几毫秒即可
+        # 让先到者完成，避免把一次正常的并发写变成异常。
+        last_exc: Optional[BaseException] = None
+        for attempt in range(5):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError as exc:      # WinError 5 共享冲突
+                last_exc = exc
+                time.sleep(0.02 * (attempt + 1))
+        if last_exc is not None:
+            raise last_exc
+    except BaseException:
+        # 失败时清掉自己的临时文件，不留下垃圾（replace 成功后 tmp 已不存在）
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 from core import AppConfig, STYLES, _fmt, G, R, Y, C, B, GR, M, W, _HAS_YAML
 # 路径守卫真值源已下沉至 L0（core/path_guard.py）；此处转发以保持
 # utils._validate_file_path / utils._backup_path 对外入口不变（L1 多个模块与测试依赖）。
-from core.path_guard import _backup_path, _validate_file_path
+from core.path_guard import _backup_path, _validate_file_path, resolve_config_path
 
 # Help
 # ---------------------------------------------------------------------------
@@ -289,8 +317,12 @@ def _setup_api_key() -> str:
 
 
 def _ensure_config() -> None:
-    """如果 config.yaml 不存在，启动交互式配置向导。"""
-    if os.path.exists("config.yaml"):
+    """如果 config.yaml 不存在，启动交互式配置向导。
+
+    v2.5(D-V25-08): 路径改为 resolve_config_path()（应用根锚定）——
+    原裸相对路径会随启动工作目录漂移。
+    """
+    if os.path.exists(resolve_config_path()):
         return
 
     # 交互式向导
@@ -350,7 +382,7 @@ agent:
   enabled: false
   max_steps: 8
 '''
-    with open("config.yaml", "w", encoding="utf-8") as f:
+    with open(resolve_config_path(), "w", encoding="utf-8") as f:
         f.write(default_config)
 
 
@@ -364,7 +396,7 @@ def _first_run_banner(is_first: bool, cfg: AppConfig) -> None:
         print(C("\n[首次启动] 正在检查环境..."))
         print(G("✓ API Key 已配置"))
         print(G("✓ 依赖检查完成"))
-        if os.path.exists("config.yaml"):
+        if os.path.exists(resolve_config_path()):
             print(G("✓ 配置文件已加载"))
         else:
             print(G("✓ 默认配置已生效"))
@@ -664,10 +696,9 @@ def _check_recovery(session: ChatSession) -> bool:
             # Phase 1 MVP: 恢复聊天增强状态
             if hasattr(session, "chat_mode") and "chat_mode" in data:
                 session.chat_mode.toggle_chat(force=data["chat_mode"])
-            if hasattr(session, "memory_mgr") and "memory" in data:
-                session.memory_mgr.from_dict(data["memory"])
-            if hasattr(session, "intimacy") and "intimacy" in data:
-                session.intimacy.from_dict(data["intimacy"])
+            # v2.5(D-V25-07): 崩溃恢复同样**不**回放 memory / intimacy ——
+            # 二者是全局单例数据，快照回放会用旧状态覆盖全局（详见 session.py
+            # load() 同款注释）。崩溃恢复的目标是救回对话历史，不是回退记忆。
             print(G(f"✅ 已恢复会话 '{session.session_id}'（最近 {len(session.history)} 条消息）"))
             # 恢复成功后删除恢复文件
             try:

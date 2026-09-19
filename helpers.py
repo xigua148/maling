@@ -242,7 +242,8 @@ class WebSearch:
             return key
         try:
             import yaml as _yaml
-            for cand in ("config.yaml",):
+            from core.path_guard import resolve_config_path   # v2.5(D-V25-08)
+            for cand in (resolve_config_path(),):
                 if os.path.exists(cand):
                     with open(cand, "r", encoding="utf-8") as f:
                         data = _yaml.safe_load(f) or {}

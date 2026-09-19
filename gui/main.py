@@ -116,7 +116,9 @@ def _init_cli_core(app_ctx: AppContext) -> bool:
         )
 
         # 确保配置文件存在
-        config_path = Path("config.yaml")
+        # v2.5(D-V25-08): 锚定应用根，不再随启动工作目录漂移（根治 System32 类事故）
+        from core.path_guard import resolve_config_path
+        config_path = resolve_config_path()
         if not config_path.exists():
             # v10.15: 默认配置改为嵌套结构，与 AppConfig.save() 一致；
             # 老的 flat 字段（api_key / api_url 等）落盘后无法被 AppConfig.load() 正确识别，

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
+import threading
 import uuid
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
@@ -52,6 +54,18 @@ _FOLLOWUP_DEDUP_DAYS = 7        # 续接提问去重窗口
 _SOURCE_MUTE_KEYS = ("__emotion__", "__todo__")
 _PREFERENCE_SOURCES = ("auto", "manual", "legacy")
 
+# v2.4(D-V24-03): 续接优先级多因子评分常量（可调）。吸收 ALTM governor 的三条
+# 设计——「多因子加权」「软时间衰减」「有用信号优先」——按本模块语义裁剪。
+# 与既有硬门正交：硬门（muted 静默 / 7 天去重 / [min,max] 时间窗）决定"能不能
+# 提"，本评分只决定"先提哪个"。评分为**纯内部计算量**：不落任何字段、不入 UI、
+# 不入注入串、不进日志文案（R-A 无数值化）。
+_FOLLOWUP_HALF_LIFE_HOURS = 36.0   # 时间衰减**半衰期**（72h 时间窗 = 两个半衰期，窗边缘权重 0.25）
+_FOLLOWUP_W_USEFUL = 0.40          # 有用信号权重（heart；对应 ALTM 的 useful_access）
+_FOLLOWUP_W_RECENCY = 0.40         # 时间近因权重
+_FOLLOWUP_W_EVIDENCE = 0.20        # 来源可信度权重
+_FOLLOWUP_USE_PER_HEART = 0.20     # 单次 heart 的 useful 增量（clamp 到 1.0）
+_FOLLOWUP_EVIDENCE = {"manual": 1.0, "auto": 0.6, "legacy": 0.7}
+
 # v1.8(D-V18-01/Q-D1): 记忆图谱实体常量 —— 上限拒写、绝不自动淘汰（人物记忆
 # 不悄悄消失，R-I）；relation 开放枚举（列表值 + 自定义文本均可）。
 _ENTITY_MAX = 100              # 实体上限
@@ -88,8 +102,10 @@ _VISION_USER_TEXT_MAX = 50           # 配文摘要字数上限
 _VISION_DIGEST_MAX = 200             # assistant 回复摘要字数上限
 _VISION_NOTE_MAX = 60                # 图片中性描述字数上限
 _VISION_SOURCES = ("default", "enhanced")
-_VISION_NOTE_DEFAULT = "主人发过一张截图"     # 默认档中性描述
-_VISION_NOTE_UNSEEN = "当时无法识别内容"      # 诚实边界①：看图失败仍存档时的描述
+# v2.5(D-V25-03): 值对齐实际行为后接线（原值「主人发过一张截图」从未被使用，
+# 实际代码走的是硬编码字符串——常量与实现漂移，本版收口为单一事实源）。
+_VISION_NOTE_DEFAULT = "用户分享了一张图片"     # 默认档中性描述
+_VISION_NOTE_UNSEEN = "当时无法识别内容"        # 诚实边界①：看图失败仍存档时的描述
 
 # 偏好提取关键词规则
 _PREFERENCE_PATTERNS = [
@@ -100,11 +116,30 @@ _PREFERENCE_PATTERNS = [
 ]
 
 # 话题提取关键词规则
+# v2.4(D-V24-02): 第三条分隔词由**可选改必选**并加前导锚点。原写法
+# `(?:项目|任务|工作)\s*(?:叫|是|关于)?\s*[:：]?\s*(.+?)` 在分隔词全部缺省时，
+# 会捕获裸名词提及之后的整句剩余部分——「这个项目做完了」→ 话题「做完了」。
+# 前导锚点（句首/标点/空白）+ 必选分隔符（叫/是/关于/冒号）挡住该类误捕；
+# 「项目：做个网站」「我的项目是做个网站」仍正常提取（精度优先于召回）。
 _TOPIC_PATTERNS = [
     (r"(?:我在学|我在学习|我在看|我在研究|我在做|我在搞|我在尝试)\s*(.+?)(?:[。！？\n]|$)", "ongoing"),
     (r"(?:最近在|最近我在|最近在搞|最近在忙)\s*(.+?)(?:[。！？\n]|$)", "ongoing"),
-    (r"(?:项目|任务|工作)\s*(?:叫|是|关于)?\s*[:：]?\s*(.+?)(?:[。！？\n]|$)", "ongoing"),
+    (r"(?:^|[。！？；;，,\s])(?:我的|这个|那个)?(?:项目|任务|工作)\s*(?:叫|是|关于|[:：])\s*[:：]?\s*(.+?)(?:[。！？\n]|$)", "ongoing"),
 ]
+_TOPIC_SUBJECT_MAX = 30        # v2.4(D-V24-02): 话题字数上限（原硬编码 100 过宽，长句必是误捕）
+
+# v2.5(D-V25-04): 话题完成句式 —— 命中完成句式**且**本轮同时提及该话题
+#（subject 整串或其 ≥2 字空格分词出现在消息里）才自动 complete_topic；
+# 只说「搞定了」不点名话题时**绝不猜测**（防误归档，R-K 诚实边界）。
+_TOPIC_COMPLETION_PATTERNS = (
+    "搞定了", "完成了", "做完了", "上线了", "考完了", "验收了",
+    "交付了", "收尾了", "收官了", "通关了", "拿到了offer",
+)
+
+# v2.5(D-V25-06): 外挂词表文件名（位于记忆文件同目录，即 ~/.maid_coder/）。
+# 存在且可解析时与内置词表**合并**（追加式热补，不必复制全部内置条目）；
+# 不存在 / 损坏 / 字段类型不对 → 静默回落内置词表，绝不抛错（R-K）。
+_PATTERNS_FILE = "memory_patterns.json"
 
 # 情绪关键词检测
 _EMOTION_KEYWORDS = {
@@ -116,6 +151,15 @@ _EMOTION_KEYWORDS = {
 
 
 # ---------------------------------------------------------------------------
+# v2.4(P0-1): 落盘安全网常量 —— 对齐 gui/tavern/store.py 既有约定（L5 快照恢复 /
+# L6 损坏档改名保留）。记忆文件在 GUI 下改为每轮对话都写，损坏后被默认结构静默
+# 覆盖的风险随之放大，故补齐同款防护。单槽即可：目标是"始终有一份上次完好状态"，
+# 不做历史版本回溯。
+_MEMORY_BACKUPS = 1
+_BACKUP_SUFFIX = ".bak"
+_CORRUPT_SUFFIX = ".corrupt"
+
+
 def _memory_dir() -> str:
     """返回记忆文件存储目录。"""
     d = os.path.expanduser("~/.maid_coder")
@@ -144,23 +188,146 @@ class MemoryManager:
 
     def __init__(self, filepath: Optional[str] = None):
         self.filepath = filepath or _memory_path()
+        # v2.5(D-V25-01): 进程内锁 —— GUI 主线程写 + 日记 daemon 线程读并存，
+        # _save 的「快照轮转 + 原子写」两步必须串行化（跨进程仍靠 .bak.1 快照兜底）。
+        self._lock = threading.RLock()
+        # v2.5(D-V25-06): 外挂词表缓存（(mtime_ns, size) 变更自动重载）
+        self._patterns_cache: Optional[dict] = None
+        self._patterns_stamp: Optional[tuple] = None
         self._data = self._load()
 
+    def _patterns_path(self) -> str:
+        """外挂词表路径：记忆文件同目录（真实安装 = ~/.maid_coder/；测试 = tmp_path）。"""
+        return os.path.join(os.path.dirname(os.path.abspath(self.filepath)),
+                            _PATTERNS_FILE)
+
+    def _effective_patterns(self) -> dict:
+        """内置词表 + 外挂 memory_patterns.json 合并（v2.5/D-V25-06，mtime 热补）。
+
+        返回 {"preference": [...], "topic": [...], "completion": [...],
+        "emotion_keywords": {...}}；外挂条目**追加**在内置之后（正则按序首命中，
+        内置优先级不受影响）。外挂文件损坏/类型不对 → 静默只用内置（绝不抛错）。
+        """
+        built = {
+            "preference": list(_PREFERENCE_PATTERNS),
+            "topic": list(_TOPIC_PATTERNS),
+            "completion": list(_TOPIC_COMPLETION_PATTERNS),
+            "emotion_keywords": {k: list(v) for k, v in _EMOTION_KEYWORDS.items()},
+        }
+        path = self._patterns_path()
+        try:
+            stat = os.stat(path)
+            stamp = (stat.st_mtime_ns, stat.st_size)
+        except OSError:
+            self._patterns_cache = None
+            self._patterns_stamp = None
+            return built
+        if self._patterns_cache is not None and stamp == self._patterns_stamp:
+            return self._patterns_cache
+        merged = json.loads(json.dumps(built))   # 深拷贝，防外挂污染内置
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                extra = json.load(f)
+            if isinstance(extra, dict):
+                # preference / topic 是 (正则, 标签) 二元组
+                for key in ("preference", "topic"):
+                    items = extra.get(key)
+                    if isinstance(items, list):
+                        for it in items:
+                            if isinstance(it, (list, tuple)) and len(it) >= 2 \
+                                    and isinstance(it[0], str) and isinstance(it[1], str):
+                                merged[key].append((it[0], it[1]))
+                # completion 是**纯字符串列表**（无正则、无标签），单独处理；
+                # 同时容忍写成 ["词"] 的嵌套形式（取首元素）
+                for it in extra.get("completion") or []:
+                    if isinstance(it, str):
+                        merged["completion"].append(it)
+                    elif isinstance(it, (list, tuple)) and it and isinstance(it[0], str):
+                        merged["completion"].append(it[0])
+                emo = extra.get("emotion_keywords")
+                if isinstance(emo, dict):
+                    for name, words in emo.items():
+                        if isinstance(name, str) and isinstance(words, list):
+                            slot = merged["emotion_keywords"].setdefault(name, [])
+                            slot.extend(w for w in words if isinstance(w, str))
+        except (json.JSONDecodeError, IOError, OSError):
+            pass   # 坏文件 = 没有外挂，回落内置（R-K 绝不因词表炸掉提取链）
+        self._patterns_cache = merged
+        self._patterns_stamp = stamp
+        return merged
+
     def _load(self) -> dict:
-        if os.path.exists(self.filepath):
+        """读盘：主档不可解析时走「快照 -> 隔离坏档 -> 默认」阶梯，绝不静默丢数据。
+
+        v2.4(P0-1): 原实现遇 `json.JSONDecodeError` 直接 pass、随即用默认结构
+        **覆盖写盘** —— 这是本模块唯一会静默销毁用户记忆的路径（无备份、无日志）。
+        GUI 改为每轮对话都落盘后该风险被放大，故对齐 `gui/tavern/store.py` 的既有
+        L5/L6 约定：解析失败先尝试最新快照，仍失败则把坏档**改名保留**再回落默认。
+        """
+        with self._lock:
+            if os.path.exists(self.filepath):
+                try:
+                    with open(self.filepath, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    # 补全缺失字段
+                    return self._merge_defaults(data)
+                except (json.JSONDecodeError, IOError):
+                    recovered = self._load_latest_backup()
+                    if recovered is not None:
+                        return recovered
+                    self._quarantine_corrupt()
+            # 首次使用，创建默认结构
+            default = self._merge_defaults({})
+            default["meta"]["created_at"] = datetime.now().isoformat()
+            self._data = default
+            self._save()
+            return default
+
+    # -- v2.4(P0-1): 落盘安全网（对齐 gui/tavern/store.py L5/L6 既有约定）--
+
+    def _backup_path(self, index: int) -> str:
+        return f"{self.filepath}{_BACKUP_SUFFIX}.{index}"
+
+    def _load_latest_backup(self) -> Optional[dict]:
+        """L5：取第一份可解析快照并做读时迁移；无可用快照返回 None。"""
+        for index in range(1, _MEMORY_BACKUPS + 1):
+            bak = self._backup_path(index)
+            if not os.path.exists(bak):
+                continue
             try:
-                with open(self.filepath, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                # 补全缺失字段
-                return self._merge_defaults(data)
+                with open(bak, "r", encoding="utf-8") as f:
+                    return self._merge_defaults(json.load(f))
             except (json.JSONDecodeError, IOError):
-                pass
-        # 首次使用，创建默认结构
-        default = self._merge_defaults({})
-        default["meta"]["created_at"] = datetime.now().isoformat()
-        self._data = default
-        self._save()
-        return default
+                continue
+        return None
+
+    def _quarantine_corrupt(self) -> None:
+        """L6：损坏主档改名保留为 `*.corrupt[.n]`，**绝不静默删除**。
+
+        命名不加时间戳（保证确定性单测不受墙钟影响），同名占用时追加序号 ——
+        与 `gui/tavern/store.py::_quarantine_corrupt` 同款。
+        """
+        target = f"{self.filepath}{_CORRUPT_SUFFIX}"
+        n = 1
+        while os.path.exists(target):
+            target = f"{self.filepath}{_CORRUPT_SUFFIX}.{n}"
+            n += 1
+        try:
+            os.replace(self.filepath, target)
+        except OSError:
+            pass   # 隔离失败也要能返回默认结构（不阻断 load）
+
+    def _rotate_backup(self) -> None:
+        """写前快照：当前档**复制**为 `.bak.1`。
+
+        用复制而非移动 —— 移动会让「写失败」时原档消失，违背「写失败原档不被
+        破坏」。轮转本身失败不阻断写入（best-effort，同 tavern store 口径）。
+        """
+        try:
+            if os.path.exists(self.filepath):
+                shutil.copy2(self.filepath, self._backup_path(1))
+        except OSError:
+            pass
 
     def _merge_defaults(self, data: dict) -> dict:
         """将现有数据与默认结构合并，确保字段完整（深层合并一层嵌套 dict）。
@@ -267,7 +434,7 @@ class MemoryManager:
             "user_text": _clean(raw.get("user_text"), _VISION_USER_TEXT_MAX),
             "assistant_digest": _clean(raw.get("assistant_digest"), _VISION_DIGEST_MAX),
             "image_note": (_clean(raw.get("image_note"), _VISION_NOTE_MAX)
-                           or "用户分享了一张图片"),
+                           or _VISION_NOTE_DEFAULT),
             "source_mode": mode if mode in _VISION_SOURCES else "default",
         }
 
@@ -352,8 +519,15 @@ class MemoryManager:
         return t
 
     def _save(self) -> None:
-        self._data["meta"]["updated_at"] = datetime.now().isoformat()
-        _atomic_write_json(self.filepath, self._data)
+        """写盘：写前快照轮转 + 原子写（v2.4/P0-1 补快照，其余不变）。
+
+        v2.5(D-V25-01): 全程持锁 —— 快照轮转与原子写必须串行，否则并发下
+        可能出现「快照复制的是一份半写状态」。跨进程仍靠 .bak.1 兜底。
+        """
+        with self._lock:
+            self._data["meta"]["updated_at"] = datetime.now().isoformat()
+            self._rotate_backup()
+            _atomic_write_json(self.filepath, self._data)
 
     # -- 偏好读写 --
 
@@ -438,15 +612,6 @@ class MemoryManager:
         }
         active.append(self._normalize_topic(entry))
         self._save()
-
-    def update_topic_status(self, subject: str, status: str) -> bool:
-        """更新话题状态。"""
-        for t in self._data["topics"]["active"]:
-            if t["subject"] == subject:
-                t["status"] = status
-                self._save()
-                return True
-        return False
 
     def complete_topic(self, subject: str) -> bool:
         """将话题标记为已完成并归档。"""
@@ -542,7 +707,8 @@ class MemoryManager:
         modified = False
 
         # 提取偏好（直接修改内存，不触发保存）
-        for pattern, ptype in _PREFERENCE_PATTERNS:
+        # v2.5(D-V25-06): 词表走 _effective_patterns（内置 + 外挂 memory_patterns.json）
+        for pattern, ptype in self._effective_patterns()["preference"]:
             match = re.search(pattern, text)
             if match:
                 value = match.group(1).strip()
@@ -561,11 +727,14 @@ class MemoryManager:
                 modified = True
 
         # 提取话题（直接修改内存，不触发保存）
-        for pattern, status in _TOPIC_PATTERNS:
+        # v2.5(D-V25-06): 词表走 _effective_patterns（内置 + 外挂 memory_patterns.json）
+        for pattern, status in self._effective_patterns()["topic"]:
             match = re.search(pattern, text)
             if match:
                 subject = match.group(1).strip()
-                if len(subject) >= 3 and len(subject) <= 100:
+                # v2.4(D-V24-02): 上限由硬编码 100 收到 _TOPIC_SUBJECT_MAX(30)——
+                # 话题应当短，长句必是误捕（与正则前导锚点构成双保险）。
+                if 3 <= len(subject) <= _TOPIC_SUBJECT_MAX:
                     active = self._data["topics"]["active"]
                     found = False
                     for t in active:
@@ -583,6 +752,22 @@ class MemoryManager:
                         }))
                     extracted.append(f"活跃话题: {subject}")
                     modified = True
+
+        # v2.5(D-V25-04): 话题完成检测 —— 命中完成句式**且**本轮同时提及该话题
+        # 才自动归档。只说「搞定了」而不点名话题时**绝不猜测**（防误归档，R-K）。
+        # 命中后走既有 complete_topic(subject)（带 completed_at + 移入 archived）。
+        if any(p in text for p in self._effective_patterns()["completion"]):
+            for t in list(self._data["topics"]["active"]):
+                if not isinstance(t, dict):
+                    continue
+                subject = str(t.get("subject") or "").strip()
+                if len(subject) < 2:
+                    continue
+                words = [w for w in re.split(r"[\s、,，/]+", subject) if len(w) >= 2]
+                if subject in text or any(w in text for w in words):
+                    if self.complete_topic(subject):
+                        extracted.append(f"已完成话题: {subject}")
+                        modified = True
 
         # 检测情绪并记录
         emotion = self.detect_emotion(text)
@@ -608,8 +793,12 @@ class MemoryManager:
         return extracted
 
     def detect_emotion(self, text: str) -> Optional[str]:
-        """检测用户消息中的情绪关键词。"""
-        for emotion, keywords in _EMOTION_KEYWORDS.items():
+        """检测用户消息中的情绪关键词。
+
+        v2.5(D-V25-06): 词表走 _effective_patterns —— 外挂 memory_patterns.json
+        的 emotion_keywords 会**追加**到内置分类之后（新增分类也能生效）。
+        """
+        for emotion, keywords in self._effective_patterns()["emotion_keywords"].items():
             for kw in keywords:
                 if kw in text:
                     return emotion
@@ -782,6 +971,34 @@ class MemoryManager:
                 if isinstance(e, dict) and e.get("name") and str(e["name"]) in t]
         hits.sort(key=lambda e: str(e.get("updated_at") or ""), reverse=True)
         return hits
+
+    def find_topics_by_name(self, text: str, limit: int = 2) -> List[dict]:
+        """用户消息中按**精确子串**命中话题（v2.5/D-V25-05 提及注入通道用）。
+
+        与 find_entities_by_name 对称，但有两点不同：
+          ① 含空格话题（如「学 Rust」）按 ≥2 字分词补充命中——否则用户说
+             「Rust」永远唤不醒它；
+          ② `active` 与 `archived` **都搜** —— 归档话题被自然唤起正是本通道存在
+             的理由（通道①的静态注入位只有 top3 ongoing，归档后即失联）。
+
+        返回按 last_mentioned 倒序的命中**副本**（调用方截取前 N 条注入）。
+        """
+        t = text or ""
+        if not t:
+            return []
+        hits: List[dict] = []
+        for bucket in ("active", "archived"):
+            for topic in self._data["topics"].get(bucket, []):
+                if not isinstance(topic, dict):
+                    continue
+                subject = str(topic.get("subject") or "").strip()
+                if len(subject) < 2:
+                    continue
+                words = [w for w in re.split(r"[\s、,，/]+", subject) if len(w) >= 2]
+                if subject in t or any(w in t for w in words):
+                    hits.append(dict(topic))
+        hits.sort(key=lambda x: str(x.get("last_mentioned") or ""), reverse=True)
+        return hits[:limit] if limit and limit > 0 else hits
 
     def _pinned_entity_segment(self) -> str:
         """system 级 pinned 实体段（D-V18-02 通道①；无 pinned 返回空串）。
@@ -973,7 +1190,14 @@ class MemoryManager:
         """影像记忆只读列表（时间倒序；limit=None 返回全部）。"""
         items = [dict(v) for v in self._data.get("vision_memories", [])
                  if isinstance(v, dict)]
-        items.sort(key=lambda v: str(v.get("time") or ""), reverse=True)
+        # v2.4(P0-0): 用 sort() 升序 + reverse() 而非 sort(reverse=True)。后者对
+        # 相等元素**保持插入序**，而 datetime.now() 在 Windows 计时器分辨率下会撞
+        # 时间戳（批跑实测 55 条仅 34 个不同值），撞车时"最新一条在前"失效、首条
+        # 错位（test_rolling_eviction_keeps_newest_50 批跑必挂 / 单跑必过的根因）。
+        # sort() 是稳定排序（相等保插入序），再整体 reverse -> 相等时间戳下后插入
+        # 者在前，与"时间倒序、最新在前"语义一致。
+        items.sort(key=lambda v: str(v.get("time") or ""))
+        items.reverse()
         if limit is not None and limit >= 0:
             items = items[:limit]
         return items
@@ -993,7 +1217,7 @@ class MemoryManager:
             "time": datetime.now().isoformat(),
             "user_text": user_text,
             "assistant_digest": assistant_digest,
-            "image_note": image_note or "用户分享了一张图片",
+            "image_note": image_note or _VISION_NOTE_DEFAULT,
             "source_mode": source_mode,
         })
         visions = self._data.setdefault("vision_memories", [])
@@ -1022,11 +1246,9 @@ class MemoryManager:
         keyword 传用户原话；回落的「最近 top2」仍是真实存过的对话事实，不编造。
         """
         items = self.list_vision_memories()
-        if limit is not None and limit > 0:
-            items = items[:limit] if not (keyword or "").strip() else items
-        if not (keyword or "").strip():
+        k = (keyword or "").strip()
+        if not k:
             return items[:limit] if limit and limit > 0 else items
-        k = keyword.strip()
 
         def _score(e: dict) -> int:
             hay = " ".join([str(e.get("user_text") or ""),
@@ -1037,12 +1259,14 @@ class MemoryManager:
             grams = {k[i:i + 2] for i in range(len(k) - 1)} if len(k) >= 2 else {k}
             return sum(1 for g in grams if g and g in hay)
 
-        scored = [( _score(e), e) for e in items]
+        scored = [(_score(e), e) for e in items]
         hits = [e for s, e in scored if s > 0]
         if hits:
             hits.sort(key=lambda e: -_score(e))   # 重叠分优先（并列保持时间倒序）
             return hits[:limit] if limit and limit > 0 else hits
-        return items[:limit] if limit and limit > 0 else items[:limit]
+        # v2.5(D-V25-03): 原为 `items[:limit] if ... else items[:limit]`（两分支等价
+        # 的死代码，else 分支写错）。修正为「无 limit 时返回全部候选」。
+        return items[:limit] if limit and limit > 0 else items
 
     # -- 记忆上下文生成 --
 
@@ -1090,13 +1314,56 @@ class MemoryManager:
             ctx = ctx[:max_chars - 3] + "..."
         return ctx
 
+    @staticmethod
+    def _followup_priority(topic: dict, now: datetime) -> float:
+        """续接优先级评分（v2.4/D-V24-03；纯函数、无副作用、不落任何字段）。
+
+            priority = 0.40*useful + 0.40*recency + 0.20*evidence
+
+          useful   = min(followup_score * 0.20, 1.0)      「说到心坎」的加权信号
+          recency  = 2 ** (-age_hours / 36)               真半衰期（36h 处恰为 0.5）
+          evidence = manual 1.0 / legacy 0.7 / auto 0.6   来源可信度
+
+        设计意图：v1.6 的排序键 (followup_score, idx) 是"计数字典序"——一个被
+        heart 过的话题在 72h 窗内**永远**压过其他所有话题、与时间无关，且 score
+        无上限会长期霸榜。多因子评分让"最近刚聊的"与"早先被夸过的"按真实轻重
+        竞争（实测：3h 前提到 0.498 > 60h 前 heart 过一次 0.406）。
+
+        时间戳缺失/非法时 recency 取 0（该条沉底，不影响其它候选）。本函数只读
+        既有字段、**不新增持久化字段**：无 schema 变更、不经 _merge_defaults、
+        不涉及 meta.version（共享知识 18 不适用）。
+        """
+        try:
+            useful = min(int(topic.get("followup_score") or 0) * _FOLLOWUP_USE_PER_HEART,
+                         1.0)
+        except (TypeError, ValueError):
+            useful = 0.0
+
+        last = parse_iso_dt(topic.get("last_mentioned"))
+        if last is None:
+            recency = 0.0
+        else:
+            age_hours = max(0.0, (now - last).total_seconds() / 3600.0)
+            # 真半衰期语义：底数取 2，recency(HALF_LIFE) == 0.5。
+            # （若写成 exp(-age/τ) 那是时间常数语义，36h 处得 0.368 而非 0.5，
+            # 衰减比设计意图更陡——窗边缘 0.135 vs 目标 0.25。）
+            recency = 2.0 ** (-age_hours / _FOLLOWUP_HALF_LIFE_HOURS)
+
+        source = topic.get("source")
+        evidence = _FOLLOWUP_EVIDENCE.get(source if isinstance(source, str) else "", 0.6)
+
+        return (_FOLLOWUP_W_USEFUL * useful
+                + _FOLLOWUP_W_RECENCY * recency
+                + _FOLLOWUP_W_EVIDENCE * evidence)
+
     def pick_topic_followup(self, min_hours: int = 1, max_hours: int = 72) -> Optional[dict]:
         """v1.6(D-V16-01 #6): 选出一条可续接话题，返回 {"text", "subject"} 或 None。
 
         增量收紧（相对 v1.5 旧逻辑纯增量）：
           ① 跳过 followup_muted_until > now 的话题（「先不提」14 天静默）；
           ② 跳过 followup_asked_at 距今 < 7 天的话题（去重，防连环续接）；
-          ③ 同分加权：followup_score 高者优先（「说到心坎」加权），
+          ③ 排序改用多因子评分 _followup_priority（v2.4/D-V24-03：有用信号 +
+             软时间衰减 + 来源可信度），同分保持列表原序（idx 小者优先）；
              命中后写 followup_asked_at 并落盘（记账，验收 1 依据）。
         接口更细的 pick_* 供 scheduler 透传 subject（反馈三键内容源键）。
         """
@@ -1120,8 +1387,9 @@ class MemoryManager:
                 continue
             hours_ago = (now - last).total_seconds() / 3600
             if min_hours <= hours_ago <= max_hours:
-                # score 降序优先；同分保持列表原序（idx 小者优先）
-                key = (int(t.get("followup_score") or 0), -idx)
+                # v2.4(D-V24-03): 多因子评分降序；同分保持列表原序（idx 小者优先，
+                # 与 v1.6 同向——既有 test_score_weighting 依赖此 tie-break 方向）
+                key = (self._followup_priority(t, now), -idx)
                 if best_key is None or key > best_key:
                     best_key = key
                     best_t = t

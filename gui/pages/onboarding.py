@@ -74,8 +74,13 @@ class DependencyCheckWidget(QWidget):
             return False
 
     def _check_api_config(self) -> bool:
-        """v10.15: 嵌套解析 config.yaml，识别 api.key 而非 flat 字段。"""
-        cfg_path = Path("config.yaml")
+        """v10.15: 嵌套解析 config.yaml，识别 api.key 而非 flat 字段。
+
+        v2.5(D-V25-08): 路径锚定应用根（原裸相对路径随工作目录漂移，
+        会导致「明明配好了却提示未配置」）。
+        """
+        from core.path_guard import resolve_config_path
+        cfg_path = resolve_config_path()
         if not cfg_path.exists():
             return False
         try:

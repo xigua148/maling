@@ -37,6 +37,13 @@ try:
 except Exception:
     _is_group_session = None
 
+# v2.5(D-V25-05): 时间戳解析（memory 纯函数，供话题提及注入算「N 天前」）。
+# 守卫式导入：缺失时注入行退化为不带时间（仍可用，绝不因它整链失败）。
+try:
+    from memory import parse_iso_dt
+except Exception:
+    parse_iso_dt = None
+
 # v1.4.8: 用户友好错误消息
 try:
     from user_messages import format_api_error, format_agent_summary
@@ -86,6 +93,10 @@ NIGHT_CARE_INJECTION = (
 
 _ENTITY_MENTION_MAX = 2          # 每轮提及注入实体数上限
 _ENTITY_LINE_MAX = 120           # 单实体注入行字符上限
+
+# v2.5(D-V25-05): 话题提及注入限额（与实体同款独立限额，互不挤占）。
+_TOPIC_MENTION_MAX = 2           # 每轮提及注入话题数上限
+_TOPIC_MENTION_LINE_MAX = 150    # 话题注入行字符上限
 
 # v1.8(D-V18-03/⚠-3): 情绪概览显式疑问句式词表 —— intent 五态**无 emotion 态**，
 # 触发 = confide 态命中 或 本词表命中（"我最近状态怎么样"类显式发问）。
@@ -150,6 +161,55 @@ def build_emotion_overview_injection(memory_mgr, user_text: str,
         return []
     parts = [s for s in (ov7, ov30) if s]
     return ["【情绪概览】" + "；".join(parts)]
+
+
+def build_topic_mention_injection(memory_mgr, user_text: str) -> list:
+    """v2.5(D-V25-05): 话题提及注入构建器（纯函数，可独立单测）。
+
+    补上双通道体系的最后一块缺口：实体 / 回应规则 / 影像 / 情绪都有提及命中
+    注入，**唯独话题只有通道①的静态 top-3 快照**——话题一旦归档或掉出前三，
+    用户后来再聊起它也唤不醒。本构建器让「老话题」能被自然唤起。
+
+    命中经 find_topics_by_name（整串子串 + ≥2 字分词，active 与 archived 都搜）
+    → 取前 2 条生成「【之前聊过】主人提过「X」（N 天前）；…」；未命中零注入
+    （payload 最小化，R-I）。归档话题附状态说明，让模型知道它已结束而非在进行。
+    """
+    if memory_mgr is None or not user_text:
+        return []
+    if parse_iso_dt is None:
+        return []
+    try:
+        hits = memory_mgr.find_topics_by_name(user_text, limit=_TOPIC_MENTION_MAX)
+    except Exception:
+        return []
+    if not hits:
+        return []
+    now = datetime.now()
+    parts: list = []
+    for t in hits:
+        if not isinstance(t, dict):
+            continue
+        subject = str(t.get("subject") or "").strip()
+        if not subject:
+            continue
+        seg = f"主人提过「{subject}」"
+        last = parse_iso_dt(t.get("last_mentioned"))
+        if last is not None:
+            days = max(0, (now - last).days)
+            if days >= 1:
+                seg += f"（{days} 天前）"
+            else:
+                seg += "（今天）"
+        status = t.get("status")
+        if status == "completed":
+            seg += "，已经完成了"
+        elif status in ("forgotten", "auto_archived"):
+            seg += "，后来没再提起"
+        parts.append(seg)
+    if not parts:
+        return []
+    line = "【之前聊过】" + "；".join(parts)
+    return [line[:_TOPIC_MENTION_LINE_MAX]]
 
 
 def build_response_rule_injection(memory_mgr, user_text: str) -> list:
@@ -1164,6 +1224,10 @@ class ChatService(QObject):
         # 入参，发送时把"本轮带图"事实暂存服务层（_current_user_text 同款模式），
         # 流式成功时读用；只存对话事实（user_text/中性描述），绝不存图像数据（R-I）。
         self._pending_vision: Optional[dict] = None
+        # v2.4(D-V24-01): 记忆捕获暂存 —— 同 _pending_vision 模式（_on_stream_finished
+        # 无 payload 入参）。仅单聊普通轮置位；群聊走独立入口、在 _on_stream_finished
+        # 顶部即分流返回，天然不落入挂载点（R-J④⑤ / 共享知识 26 三隔离保真）。
+        self._pending_memory_turn: Optional[dict] = None
         self._stop_requested = False
         self._agent_mode = False
         # v1.6(P0-4/D-V16-07): 失败保留链 —— 上次失败现场 + 连续失败计数
@@ -1281,6 +1345,7 @@ class ChatService(QObject):
                 logger.debug("提醒分支判定失败（按普通聊天处理）", exc_info=True)
         self._stop_requested = False
         self._pending_vision = None  # v1.8(V18-15): 每轮发送先清暂存（防陈旧串档）
+        self._pending_memory_turn = None  # v2.4(D-V24-01): 同上，记忆暂存每轮先清
         self._current_user_text = user_text
         self._current_task_type = task_type
         # v1.8(V18-15/D-V18-08): 单聊带图 → 暂存影像记忆事实（仅 chat 且非
@@ -1290,6 +1355,12 @@ class ChatService(QObject):
                 and not _is_demo_mode(self._app_ctx):
             self._pending_vision = {"user_text": user_text,
                                     "image_note": "用户分享了一张图片"}
+        # v2.4(D-V24-01): 单聊普通轮 -> 暂存本轮 user_text，供回复完成后做记忆
+        # 捕获（偏好/话题/情绪）。条件与影像暂存一致（只走 chat、非 Agent、非
+        # demo）；`默认路径之外一律不暂存` —— Agent/任务/demo 零写入。
+        if task_type == "chat" and not self._agent_mode \
+                and not _is_demo_mode(self._app_ctx):
+            self._pending_memory_turn = {"user_text": user_text}
         # v1.6(P0-2/D-V16-04): 前置意图路由 —— Agent 显式开启 / task_type != "chat"
         #（任务模式、单步操作等显式路径）/ demo 三类路径完全跳过路由（Q-B2，
         # 显式开关绝对优先，与 v1.5.2 行为逐字一致）。
@@ -1314,6 +1385,10 @@ class ChatService(QObject):
                     mmgr = self._v18_memory_mgr()
                     cfg18 = getattr(self._app_ctx, "config", None)
                     for line in build_entity_mention_injection(mmgr, user_text):
+                        request_injections.append(line)
+                    # ①b 话题提及注入（v2.5/D-V25-05）：归档/掉队话题的自然唤起。
+                    # 与实体提及同属「提及类」，紧随其后（序位框架内新增，不改既有顺序）。
+                    for line in build_topic_mention_injection(mmgr, user_text):
                         request_injections.append(line)
                     # ② 回应约定注入（F6/V18-07）：命中触发词当轮注入（规则>偏好）
                     for line in build_response_rule_injection(mmgr, user_text):
@@ -1594,6 +1669,41 @@ class ChatService(QObject):
             )
         except Exception:
             logger.debug("影像记忆存档失败（静默，不阻塞消息链）", exc_info=True)
+
+    def _extract_memory_after_reply(self, pending: Optional[dict], full_text: str,
+                                    usage: dict) -> None:
+        """流式成功钩子：单聊普通轮 -> 从本轮对话捕获偏好/话题/情绪（v2.4/D-V24-01）。
+
+        修复的是链路缺口：`extract_from_dialogue` 此前**只有 CLI 调用**
+        （session.py:595），GUI 链路一次都不调 -> GUI 用户的 user_memory.json
+        永不积累（实测三周零写入），连带 pick_topic_followup 恒为 None（主动
+        续接从不触发）、记忆中心「自动提取」角标永不出现。
+
+        守卫纪律与 _stash_vision_memory 完全一致：群聊在 _on_stream_finished
+        顶部即分流（三隔离，R-J④⑤）；demo / 取消 / 暂存缺失 / 记忆管理器缺失
+        一律跳过；任何异常只 debug 日志，**绝不阻塞消息链**。
+        """
+        if not pending:
+            return
+        if isinstance(usage, dict) and usage.get("cancelled"):
+            return
+        if _is_demo_mode(self._app_ctx):
+            return
+        mmgr = self._v18_memory_mgr()
+        if mmgr is None or not callable(getattr(mmgr, "extract_from_dialogue", None)):
+            return
+        try:
+            mmgr.extract_from_dialogue(str(pending.get("user_text") or ""), full_text)
+        except Exception:
+            logger.debug("记忆提取失败（静默，不阻塞消息链）", exc_info=True)
+        # v2.4(D-V24-04): 过期话题自动归档 —— 此前同样只有 CLI 调用（session.py:600），
+        # GUI 话题池只增不减。纯内存遍历 + 仅在真有归档时落盘，成本可忽略。
+        try:
+            archive = getattr(mmgr, "archive_stale_topics", None)
+            if callable(archive):
+                archive()
+        except Exception:
+            logger.debug("话题自动归档失败（静默，不阻塞消息链）", exc_info=True)
 
     def _apply_scene_boundary(self, scene_now: str) -> None:
         """场景切换幂等边界消息（⚠-5 双动作②；仿 notify_role_switch 范式）。
@@ -2387,6 +2497,9 @@ class ChatService(QObject):
         #（暂存被丢弃不落盘，群聊带图零写入）；单聊在成功分支消费。
         pending_vision = self._pending_vision
         self._pending_vision = None
+        # v2.4(D-V24-01): 记忆暂存同款一次性消费（群聊在下方 return 前已取走并丢弃）
+        pending_memory = self._pending_memory_turn
+        self._pending_memory_turn = None
         # v1.7(F10a/D-V17-06): 群聊路径优先分流 —— 三隔离（不写对齐历史 /
         # 不计亲密度 / 不做记忆提取），不落入下方单聊任何分支
         if self._group_active:
@@ -2435,6 +2548,8 @@ class ChatService(QObject):
             # v1.8(V18-15/D-V18-08): F7 影像记忆存档钩子 —— 带图消息流式成功
             # 且非取消时落一条（demo 已在外层分流；群聊/失败/取消零写入）。
             self._stash_vision_memory(pending_vision, full_text, usage)
+            # v2.4(D-V24-01): F-记忆捕获 —— 单聊普通轮落偏好/话题/情绪 + 过期归档
+            self._extract_memory_after_reply(pending_memory, full_text, usage)
             # v1.2(A9): Agent 任务完成事件 -> companion（agent_revisit 场景 + 未来 first_task 成就共用）
             if usage.get("agent") and not usage.get("cancelled"):
                 companion = getattr(app_ctx, "companion", None)
@@ -2488,6 +2603,7 @@ class ChatService(QObject):
         # v1.6(P0-4): 用户主动停止 ≠ 失败 → 连续失败计数归零
         self._fail_streak = 0
         self._pending_vision = None  # v1.8(V18-15): 取消轮不存影像记忆
+        self._pending_memory_turn = None  # v2.4(D-V24-01): 取消轮不做记忆捕获
         # v1.7(F10a): 群聊请求被取消 → 复位群聊调度态（防卡串行）
         if self._group_active:
             self._group_active = False
@@ -2511,6 +2627,7 @@ class ChatService(QObject):
         """
         logger.warning("API 错误: %s", error)
         self._pending_vision = None  # v1.8(V18-15): 失败轮不存影像记忆
+        self._pending_memory_turn = None  # v2.4(D-V24-01): 失败轮不做记忆捕获
         # v1.7(F10a): 群聊请求失败 → 复位群聊调度态，且不记单聊失败现场
         #（retry_last_failure 走单聊链会写 session.history，群聊禁入，R-J 隔离）
         if self._group_active:

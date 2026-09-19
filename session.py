@@ -388,10 +388,12 @@ class ChatSession:
         # 恢复聊天增强状态
         if "chat_mode" in data:
             self.chat_mode.toggle_chat(force=data["chat_mode"])
-        if "memory" in data:
-            self.memory_mgr.from_dict(data["memory"])
-        if "intimacy" in data:
-            self.intimacy.from_dict(data["intimacy"])
+        # v2.5(D-V25-07): **不再**从会话文件回放 memory / intimacy。
+        # 二者都是全局单例数据（~/.maid_coder/user_memory.json / intimacy.json），
+        # 而会话文件里嵌的那份是"存这个会话当时的快照"。加载旧会话会把快照
+        # 整体替换掉全局数据（from_dict 内部还会 _save() 落盘），等于**用三周前
+        # 的状态覆盖至今的全部记忆**——纯数据回退，不是恢复。
+        # 会话文件仍保留这两个键（存档价值：可人工查证当时状态），只是不再应用。
 
         if not self.history or self.history[0].get("role") != "system":
             self._update_system()

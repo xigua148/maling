@@ -90,7 +90,8 @@ def main() -> None:
     _ensure_config()
 
     # 步骤 3: 加载配置
-    cfg = AppConfig.load(yaml_path=Path("config.yaml"))
+    from core.path_guard import resolve_config_path   # v2.5(D-V25-08): 应用根锚定
+    cfg = AppConfig.load(yaml_path=resolve_config_path())
     logger = _setup_logging(cfg.output_debug)
 
     # 步骤 4: API Key 交互式配置
@@ -105,7 +106,7 @@ def main() -> None:
     if _HAS_DOTENV:
         from dotenv import load_dotenv
         load_dotenv(override=True)
-        cfg = AppConfig.load(yaml_path=Path("config.yaml"))
+        cfg = AppConfig.load(yaml_path=resolve_config_path())
 
     api = APIClient(cfg, logger)
     session = ChatSession(cfg, api, logger)

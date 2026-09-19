@@ -25,6 +25,15 @@ from gui.qt_compat import (
 from gui.utils import theme_color
 from gui.widgets.emotion_arc import EmotionArcWidget  # v1.8(F2/D-V18-03)
 
+# v2.5(D-V25-03): 常量单一事实源 —— 关系预设与「先不提」天数一律从 memory 取，
+# 不再在本页复制一份（原副本与 memory.py 定义重复，改一处忘一处）。
+# 守卫式导入：任一缺失时退化为本文件内的最小兜底，页面仍可用。
+try:
+    from memory import _ENTITY_RELATION_PRESETS, _FOLLOWUP_MUTE_DAYS
+except Exception:
+    _ENTITY_RELATION_PRESETS = ("同事", "朋友", "家人", "恋人", "同学", "其他")
+    _FOLLOWUP_MUTE_DAYS = 14
+
 logger = logging.getLogger("maid_coder.gui")
 
 # --- v2.1(V21-12/D-V21-06): 矢量图标统一 -------------------------------------
@@ -120,7 +129,7 @@ _ENTITY_SOURCE_LABELS = {
 }
 
 # v1.8(D-V18-01): 关系类型预设（开放枚举：预设 + 自定义文本）
-_ENTITY_RELATION_PRESETS = ("同事", "朋友", "家人", "恋人", "同学", "其他")
+# v2.5(D-V25-03): 已上移到模块顶部从 memory.py 导入（消除副本）
 
 # v1.8(F3/D-V18-04): 时间线节点类型 -> 矢量图标名 + 回落 emoji + 说明
 # v2.1(V21-12): 图标名统一走 icons.icon（字体不可用时回落 emoji）
@@ -1245,7 +1254,7 @@ class PageMemoryBook(QWidget):
                 ("📌 固定" if not pinned else "📌 已固定",
                  "固定后不会被自动归档" if not pinned else "取消固定",
                  lambda s=subject, p=pinned: self._on_pin_topic(s, not p)),
-                ("🙈 不要再提", "码铃 14 天内不再主动提起（内容仍在记忆中心）",
+                ("🙈 不要再提", f"码铃 {_FOLLOWUP_MUTE_DAYS} 天内不再主动提起（内容仍在记忆中心）",
                  lambda s=subject: self._on_mute_topic(s)),
                 ("🗑 删除", "移入已归档（不再出现在活跃区）",
                  lambda s=subject: self._on_forget_topic(s)),

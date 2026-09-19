@@ -310,7 +310,9 @@ def build_bundle(
         except Exception:
             log_path = Path("maid_debug.log")
     if config_path is None:
-        config_path = Path("config.yaml")
+        # v2.5(D-V25-08): 锚定应用根（诊断包要能定位真实配置，不随工作目录漂移）
+        from core.path_guard import resolve_config_path
+        config_path = resolve_config_path()
 
     members: Dict[str, str] = {
         "environment.txt": collect_environment(app_ctx),

@@ -1006,7 +1006,9 @@ class AppConfig:
             return False
         # v10.8: 未显式指定路径时，默认回写加载时的 config.yaml，
         # 避免从其他工作目录启动时写错位置
-        default_path = getattr(self, "_yaml_path", None) or Path("config.yaml")
+        # v2.5(D-V25-08): 兜底路径改锚定应用根（原裸相对路径仍随工作目录漂移）
+        from .path_guard import resolve_config_path
+        default_path = getattr(self, "_yaml_path", None) or resolve_config_path()
         path = Path(yaml_path) if yaml_path else default_path
         try:
             data: dict = {}
