@@ -35,18 +35,31 @@ try:
     from gui.utils import get_resource_path  # 应用图标（窗口/任务栏）
 except ModuleNotFoundError as _e:
     _missing = str(_e).replace("No module named '", "").replace("'", "")
-    print(f"\n缺少依赖模块：{_missing}")
+    _lines = [f"缺少依赖模块：{_missing}"]
     if "PySide6" in _missing or "qt_compat" in _missing:
-        print("GUI 模式需要 PySide6，请先安装依赖。\n")
-    else:
-        print("\n")
-    print("这是码铃第一次运行，需要先安装依赖。\n")
-    print("请按以下步骤操作：")
-    print("1. 打开终端，进入项目目录")
-    print("2. 运行：python install.py")
-    print("3. 安装完成后，运行：python run.py\n")
-    print("或者手动安装：")
-    print("   pip install -r requirements_gui.txt\n")
+        _lines.append("GUI 模式需要 PySide6，请先安装依赖。")
+    _lines += [
+        "",
+        "这是码铃第一次运行，需要先安装依赖。",
+        "请按以下步骤操作：",
+        "1. 打开终端，进入项目目录",
+        "2. 运行：python install.py",
+        "3. 安装完成后，运行：python run.py",
+        "",
+        "或者手动安装：",
+        "   pip install -r requirements_gui.txt",
+    ]
+    _msg = "\n".join(_lines)
+    # v2.5(D-V25-09): 改弹窗，替换原先的 print。
+    # 原因：GUI 由 pythonw.exe 启动时**没有控制台**，print 的输出被直接丢弃 ——
+    # 依赖缺失时用户看到的现象是「双击没反应」，完全不知道要装依赖。
+    # 用 tkinter.messagebox（标准库，不引入新依赖；根级 main.py 对同类场景
+    # 已用同一方式）。tkinter 也不可用时退回 print，保证 CLI 场景仍可见。
+    try:
+        import tkinter.messagebox as _msgbox
+        _msgbox.showerror("码铃 —— 缺少依赖", _msg)
+    except Exception:
+        print(_msg)
     sys.exit(1)
 
 logger = logging.getLogger("maid_coder.gui")

@@ -12,6 +12,7 @@
 测试数据隔离：一律 filepath=tmp_path（共享知识 23）。
 """
 import json
+import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -286,9 +287,13 @@ class TestNoReplayOverwrite:
     def test_load_does_not_replay_global_memory(self, tmp_path, monkeypatch):
         """加载旧会话不得用会话内快照覆盖全局记忆（原实现会整体回退）。"""
         import memory as memory_mod
+        import session as session_mod
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(memory_mod, "_memory_path",
                             lambda: str(tmp_path / "auto_mem.json"))
+        # v2.5(D-V25-10): 会话落点已锚定用户数据目录 —— 测试必须重定向，
+        # 否则会写进真实 ~/.maid_coder/sessions/（违反共享知识 23）
+        monkeypatch.setattr(session_mod, "_cli_session_dir", lambda: str(tmp_path))
         from session import ChatSession
         s = ChatSession(self._cfg(tmp_path), MagicMock(), MagicMock())
         # 接管为 tmp 隔离实例，并写入「当前」全局记忆
@@ -307,7 +312,7 @@ class TestNoReplayOverwrite:
             },
             "intimacy": {},
         }
-        (tmp_path / "default.json").write_text(
+        (tmp_path / "cli_default.json").write_text(
             json.dumps(old, ensure_ascii=False), encoding="utf-8")
         assert s.load("default") is True
         # 全局记忆必须仍是「当前话题」，绝不能被旧快照覆盖
@@ -316,21 +321,113 @@ class TestNoReplayOverwrite:
     def test_spy_from_dict_not_called_on_load(self, tmp_path, monkeypatch):
         """更硬的护栏：load() 根本不应调用 from_dict。"""
         import memory as memory_mod
+        import session as session_mod
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(memory_mod, "_memory_path",
                             lambda: str(tmp_path / "auto_mem.json"))
+        monkeypatch.setattr(session_mod, "_cli_session_dir", lambda: str(tmp_path))
         from session import ChatSession
         s = ChatSession(self._cfg(tmp_path), MagicMock(), MagicMock())
         mm = _make_mm(tmp_path)
         s.memory_mgr = mm
         called = []
         monkeypatch.setattr(mm, "from_dict", lambda *a, **k: called.append(1))
-        (tmp_path / "default.json").write_text(
+        (tmp_path / "cli_default.json").write_text(
             json.dumps({"session_id": "default", "history": [],
                         "memory": {"topics": {"active": [], "archived": []}}},
                        ensure_ascii=False), encoding="utf-8")
         s.load("default")
         assert called == [], "load() 不应回放记忆快照"
+
+
+class TestCliSessionPath:
+    """D-V25-10：CLI 会话文件锚定用户数据目录（原为 CWD 相对）。"""
+
+    def _mm(self, tmp_path):
+        return _make_mm(tmp_path, name="sess_mem.json")
+
+    def test_session_dir_is_absolute_under_user_data(self):
+        import session as session_mod
+        d = session_mod._cli_session_dir()
+        assert os.path.isabs(d)
+        assert d.replace("\\", "/").endswith(".maid_coder/sessions")
+
+    def test_session_file_has_cli_prefix(self):
+        """加 cli_ 前缀，避免与 GUI 的 <session_id>.json 撞名（格式不同）。"""
+        import session as session_mod
+        p = session_mod._cli_session_file("default")
+        assert os.path.basename(p) == "cli_default.json"
+
+    def test_save_and_load_survive_cwd_change(self, tmp_path, monkeypatch):
+        """核心保证：换工作目录后仍能读回同一份会话。"""
+        import memory as memory_mod
+        import session as session_mod
+        monkeypatch.setattr(memory_mod, "_memory_path",
+                            lambda: str(tmp_path / "auto_mem.json"))
+
+        def _dir():                      # 与真实实现一致：带 makedirs
+            d = tmp_path / "s"
+            d.mkdir(parents=True, exist_ok=True)
+            return str(d)
+
+        monkeypatch.setattr(session_mod, "_cli_session_dir", _dir)
+        from session import ChatSession
+        cwd_a = tmp_path / "a"
+        cwd_b = tmp_path / "b"
+        cwd_a.mkdir()
+        cwd_b.mkdir()
+        monkeypatch.chdir(cwd_a)
+        s = self._mk_session(tmp_path)
+        s.add_message("user", "在 A 目录说的话")
+        s.save("mysess")
+        monkeypatch.chdir(cwd_b)          # 换目录
+        s2 = self._mk_session(tmp_path)
+        assert s2.load("mysess") is True, "换目录后仍应读回同一份会话"
+        assert any("在 A 目录说的话" in str(m.get("content", "")) for m in s2.history)
+
+    def test_legacy_cwd_file_still_readable(self, tmp_path, monkeypatch):
+        """向后兼容：旧版本写在启动目录下的会话文件仍能读回。"""
+        import memory as memory_mod
+        import session as session_mod
+        monkeypatch.setattr(memory_mod, "_memory_path",
+                            lambda: str(tmp_path / "auto_mem.json"))
+        # 新位置故意指向一个空目录 → 新位置无文件，只能走兼容分支
+        monkeypatch.setattr(session_mod, "_cli_session_dir",
+                            lambda: str(tmp_path / "empty_new"))
+        monkeypatch.chdir(tmp_path)
+        from session import ChatSession
+        (tmp_path / "legacyone.json").write_text(
+            json.dumps({"session_id": "legacyone", "history": [
+                {"role": "user", "content": "旧位置的话"}]}, ensure_ascii=False),
+            encoding="utf-8")
+        s = ChatSession(self._cfg_stub(tmp_path), MagicMock(), MagicMock())
+        assert s.load("legacyone") is True
+        assert any("旧位置的话" in str(m.get("content", "")) for m in s.history)
+
+    def _mk_session(self, tmp_path):
+        """构造会话并把布尔字段归一 —— MagicMock 的 cfg 会把它们变成 MagicMock，
+        导致 save() 序列化时 TypeError（与业务逻辑无关，纯测试替身问题）。"""
+        from session import ChatSession
+        s = ChatSession(self._cfg_stub(tmp_path), MagicMock(), MagicMock())
+        s.deep_mode = s.coding_mode = s.multi_mode = False
+        s.stream_mode = False
+        s.speed = "normal"
+        return s
+
+    def _cfg_stub(self, tmp_path):
+        cfg = MagicMock()
+        cfg.max_history_rounds = 8
+        cfg.summary_interval = 5
+        cfg.auto_save = False
+        cfg.persona_address_user = "主人"
+        cfg.persona_address_self = "我"
+        cfg.snippets_file = str(tmp_path / "s.json")
+        cfg.todos_file = str(tmp_path / "t.json")
+        cfg.code_exec_timeout = 5
+        cfg.web_search_max_results = 3
+        cfg.kb_index_file = str(tmp_path / "k.json")
+        cfg.plugins_dir = str(tmp_path / "p")
+        return cfg
 
 
 # ---------------------------------------------------------------------------

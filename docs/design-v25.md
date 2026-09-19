@@ -1,7 +1,7 @@
 # 码铃（MaLing）v2.5 增量架构设计 ——「记忆链路的正确性收口 + 三处能力补齐 + 配置路径根治」
 
 - 版本：v2.5（承接 `docs/prd-v25.md`）
-- 文档状态：**已实现并全量回归**（2451 passed / 1 failed 系既有环境问题，见 §5.3）
+- 文档状态：**已实现并全量回归**（2455 passed / 1 failed 系既有环境问题，见 §5.3）
 - 维护人：架构（高见远）
 - 基线：`v2.3.1`（`version.json`，本版仍未定版号）
 - 关联：`docs/design-v24.md`（上一版，记忆捕获链路修复）、`docs/design-v22.md`（酒馆，本版起标记弃用）
@@ -161,6 +161,27 @@ def resolve_config_path() -> Path:
 
 接线 10 处（F10 全部）；并加**源码扫描回归护栏** `test_no_bare_relative_config_path_left`——新增调用点若忘了用 `resolve_config_path`，该测试会红。
 
+### D-V25-09 依赖缺失提示改弹窗（收尾阶段补做）
+
+**问题（比 backlog 描述的更严重）**：`gui/main.py` 的 `ModuleNotFoundError` 分支用 10 行 `print` 提示「请先安装依赖」，但 **GUI 由 `pythonw.exe` 启动时没有控制台，print 的输出被直接丢弃** —— 用户看到的现象是「双击没反应」，完全不知道要装依赖。
+
+**为何 backlog 的建议（"改用 logger"）是错的**：改用 logger 同样到不了用户眼前（用户不会去翻日志文件）。这不是日志规范问题，是**提示通道**问题。
+
+**决策**：改用 `tkinter.messagebox.showerror`（标准库，符合 R-F 零新增依赖）。根级 `main.py` 对同类场景（GUI 入口文件缺失）**已经在用这个方式**，本决策是把同一范式补到 GUI 侧。tkinter 也不可用时退回 `print`，保证 CLI 场景仍可见。
+
+### D-V25-10 CLI 会话文件锚定用户数据目录（收尾阶段补做）
+
+**问题**：`session.py::save/load` 用裸相对文件名 `f"{name}.json"`，落点取决于**启动时的工作目录** —— 换个目录跑 CLI，之前存的会话就「全部消失」（实际是写到了别处）。与 D-V25-08 同属一类。
+
+**为何不是死代码**：`main.py:125/299` 与 `commands/session_cmds.py` 共 8 处调用，是活的 CLI 会话功能。
+
+**决策**：
+- 落 `~/.maid_coder/sessions/`（会话是**用户数据**，与 GUI 侧 `session_manager` 同目录）
+- 文件名加 **`cli_` 前缀**，避免与 GUI 的 `<session_id>.json` 撞名 —— 两者序列化格式不同（CLI 在 `save()` 里自己拼 dict，GUI 用 `to_dict()`），撞名会互相破坏
+- **向后兼容**：新位置无文件而当前目录有同名旧文件时，仍读旧位置（不改动、不删除旧文件；下一次 `save()` 自然落到新位置）
+
+**测试连带影响**：v2.5 原有的两个"会话回放"测试用 `monkeypatch.chdir(tmp_path)` + 写 `default.json`，新逻辑会指向真实 `~/.maid_coder/sessions/` —— 已同步补 `_cli_session_dir` 打桩（共享知识 23），并新增 4 例覆盖路径锚定、前缀、换目录读回、旧位置兼容。
+
 ---
 
 ## 3. 文件清单
@@ -179,11 +200,12 @@ def resolve_config_path() -> Path:
 |---|---|
 | `memory.py` | +`threading` 导入；+`_TOPIC_COMPLETION_PATTERNS` / `_PATTERNS_FILE` 常量；+`_lock` / `_patterns_cache` / `_patterns_stamp`；+`_patterns_path` / `_effective_patterns` / `find_topics_by_name`；`_load`/`_save` 加锁；`extract_from_dialogue` 与 `detect_emotion` 走 `_effective_patterns`；+完成检测段；删 `update_topic_status`；`_VISION_NOTE_*` 接线；`query_vision_memories` 去死分支 |
 | `utils.py` | +`threading` 导入；`_atomic_write_json` 唯一临时名 + 重试 + 失败清理；`_ensure_config` / `_first_run_banner` / `path_guard` 转发改用 `resolve_config_path`；崩溃恢复不再回放 memory/intimacy |
-| `session.py` | `load()` 不再回放 memory/intimacy |
+| `session.py` | `load()` 不再回放 memory/intimacy；+`_cli_session_dir` / `_cli_session_file`，`save`/`load` 改绝对路径（含旧位置兼容读） |
 | `core/path_guard.py` | +`resolve_app_root` / `resolve_config_path`（+`sys` 导入） |
 | `core/__init__.py` | `save()` 兜底路径改 `resolve_config_path` |
 | `gui/chat_service.py` | +`parse_iso_dt` 守卫导入；+`_TOPIC_MENTION_MAX` / `_TOPIC_MENTION_LINE_MAX`；+`build_topic_mention_injection`；注入链新增「①b」一行 |
-| `gui/main.py` / `gui/diagnostics.py` / `gui/pages/onboarding.py` / `main.py` / `helpers.py` | 配置路径改 `resolve_config_path` |
+| `gui/main.py` / `gui/diagnostics.py` / `gui/pages/onboarding.py` / `main.py` / `helpers.py` | 配置路径改 `resolve_config_path`；`gui/main.py` 依赖缺失提示改 tkinter 弹窗（D-V25-09） |
+| `docs/OPTIMIZATION_BACKLOG_v2.1.md` | 顶部新增状态复核表（该清单是 9-13 快照，多条已过时） |
 | `gui/pages/page_memory_book.py` | 关系预设与静默天数改为从 `memory` 导入；tooltip 绑定常量 |
 | `CHANGELOG.md` | v2.5.0 条目（含酒馆弃用记要） |
 
@@ -222,7 +244,7 @@ def resolve_config_path() -> Path:
 
 ## 5. 测试与验收
 
-### 5.1 新增测试（50 例）
+### 5.1 新增测试（54 例）
 
 | 文件 | 覆盖 |
 |---|---|
@@ -238,16 +260,18 @@ def resolve_config_path() -> Path:
 ### 5.3 全量回归结果
 
 ```
-1 failed, 2451 passed, 9 skipped in 242.72s
+1 failed, 2455 passed, 9 skipped in 240.03s
 ```
 
 唯一失败 `test_v20_updater.py::test_enumerate_finds_own_process` 为**既有环境问题**（Windows venv 的 `python.exe` 重定向器使进程真实 image 路径不在被枚举盘符下），与本版无依赖关系——v2.4 已用三条证据确认（依赖模块零改动 / 单独跑即失败 / 测试自身 docstring 已说明），本版结论相同。
 
 ### 5.4 遗留（已记录，未修）
 
-1. **`session.save/load` 用相对文件名**：会话落盘位置随工作目录漂移，与 D-V25-08 属同一类问题，但修复需迁移既有会话文件，风险高于收益。
-2. **跨进程写仍无锁**：D-V25-01 只保证进程内。CLI 与 GUI 同时运行时的冲突由「唯一临时名 + replace 重试 + `.bak.1` 快照」三层兜底，但**末次写者胜出**语义不变。
-3. **话题提及匹配偏保守**：用户换用同义词/简称时唤不醒（如「装修计划」↔「装修」）。若后续实测发现召回不足，再评估引入更宽的匹配——但那需要同时设计防误注入机制。
+1. **跨进程写仍无锁**：D-V25-01 只保证进程内。CLI 与 GUI 同时运行时的冲突由「唯一临时名 + replace 重试 + `.bak.1` 快照」三层兜底，但**末次写者胜出**语义不变。
+2. **话题提及匹配偏保守**：用户换用同义词/简称时唤不醒（如「装修计划」↔「装修」）。若后续实测发现召回不足，再评估引入更宽的匹配——但那需要同时设计防误注入机制。
+3. **`chat_panel.py` 拆分与宽泛 except 收敛**：`gui` + `core` 实测 **1246 处**宽泛 except，其中**只 `pass` 的静默吞异常 124 处**。改动面大，需独立立项与分批回归（见 `docs/OPTIMIZATION_BACKLOG_v2.1.md` 顶部状态复核表）。
+4. **测试 flaky EXIT=139**：backlog P2-9。v2.4/v2.5 多次全量回归均未复现，暂按偶发处理。
+5. **旧位置会话文件不自动搬迁**：D-V25-10 只做「读得到」，不移动旧文件（避免替用户删东西）。用户若在意可手工清理。
 
 ---
 

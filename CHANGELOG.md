@@ -14,6 +14,9 @@
 - **配置读写位置会随启动工作目录漂移**：`config.yaml` 此前一律用裸相对路径解析（共 10 个调用点，分布在 `gui/main.py`、`gui/diagnostics.py`、`gui/pages/onboarding.py`、`core/__init__.py`、`main.py`、`utils.py`、`helpers.py`）。从不同工作目录启动会读写不同位置的配置——这正是历史上「从运行对话框启动 → 工作目录变成 System32 → 配置写不进」事故的根因。现改为**锚定应用根**：打包形态取可执行文件所在目录，源码形态取项目根。对既有安装**零迁移**（现有 `config.yaml` 本就在 exe 旁）。并加**源码扫描回归护栏**，新增调用点若忘了用统一解析会直接报错。
 - **并发写可能写出交错内容**：`_atomic_write_json` 的临时文件名固定为 `path + ".tmp"`，两个写者（CLI 与 GUI 各持一个 MemoryManager 指向同一份 `user_memory.json`）会撞同一个临时文件，交错写入后 `os.replace` 会把**混合内容**落成正式档。现改为临时名带 pid + 线程 id，并对 Windows 并发 replace 的共享冲突（`WinError 5`）加有界重试；失败时清理自己的临时文件。
 - **`query_vision_memories` 的 `limit=None` 分支写错**：末尾 `items[:limit] if ... else items[:limit]` 两个分支等价，`else` 分支本意是「无 limit 时返回全部候选」却写成了同样的切片（`limit=None` 时 `items[:None]` 虽等同于全部，但语义混乱且无法表达意图）。现已修正并补测试。
+- **依赖缺失时用户看不到任何提示**：`gui/main.py` 的「缺少依赖模块」分支用 10 行 `print` 输出安装指引，但 **GUI 由 `pythonw.exe` 启动时没有控制台，print 的输出被直接丢弃** —— 用户看到的现象是「双击没反应」，完全不知道要装依赖。现改为 `tkinter.messagebox` 弹窗（标准库，零新增依赖；根级 `main.py` 对同类场景早已用这个方式），tkinter 不可用时退回 `print`。
+- **CLI 会话文件会随工作目录「消失」**：`session.py` 的 `save()` / `load()` 用裸相对文件名（`f"{name}.json"`），落点取决于启动时的工作目录 —— 换个目录跑 CLI，之前存的会话就读不到了（实际写到了别处）。现锚定 `~/.maid_coder/sessions/`（会话是用户数据，与 GUI 侧同目录），文件名加 `cli_` 前缀避免与 GUI 的 `<session_id>.json` 撞名（两者序列化格式不同）。
+  - **向后兼容**：新位置无文件而当前目录存在同名旧文件时仍读旧位置（不改动、不删除旧文件），下一次保存自然落到新位置。
 
 ### Added
 
@@ -38,9 +41,10 @@
 - **常量与实现收口**：`_VISION_NOTE_DEFAULT` / `_VISION_NOTE_UNSEEN` 此前定义了却从未被引用（实际代码走硬编码字符串），现接线为单一事实源；记忆中心的「14 天内不再主动提起」文案此前硬编码，现绑定为常量；关系类型预设此前在 `memory.py` 与页面各存一份，现改为单一来源。
 - **裸 `print` 未做机械替换**：清点后集中在「依赖缺失引导」路径（`gui/main.py` / `utils.py`），那时日志系统尚未初始化，`print` 是唯一能到达用户的通道——保留是正确决策。
 - **`docs/audit-功能真实性清单-2026-09-07.md` 的 C1/C2 结论已过时**：该审计称知识库与待办「后端真实但 GUI 零引用」，但现版本 GUI 已注册命令与提醒调度器。**按该审计办事会做无用功**，特此记录。
-- 回归：**2451 passed / 1 failed / 9 skipped**。唯一失败 `test_v20_updater.py::test_enumerate_finds_own_process` 为既有环境问题（Windows venv 的 `python.exe` 重定向器），依赖模块本版零改动，单独跑即失败。
+- 回归：**2455 passed / 1 failed / 9 skipped**。唯一失败 `test_v20_updater.py::test_enumerate_finds_own_process` 为既有环境问题（Windows venv 的 `python.exe` 重定向器），依赖模块本版零改动，单独跑即失败。
 - 设计文档：`docs/prd-v25.md` + `docs/design-v25.md`。
-- **遗留未修（已记录）**：`session.save/load` 仍用相对文件名（会话落盘位置随工作目录漂移，修复需迁移既有会话文件，风险高于收益）；话题提及匹配偏保守，换同义词时唤不醒。
+- **`docs/OPTIMIZATION_BACKLOG_v2.1.md` 已补状态复核表**：该清单是 9-13 的快照，其中设置页投影、死信号/双源主题、hint 对比度、启动链路、裸 print 等**多条在后续版本已修复或被新代码推翻**，按原始描述办事会做无用功。复核表在文件顶部。
+- **遗留未修（已记录）**：话题提及匹配偏保守，换同义词时唤不醒；`chat_panel.py` 拆分与宽泛 except 收敛（1246 处，含 124 处静默 `pass`）体量较大，需独立立项。
 
 ---
 

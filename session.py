@@ -45,6 +45,27 @@ def _load_expression_guide() -> Optional[str]:
     return _EXPRESSION_GUIDE_CACHE or None
 
 
+# ---------------------------------------------------------------------------
+# v2.5(D-V25-10): CLI 会话文件落点 —— 锚定用户数据目录
+# ---------------------------------------------------------------------------
+# 原实现用裸相对文件名 ``f"{name}.json"``，落点取决于**启动时的工作目录**：
+# 换个目录跑 CLI，之前存的会话就「全部消失」（实际是写到了别处）。
+# 与 D-V25-08（config.yaml 锚定应用根）属同一类问题，一并收口。
+# 会话是**用户数据**，故落 ``~/.maid_coder/sessions/``（与 GUI 侧
+# ``gui/session_manager.py`` 同一目录）；文件名加 ``cli_`` 前缀，避免与 GUI 的
+# ``<session_id>.json`` 撞名 —— 两者序列化格式不同，撞名会互相破坏。
+
+
+def _cli_session_dir() -> str:
+    d = os.path.join(os.path.expanduser("~/.maid_coder"), "sessions")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _cli_session_file(name: str) -> str:
+    return os.path.join(_cli_session_dir(), f"cli_{sanitize_session_name(name)}.json")
+
+
 class ChatSession:
     def __init__(self, cfg: AppConfig, api: APIClient, logger: logging.Logger):
         self.cfg = cfg
@@ -344,7 +365,8 @@ class ChatSession:
     # -- 会话持久化 --
     def save(self, name: Optional[str] = None) -> str:
         safe_name = sanitize_session_name(name or self.session_id)
-        filename = f"{safe_name}.json"
+        # v2.5(D-V25-10): 绝对路径（原为 CWD 相对，换目录即「会话丢失」）
+        filename = _cli_session_file(safe_name)
         data = {
             "session_id": self.session_id,
             "deep_mode": self.deep_mode,
@@ -371,9 +393,16 @@ class ChatSession:
 
     def load(self, name: Optional[str] = None) -> bool:
         safe_name = sanitize_session_name(name or self.session_id)
-        filename = f"{safe_name}.json"
+        # v2.5(D-V25-10): 绝对路径优先；向后兼容 —— 旧版本把会话写在启动目录下，
+        # 若新位置没有而当前目录存在同名文件，则读旧位置（不改动、不删除旧文件，
+        # 下一次 save() 自然落到新位置）。
+        filename = _cli_session_file(safe_name)
         if not os.path.exists(filename):
-            return False
+            _legacy = f"{safe_name}.json"
+            if os.path.exists(_legacy):
+                filename = _legacy
+            else:
+                return False
         with open(filename, "r", encoding="utf-8") as f:
             data = json.load(f)
         self.deep_mode = data.get("deep_mode", False)
