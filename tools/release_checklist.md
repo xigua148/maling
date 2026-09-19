@@ -41,6 +41,20 @@
 - [ ] **门禁**：`dist/maling/_internal/updater/maling_updater.exe` 存在（内嵌 sidecar）。
 
 ### 4b. 复制 Pi 运行时**与内置酒馆**到 onedir（⚠ **硬步骤**：漏做=包少 61MB+ 且内置酒馆不可用）
+- [ ] **先跑收集阶段**（**v2.5 补记**：本步原清单遗漏，照原清单只跑 `--dist` 会直接报错）
+      `python copy_pi_runtime.py`
+      ⚠ `copy_pi_runtime.py` 是**两阶段**设计：
+      ① 无参 = `collect()`，从**全局 npm**（`npm root -g` 下的 `@earendil-works/pi-coding-agent@0.85.1`
+         + `npm prefix -g` 下的 `node.exe`）收集到仓库内暂存区 `_internal/pi_runtime/`；
+      ② `--dist` = `post_pack()`，把暂存区复制进 `dist/<app>/_internal/`。
+      暂存区不存在时 `post_pack` 会 `raise RuntimeError("尚未收集运行时")` —— **fail-fast，不会静默产出残缺包**。
+      **本机踩到的坑**：本机 node 装在 `C:\Program Files\nodejs\`、而脚本按 `npm prefix -g`
+      （`%APPDATA%\npm`）找 `node.exe`，故 `collect()` 报「未找到 node.exe」。
+      **替代做法（已验证可用）**：从**上一版已发布包**里取同版本产物作暂存源（版本必须与
+      `PI_REQUIRED_VERSION` 一致，读 `node_modules/@earendil-works/pi-coding-agent/package.json` 核对），
+      用 robocopy 拷进 `_internal/pi_runtime/` 后再跑 `--dist`。
+      ⚠️ **Git Bash 下 robocopy 的参数会被 MSYS 路径转换吃掉**（`/E` 被当成 `E:\`，robocopy 打印用法后退出码 2）
+      —— 必须加 `export MSYS2_ARG_CONV_EXCL='*'`。
 - [ ] `python copy_pi_runtime.py --dist dist/maling`
       ⚠ Pi 运行时是**「打包后复制」**机制：两个主 spec **都不含** `pi_runtime` datas，
       必须构建完 onedir 后再跑本步，才会把 `pi_runtime`（node.exe + Pi 依赖树）
@@ -49,15 +63,17 @@
       `pi_gateway/maling_gate.js` 兜底复制进 `_internal/pi_gateway/`。）
 - [ ] `python copy_st.py --dist dist/maling`（**v2.3.1 新增**：内置酒馆源码树）
       ⚠ ST 树同样是**「打包后复制」**机制（v2.3.1 起）：两个主 spec 都**不含**
-      `vendor/sillytavern` datas。原因：ST 树有 **19,744** 个文件（占 onedir 总文件数的
-      **54%**），而 PyInstaller 对它不做任何处理（纯逐文件搬运）—— 移出 COLLECT 后
+      `vendor/sillytavern` datas。原因：ST 树文件数占 onedir 总文件数的**五成以上**，
+      而 PyInstaller 对它不做任何处理（纯逐文件搬运）—— 移出 COLLECT 后
       热构建 <1 分钟、冷构建那 48 分钟的大头（首次落盘+杀软扫描）随之削掉；
       robocopy 还顺带解决了长路径与中断续传。
       ⚠️ 该脚本**整树原样搬运、不做任何裁剪**（不得按 `*.md` 通配排除，会删掉第三方
       LICENSE 文件、违反 AGPL-3.0 §4，并击穿 R-H 豁免的前提）。
 - [ ] **门禁（压缩前必过）**：确认 `dist/maling/_internal/pi_runtime/` 存在且文件数为**万级**
       （实测源与 v1.9.0 分发目录均为 **13,567** 个文件；`find dist/maling/_internal/pi_runtime -type f | wc -l`）。
-      **同时**确认 `dist/maling/_internal/sillytavern/` 存在且文件数为**万级**（实测 **19,744**），
+      **同时**确认 `dist/maling/_internal/sillytavern/` 存在且文件数为**万级**
+      （**v2.5 实测 25,367**；本清单早期版本写的 19,744 是更早的快照，以 `copy_st.py`
+      自己的「完整性自检」输出为准 —— 它会打印实际搬运的文件数与体积），
       且 `server.js` 与 `LICENSE` 都在（前者运行时必需、后者合规必需）。
       **不达标不得进入第 6 步压缩**（`tools/build_release.py` 已内置同款 fail-fast 守卫，会直接拦下）。
 
