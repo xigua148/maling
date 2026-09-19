@@ -897,12 +897,28 @@ _nt_only = pytest.mark.skipif(os.name != "nt", reason="Windows 专有 API")
 def test_enumerate_finds_own_process():
     """Toolhelp32 结构尺寸正确 → 能枚举出本进程（证明 64 位 ULONG_PTR 对齐正确）。
 
-    注：venv 的 sys.executable 与真实 image path 不同（Scripts/python.exe 是重定向器），
-    故按盘符根枚举（只读，不杀任何进程）。
+    注（v2.5 修正）：venv 的 ``sys.executable`` 是**重定向器 stub**，真实运行的 image
+    是基础解释器（``sys._base_executable``）—— 两者**盘符可能不同**（本机实测：stub 在
+    ``D:\\maling_dev\\.venv\\Scripts``、基础解释器在 ``C:\\...\\Python312``）。
+    原实现只按 ``sys.executable`` 的盘符枚举，所以在 venv 下**永远找不到自己**，
+    该用例长期处于「必挂」状态、掩盖真实回归。
+    现改为两个盘符都枚举（只读，不杀任何进程）；断言强度不变。
     """
-    root = os.path.splitdrive(os.path.abspath(sys.executable))[0] + os.sep
-    procs = mu.enumerate_processes_under(root)
-    assert any(pid == os.getpid() for pid, _image in procs)
+    candidates = {os.path.abspath(sys.executable)}
+    _base = getattr(sys, "_base_executable", None)
+    if _base:
+        candidates.add(os.path.abspath(_base))
+    procs = []
+    seen_roots = set()
+    for p in candidates:
+        root = os.path.splitdrive(p)[0] + os.sep
+        if root in seen_roots:
+            continue
+        seen_roots.add(root)
+        procs += mu.enumerate_processes_under(root)
+    assert any(pid == os.getpid() for pid, _image in procs), (
+        f"未能在 {sorted(seen_roots)} 中枚举到自身 pid={os.getpid()}"
+    )
 
 
 @_nt_only
