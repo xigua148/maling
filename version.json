@@ -1,31 +1,32 @@
 {
-  "version": "2.3.1",
-  "_comment": "2.3.1 正式发布构建；assets.*.sha256/size 已由 tools/build_release.py 回填并三方校验。",
-  "released_at": "2026-09-17",
+  "version": "2.5.0",
+  "_comment": "2.5.0 正式发布构建；assets.*.sha256/size 由 tools/build_release.py 回填。",
+  "released_at": "2026-09-19",
   "min_compatible": "1.0.0",
   "min_updatable": "2.0.0",
-  "release_url": "https://github.com/xigua148/maling/releases/tag/v2.3.1",
+  "release_url": "https://github.com/xigua148/maling/releases/tag/v2.5.0",
   "downloads": {
-    "github": "https://github.com/xigua148/maling/releases/download/v2.3.1/MaLing_v2.3.1_Desktop.zip",
+    "github": "https://github.com/xigua148/maling/releases/download/v2.5.0/MaLing_v2.5.0_Desktop.zip",
     "mirror": ""
   },
   "assets": {
     "onedir": {
-      "url": "https://github.com/xigua148/maling/releases/download/v2.3.1/MaLing_v2.3.1_Desktop.zip",
+      "url": "https://github.com/xigua148/maling/releases/download/v2.5.0/MaLing_v2.5.0_Desktop.zip",
       "mirror": "",
-      "sha256": "c190624c79bf73c3be2db684cba8164a7f53b16236ead036fa2f5b4cb6b1a3bc",
-      "size": 598603964,
-      "filename": "MaLing_v2.3.1_Desktop.zip"
+      "sha256": "a402ec2e4c31a50b5a843f046bb6580017d71e9533499629309c8917cc30f292",
+      "size": 621143370,
+      "filename": "MaLing_v2.5.0_Desktop.zip"
     },
     "single": {
-      "url": "https://github.com/xigua148/maling/releases/download/v2.3.1/MaLing_v2.3.1_Portable.exe",
+      "url": "https://github.com/xigua148/maling/releases/download/v2.5.0/MaLing_v2.5.0_Portable.exe",
       "mirror": "",
-      "sha256": "fc92f674a136da0750960e7413743791a2352b9dc5265ab17449bde097ecb56f",
-      "size": 400580995,
-      "filename": "MaLing_v2.3.1_Portable.exe"
+      "sha256": "a38d349e0d44d322679e7b8dcaf43bfb41ec95e59c6d5a1d186a41a5ab2dbd92",
+      "size": 403658637,
+      "filename": "MaLing_v2.5.0_Portable.exe"
     }
   },
   "notes": [
+    "v2.5.0 记忆系统收口 + 三处能力补齐 + 配置路径根治：【修复】① GUI 记忆捕获链路此前只有 CLI 调用，导致记忆文件自首启后长期零写入、主动续接从不触发、记忆中心「自动提取」角标在 GUI 下永不出现——现已接通（自 v2.4 起）；② 加载旧会话会用会话内快照覆盖全局记忆与亲密度（数据回退，非恢复）——已取消回放；③ config.yaml 有 10 处裸相对路径解析，读写位置随启动工作目录漂移（历史上出过「工作目录变 System32 → 配置写不进」事故）——现锚定应用根，对既有安装零迁移；④ 依赖缺失时 GUI 用 pythonw 启动没有控制台，安装指引 print 进虚空、表现为「双击没反应」——改弹窗；⑤ CLI 会话文件随工作目录「消失」——现锚定用户数据目录并兼容读取旧位置；⑥ 原子写临时文件名唯一化 + Windows 并发替换冲突有界重试；⑦ 影像记忆时间戳撞车导致取回首条错位。【新增】① 话题提及注入通道：归档/掉队话题可被自然唤起（此前话题只有静态 top-3 注入位）；② 话题完成自动检测：命中完成句式且**同时点名话题**才归档，只说「搞定了」绝不猜测；③ 提取词表外挂热补（memory_patterns.json，改词表不必改代码）。【改善】MemoryManager 进程内加锁；续接排序由计数字典序改为多因子评分（有用信号 + 真半衰期时间衰减 + 来源可信度）。【合规与边界】本次同时更正两处对外措辞：内置 SillyTavern 统一表述为「开源项目 SillyTavern（独立进程、源码未改动）」，与 docs/THIRD_PARTY.md 的许可豁免口径一致。另：内置酒馆自本版起标记弃用、只修不增。【测试】2456 passed / 0 failed / 9 skipped（并修掉一个自 venv 建立以来长期必挂的用例）。本版未做代码签名，Windows 可能提示未知发布者。",
     "v2.3.1 便携版瘦身：Portable.exe 不再内嵌 SillyTavern 源码树。便携版不内置 Pi 运行时，而内置酒馆的启动依赖其中的 node.exe —— 所以这 292MB 在该版本里完全用不上，只会白白撑大体积（用户还会以为「有入口却点不开」）。排除后便携版体积由约 500MB 回落到约 200MB，行为不变（点开该入口仍给出可读提示，不会崩溃）；桌面版不受影响，内置酒馆照常可用。另：本版只动打包配置，无代码逻辑变更。",
     "v2.3.0 内置 SillyTavern：侧栏新增「Silly Tavern」入口，把官方 SillyTavern（1.19.0）作为独立的本地 Node 服务内嵌进码铃，点开即用，无需自行安装或配置。① 原样捆绑：上游源码逐字节未改动，作为独立进程仅在本机回环（127.0.0.1）提供服务，不与码铃代码同进程、不链接其代码；② 数据隔离：酒馆的数据与配置全部落在 %APPDATA%\\maling\\sillytavern\\，程序目录（含安装目录）零写入，升级不丢档；③ 中文路径兼容：修复 Node 在含中文或非 ASCII 路径下「递归复制崩溃」或更隐蔽的「静默不复制」问题（上游 nodejs/node#54476），中文用户首启不再失败；④ 启动预热（默认开，设置页「内置酒馆」可关）：应用启动约 1 分钟后在后台预启，点开时通常已就绪 —— 冷启动需 15~50 秒，其中编译前端是每次启动的固定成本；⑤ 三段式进度：启动过程显示「准备运行时 → 初始化内容与前端 → 启动服务」，不再对着加载态干等；⑥ 大屏模式：就绪后可一键用系统浏览器打开；⑦ 诊断包导出（设置页「诊断」）：一键收集应用日志、酒馆服务端输出、环境与进程信息、脱敏后的配置，反馈问题时不必再手工凑材料；⑧ 孤儿进程根治：酒馆的 Node 进程随码铃退出（含崩溃、被强制结束、系统关机）由系统一并回收，不再残留；⑨ 合规：SillyTavern 采用 AGPL-3.0，随包附完整许可全文，登记见 NOTICE 与 docs/THIRD_PARTY.md；⑩ 便携版说明：单文件版 Portable.exe 不内置 Pi 运行时，因此**不含内置 Silly Tavern**，需要该功能请下载桌面版 zip；⑪ 本版无破坏性变更，旧版数据与配置全部沿用；未做代码签名，Windows 可能提示未知发布者。",
     "v2.2.2 女仆立绘修复（仅一项资产变更）：① `gui/assets/maid/normal.png` 的围裙下摆缺失 —— 原图在早期「透明化」处理时被按颜色阈值全局删白连带删掉，表现为深色主题下裙摆处透出底色、呈一块被啃掉的缺口（浅色主题下白对白看不出）；② 已换用完整版（1024×1024、含 alpha）：底边衣物占比由 23.05% 恢复到 58.59%，内部空洞由大块缺口降为仅边缘细游丝；③ 同步复核其余 35 张女仆表情，未发现同类缺口，本次只改这一张；④ 本版无代码逻辑变更。",
@@ -65,5 +66,5 @@
     "v1.2.3：聊天面板移除逐条 token 显示（数值焦虑），累计用量仅保留在首页 Token 卡"
   ],
   "channel": "stable",
-  "downloads_note": "公开发布于 GitHub Releases（https://github.com/xigua148/maling/releases/tag/v2.3.1）。assets.*.sha256/size 由 tools/build_release.py 回填为 dist 实测值。"
+  "downloads_note": "公开发布于 GitHub Releases（https://github.com/xigua148/maling/releases/tag/v2.5.0）。assets.*.sha256/size 由 tools/build_release.py 回填为 dist 实测值。"
 }
